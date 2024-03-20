@@ -63,19 +63,15 @@ typedef struct proxy_server_s
     bool is_output_running;
     bool stop_output_running;
 
-    bool isEnabled;
-    bool isStarting;
-    bool isRunning;
-    bool stopRunning;
-
 } proxy_server_t;
 
 typedef struct proxy_server_thread_data_s
 {
-    SOCKET local;
+    SOCKET input_local;
+    SOCKET output_local;
 
-    uint8_t receive_epdu[8192];
-    uint8_t receive_apdu[8192];
+    uint8_t input_buf[8192];
+    uint8_t output_buf[8192];
     uint8_t sendBuff[8192];
 
     proxy_server_t data;

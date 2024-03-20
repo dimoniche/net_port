@@ -14,7 +14,7 @@
 #include "signal_handler.h"
 #include "settings.h"
 #include "time_utils.h"
-#include "proxy_server.h"
+#include "proxy_client.h"
 #include "hal_time.h"
 #include "time_counter.h"
 
