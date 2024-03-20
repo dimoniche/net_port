@@ -19,7 +19,7 @@ static bool isInited = false;
 static time_t start_time_t = 0;
 static int module_id = -1;
 
-PGconn* dbGetConnection(void)
+PGconn* get_db_connection(void)
 {
     if (conn == NULL)
     {
@@ -30,7 +30,7 @@ PGconn* dbGetConnection(void)
     return conn;
 }
 
-int16_t dbInit(char* ip_addr, char* port)
+int16_t db_init(char* ip_addr, char* port)
 {
     if (conn != NULL)
         return 0;
@@ -51,7 +51,7 @@ int16_t dbInit(char* ip_addr, char* port)
     logMsg(LOG_DEBUG, "port: %s", port);
 
     char str[2048];
-    snprintf(str, 128, "host=%s port=%s dbname=postgres user=postgres password=ghbdtnjvktn", ip_addr, port);
+    snprintf(str, 128, "host=%s port=%s dbname=net_port user=postgres password=ghbdtnjvktn", ip_addr, port);
     conn = PQconnectdb(str);
 
     //Check to see that the backend connection was successfully made

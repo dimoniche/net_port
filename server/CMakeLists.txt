@@ -47,6 +47,7 @@ include_directories(
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
+        ${CMAKE_CURRENT_LIST_DIR}/db/inc
         ${PROJECT_BINARY_DIR}
 )
 
@@ -55,6 +56,7 @@ add_executable(${EXEC_NAME}
         proxy/server/proxy_server.c
         resources/signal_handler.c
         resources/time_counter.c
+        db/db_func.c
 )
 
 target_link_libraries(${EXEC_NAME}

@@ -44,7 +44,7 @@ typedef struct proxy_server_s
     uint16_t id;
     uint16_t port;
 
-    Thread listeningThread;
+    Thread listeningInputThread;
 
     SOCKET input;
     SOCKET output;
@@ -78,14 +78,14 @@ typedef struct proxy_server_thread_data_s
  *
  * \return -1 ошибка
  */
-int SwitcherServersInit();
+int servers_init();
 
 /**
  * \brief Запуск прослушивателей портов
  *
  * \return -1 ошибка
  */
-int SwitcherServersStart();
+int switcher_servers_start();
 
 /**
  * \brief Остановка прослушивателей портов
@@ -93,7 +93,7 @@ int SwitcherServersStart();
  * \return -1 ошибка
  */
 int
-SwitcherServersStop();
+switcher_servers_stop();
 
 /**
  * \brief Количество криптоканалов

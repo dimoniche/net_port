@@ -19,11 +19,11 @@ void sigHandler(int sigNum)
 {
     if (sigNum == SIGINT) {
         logMsg(LOG_ERR, "stopped...");
-        exit_nicely(dbGetConnection());
+        exit_nicely(get_db_connection());
     }
     else if (sigNum == SIGTERM) {
         logMsg(LOG_ERR, "SIGTERM stopped...");
-        exit_nicely(dbGetConnection());
+        exit_nicely(get_db_connection());
     }
 #if defined _WIN32 || defined __CYGWIN__
 #else

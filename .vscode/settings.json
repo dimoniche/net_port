@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "db_proc.h": "c",
+        "compare": "c"
+    }
+}

@@ -47,7 +47,7 @@ int dbRefTableImport(char* name)
     char str[128];
     snprintf(str, sizeof(str), "SELECT * FROM %s", name);//, i);
     logMsg(LOG_DEBUG, "str: %s", str);
-    PGconn* conn = dbGetConnection();
+    PGconn* conn = get_db_connection();
     if (conn == NULL) {
         free(ptr->name);
         free(ptr);

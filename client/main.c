@@ -60,11 +60,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    dbInit(DB_conn_data.ip, DB_conn_data.port);
+    db_init(DB_conn_data.ip, DB_conn_data.port);
 
     // запускаем все потоки после инициализации криптоинтерфейса
-    SwitcherServersInit();
-    SwitcherServersStart();
+    servers_init();
+    switcher_servers_start();
 
     while (1) {
         if(Hal_getMonotonicTimeInMs() - last_monotonic_time > 1000UL)

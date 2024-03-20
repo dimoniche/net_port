@@ -16,7 +16,7 @@ typedef struct _TDBConnectionData
 
 }TDBConnectionData;
 
-PGconn* dbGetConnection(void);
-int16_t dbInit(char* ip_addr, char* port);
+PGconn* get_db_connection(void);
+int16_t db_init(char* ip_addr, char* port);
 
 #endif //CRYPT_SWITCHER_DB_H

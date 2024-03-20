@@ -42,17 +42,26 @@ typedef struct proxy_servers_settings_s
 typedef struct proxy_server_s
 {
     uint16_t id;
-    uint16_t port;
 
-    Thread listeningThread;
-
+    uint16_t input_port;
     SOCKET input;
-    SOCKET output;
-
     struct sockaddr_in input_addr;
-    struct sockaddr_in output_addr;
+    Thread listeningInputThread;
 
-    bool is_local_not_crypt;
+    bool is_input_enabled;
+    bool is_input_starting;
+    bool is_input_running;
+    bool stop_input_running;
+
+    uint16_t output_port;
+    SOCKET output;
+    struct sockaddr_in output_addr;
+    Thread listeningOutputThread;
+
+    bool is_output_enabled;
+    bool is_output_starting;
+    bool is_output_running;
+    bool stop_output_running;
 
     bool isEnabled;
     bool isStarting;
@@ -78,14 +87,14 @@ typedef struct proxy_server_thread_data_s
  *
  * \return -1 ошибка
  */
-int SwitcherServersInit();
+int servers_init();
 
 /**
  * \brief Запуск прослушивателей портов
  *
  * \return -1 ошибка
  */
-int SwitcherServersStart();
+int switcher_servers_start();
 
 /**
  * \brief Остановка прослушивателей портов
@@ -93,7 +102,7 @@ int SwitcherServersStart();
  * \return -1 ошибка
  */
 int
-SwitcherServersStop();
+switcher_servers_stop();
 
 /**
  * \brief Количество криптоканалов

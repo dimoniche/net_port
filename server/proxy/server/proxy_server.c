@@ -7,27 +7,29 @@
 #include "logMsg.h"
 #include "db_proc.h"
 
+#include "db_func.h"
+
 static proxy_server_t* servers;
 static uint16_t servers_count;
 
 static int32_t count_open_crypt_session = 0;
 static proxy_servers_settings_t proxy_settings;
 
-int InitSocket(proxy_server_t * server, int direction);
-int ServerInit(proxy_server_t * server);
-void ServerStart(proxy_server_t * server);
-bool Server_isRunning(proxy_server_t * server);
-void ServerStop(proxy_server_t * server);
-void ServerWaitStop(proxy_server_t * server);
+int init_input_socket(proxy_server_t * server, int direction);
+int server_input_init(proxy_server_t * server);
+void server_input_start(proxy_server_t * server);
+bool server_input_is_running(proxy_server_t * server);
+void input_server_stop(proxy_server_t * server);
+void input_server_wait_stop(proxy_server_t * server);
 
 int
-SwitcherServersInit()
+servers_init()
 {
-    int32_t res = 0;//dbGetServerPorts(&servers, &servers_count);
+    int32_t res = get_user_server_ports(1, &servers, &servers_count);
 
     if(res < 0) {
         logMsg(LOG_ERR, "Error reading switcher servers\n");
-        exit_nicely(dbGetConnection());
+        exit_nicely(get_db_connection());
         return -1;
     }
 
@@ -35,10 +37,10 @@ SwitcherServersInit()
     strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
 
     for(int i = 0; i < servers_count; i++) {
-        if(ServerInit(&servers[i]) < 0) {
-            servers[i].isEnabled = false;
+        if(server_input_init(&servers[i]) < 0) {
+            servers[i].is_input_enabled = false;
         } else {
-            servers[i].isEnabled = true;
+            servers[i].is_input_enabled = true;
         }
     }
 
@@ -46,7 +48,7 @@ SwitcherServersInit()
 }
 
 int
-SwitcherServersStart()
+switcher_servers_start()
 {
     int count = 0;
 
@@ -54,8 +56,8 @@ SwitcherServersStart()
     {
         if(!servers[i].isEnabled) continue;
 
-        ServerStart(&servers[i]);
-        if (!Server_isRunning(&servers[i]))
+        server_input_start(&servers[i]);
+        if (!server_input_is_running(&servers[i]))
         {
             logMsg(LOG_ERR, "Starting server failed!\n");
 
@@ -71,7 +73,7 @@ SwitcherServersStart()
 }
 
 int
-SwitcherServersStop()
+switcher_servers_stop()
 {
   int count = 0;
 
@@ -79,7 +81,7 @@ SwitcherServersStop()
   {
     if(!servers[i].isEnabled) continue;
 
-    ServerStop(&servers[i]);
+    input_server_stop(&servers[i]);
     count++;
   }
 
@@ -87,7 +89,7 @@ SwitcherServersStop()
   {
     if(!servers[i].isEnabled) continue;
 
-    ServerWaitStop(&servers[i]);
+    input_server_wait_stop(&servers[i]);
   }
 
   // ждем пока не закроются все криптосессии
@@ -100,7 +102,7 @@ SwitcherServersStop()
 }
 
 int
-InitSocket(proxy_server_t * server, int direction)
+init_input_socket(proxy_server_t * server, int direction)
 {
     int ret = 1;
 
@@ -125,7 +127,7 @@ InitSocket(proxy_server_t * server, int direction)
 
         // подключение только локальное - наружу не смотрим
         //connection_address = inet_addr(proxy_settings.local_address);
-        //logMsg(LOG_INFO, "Port only local connection -> local address %s port %d\n", proxy_settings.local_address, server->port);
+        //logMsg(LOG_INFO, "Port only local connection -> local address %s input_port %d\n", proxy_settings.local_address, server->input_port);
 
         int flags = fcntl(*(Socket) , F_GETFL, 0);
         if(fcntl(*(Socket), F_SETFL, flags|O_NONBLOCK) < 0) {
@@ -135,13 +137,13 @@ InitSocket(proxy_server_t * server, int direction)
 
         server->input_addr.sin_family = AF_INET;
         server->input_addr.sin_addr.s_addr = connection_address;
-        server->input_addr.sin_port = htons(server->port);
+        server->input_addr.sin_port = htons(server->input_port);
 
         if (0 > bind(*(Socket),
                  (struct sockaddr*)&server->input_addr,
                  sizeof(server->input_addr)))
         {
-            logMsg(LOG_ERR, "bind() port %d error\n", server->port);
+            logMsg(LOG_ERR, "bind() input_port %d error\n", server->input_port);
             return -2;
         }
 
@@ -153,20 +155,20 @@ InitSocket(proxy_server_t * server, int direction)
     } else {
         server->output_addr.sin_family = AF_INET;
         server->output_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-        server->output_addr.sin_port = htons(server->port + 10000);
+        server->output_addr.sin_port = htons(server->input_port + 10000);
     }
 
     return 0;
 }
 
 int
-ServerInit(proxy_server_t * server)
+server_input_init(proxy_server_t * server)
 {
     server->stopRunning = false;
     server->isRunning = false;
     server->isStarting = false;
 
-    return InitSocket(server, INPUT_SOCKET);
+    return init_input_socket(server, INPUT_SOCKET);
 }
 
 void*
@@ -179,10 +181,10 @@ connection_handler (void* parameter)
     int done_output_connection = 0;
     void * seance_data = NULL;
 
-    logMsg(LOG_INFO, "Start new connection_handler on port %d\n", thread_data->data.port);
+    logMsg(LOG_INFO, "Start new connection_handler on input_port %d\n", thread_data->data.input_port);
 
-    if(InitSocket(&thread_data->data, OUTPUT_SOCKET) < 0) {
-      logMsg(LOG_ERR, "InitSocket error\n");
+    if(init_input_socket(&thread_data->data, OUTPUT_SOCKET) < 0) {
+      logMsg(LOG_ERR, "init_input_socket error\n");
       done_output_connection = 1;
     }
 
@@ -209,7 +211,7 @@ connection_handler (void* parameter)
 
         if(servers[thread_data->data.id].stopRunning)
         {
-            logMsg(LOG_DEBUG,"Start disconnect on port %d\n", thread_data->data.port);
+            logMsg(LOG_DEBUG,"Start disconnect on input_port %d\n", thread_data->data.input_port);
             done_output_connection = 1;
             break;
         }
@@ -329,7 +331,7 @@ connection_handler (void* parameter)
         Thread_sleep(10);
     }
 
-    logMsg(LOG_INFO,"Disconnect on port %d\n", thread_data->data.port);
+    logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data.input_port);
 
     close(thread_data->data.output);
     close(thread_data->local);
@@ -384,7 +386,7 @@ serverInputThread (void* parameter)
                     continue;
                 }
 
-                logMsg(LOG_INFO, "Connection accepted on port %d\n", server->port);
+                logMsg(LOG_INFO, "Connection accepted on input_port %d\n", server->input_port);
 
                 proxy_server_thread_data_t *connections_data;
                 connections_data = (proxy_server_thread_data_t *) malloc(sizeof(proxy_server_thread_data_t));
@@ -421,7 +423,7 @@ serverInputThread (void* parameter)
     //int value = 1;
     //setsockopt(&server->input,SOL_SOCKET,SO_REUSEADDR,&value,sizeof(int));
 
-    logMsg(LOG_INFO,"Exit server id = %d on port = %d ...\n", server->id, server->port);
+    logMsg(LOG_INFO,"Exit server id = %d on input_port = %d ...\n", server->id, server->input_port);
 
     server->isRunning = false;
 
@@ -429,23 +431,23 @@ serverInputThread (void* parameter)
 }
 
 void
-ServerStart(proxy_server_t * server)
+server_input_start(proxy_server_t * server)
 {
-    if (server->isRunning == false) {
+    if (server->is_input_running == false) {
 
-        server->isStarting = true;
-        server->stopRunning = false;
+        server->is_input_starting = true;
+        server->stop_input_running = false;
 
-        server->listeningThread = Thread_create(serverInputThread, (void *) server, false);
+        server->listeningInputThread = Thread_create(serverInputThread, (void *) server, false);
 
-        Thread_start(server->listeningThread);
+        Thread_start(server->listeningInputThread);
 
-        while (server->isStarting)
+        while (server->is_input_starting)
             Thread_sleep(1);
     }
 }
 
-void ServerStop(proxy_server_t * server)
+void input_server_stop(proxy_server_t * server)
 {
   if (server->isRunning == true) {
     server->stopRunning = true;
@@ -453,7 +455,7 @@ void ServerStop(proxy_server_t * server)
 }
 
 void
-ServerWaitStop(proxy_server_t * server)
+input_server_wait_stop(proxy_server_t * server)
 {
   if (server->isRunning == true) {
     while (server->isRunning)
@@ -462,9 +464,9 @@ ServerWaitStop(proxy_server_t * server)
 }
 
 bool
-Server_isRunning(proxy_server_t * server)
+server_input_is_running(proxy_server_t * server)
 {
-    return server->isRunning;
+    return server->is_input_running;
 }
 
 int
