@@ -51,12 +51,8 @@ int16_t dbInit(char* ip_addr, char* port)
     logMsg(LOG_DEBUG, "port: %s", port);
 
     char str[2048];
-    snprintf(str, 128, "host=%s port=%s dbname=uspd user=postgres password=kPZa83Uz2#0", ip_addr, port);
-#ifdef REMOTE_DATABASE
+    snprintf(str, 128, "host=%s port=%s dbname=postgres user=postgres password=ghbdtnjvktn", ip_addr, port);
     conn = PQconnectdb(str);
-#else
-    conn = PQconnectdb("host=localhost port=5432 dbname=uspd user=postgres password=Vzljot123");
-#endif
 
     //Check to see that the backend connection was successfully made
     if ((PQstatus(conn) != CONNECTION_OK) || (conn == NULL))

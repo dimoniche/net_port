@@ -3,7 +3,11 @@ project(project_net_port C)
 
 set(CMAKE_C_STANDARD 11)
 
-include_directories (
+if(NOT CMAKE_BUILD_TYPE)
+        set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+include_directories(
         .
         ${PostgreSQL_INCLUDE_DIRS}
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
