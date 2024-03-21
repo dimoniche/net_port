@@ -257,7 +257,6 @@ connection_input_handler (void* parameter)
 {
     proxy_server_thread_data_t * thread_data = parameter;
     int len_epdu;
-    int len_apdu;
     int done_input_connection = 0;
     int done_output_connection = 0;
     void * seance_data = NULL;
@@ -302,64 +301,63 @@ connection_input_handler (void* parameter)
                 continue;
             }
 
-            while (len_epdu > 0) {
-                logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d\n", len_apdu);
+            
+            logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d\n", len_epdu);
 
-                int remaining = len_apdu;
-                int sent = 0;
-                int success = 0;
+            int remaining = len_epdu;
+            int sent = 0;
+            int success = 0;
 
-                do {
-                    int result = send(thread_data->output_local,
-                                    (const char *)&thread_data->input_buf[sent],
-                                    len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+            do {
+                int result = send(thread_data->output_local,
+                                (const char *)&thread_data->input_buf[sent],
+                                len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                    logMsg(LOG_INFO, "Send data result %d\n", result);
+                logMsg(LOG_INFO, "Send data result %d\n", result);
 
-                    if (result != -1)
+                if (result != -1)
+                {
+                    sent += result;
+                    remaining -= result;
+                    if (remaining <= 0)
                     {
-                        sent += result;
-                        remaining -= result;
-                        if (remaining <= 0)
-                        {
-                            success = 1;
+                        success = 1;
+                        break;
+                    }
+                }
+                else
+                {
+                    int err = WSAGetLastError();
+                    if (err == EAGAIN)
+                    {
+                        struct timeval tv = {};
+                        fd_set fds = {};
+
+                        tv.tv_sec = 1;
+                        FD_ZERO(&fds);
+                        FD_SET(0, &fds);
+                        select_res = select((SOCKET)(thread_data->output_local + 1), NULL, &fds, NULL, &tv);
+
+                        if(select_res == -1) {
+                            logMsg(LOG_ERR, "Send:: select error:: %d\n", WSAGetLastError());
                             break;
                         }
+
+                        logMsg(LOG_INFO, "Send:: wait\n");
                     }
                     else
                     {
-                        int err = WSAGetLastError();
-                        if (err == EAGAIN)
-                        {
-                            struct timeval tv = {};
-                            fd_set fds = {};
-
-                            tv.tv_sec = 1;
-                            FD_ZERO(&fds);
-                            FD_SET(0, &fds);
-                            select_res = select((SOCKET)(thread_data->output_local + 1), NULL, &fds, NULL, &tv);
-
-                            if(select_res == -1) {
-                                logMsg(LOG_ERR, "Send:: select error:: %d\n", WSAGetLastError());
-                                break;
-                            }
-
-                            logMsg(LOG_INFO, "Send:: wait\n");
-                        }
-                        else
-                        {
-                            logMsg(LOG_INFO, "Send:: send error:: %d\n", WSAGetLastError());
-                            break;
-                        }
+                        logMsg(LOG_INFO, "Send:: send error:: %d\n", WSAGetLastError());
+                        break;
                     }
-                } while (remaining > 0);
-
-                if(!success)
-                {
-                    logMsg(LOG_ERR, "send error\n");
-                    done_output_connection = 1;
-                    break;
                 }
+            } while (remaining > 0);
+
+            if(!success)
+            {
+                logMsg(LOG_ERR, "send error\n");
+                done_output_connection = 1;
+                break;
             }
         }
 
@@ -379,7 +377,6 @@ connection_output_handler (void* parameter)
 {
     proxy_server_thread_data_t * thread_data = parameter;
     int len_epdu;
-    int len_apdu;
     int done_input_connection = 0;
     int done_output_connection = 0;
     void * seance_data = NULL;
@@ -424,64 +421,62 @@ connection_output_handler (void* parameter)
                 continue;
             }
 
-            while (len_epdu > 0) {
-                logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d\n", len_apdu);
+            logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d\n", len_epdu);
 
-                int remaining = len_apdu;
-                int sent = 0;
-                int success = 0;
+            int remaining = len_epdu;
+            int sent = 0;
+            int success = 0;
 
-                do {
-                    int result = send(thread_data->input_local,
-                                    (const char *)&thread_data->output_buf[sent],
-                                    len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+            do {
+                int result = send(thread_data->input_local,
+                                (const char *)&thread_data->output_buf[sent],
+                                len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                    logMsg(LOG_INFO, "Send input data result %d\n", result);
+                logMsg(LOG_INFO, "Send input data result %d\n", result);
 
-                    if (result != -1)
+                if (result != -1)
+                {
+                    sent += result;
+                    remaining -= result;
+                    if (remaining <= 0)
                     {
-                        sent += result;
-                        remaining -= result;
-                        if (remaining <= 0)
-                        {
-                            success = 1;
+                        success = 1;
+                        break;
+                    }
+                }
+                else
+                {
+                    int err = WSAGetLastError();
+                    if (err == EAGAIN)
+                    {
+                        struct timeval tv = {};
+                        fd_set fds = {};
+
+                        tv.tv_sec = 1;
+                        FD_ZERO(&fds);
+                        FD_SET(0, &fds);
+                        select_res = select((SOCKET)(thread_data->input_local + 1), NULL, &fds, NULL, &tv);
+
+                        if(select_res == -1) {
+                            logMsg(LOG_ERR, "Send:: select error:: %d\n", WSAGetLastError());
                             break;
                         }
+
+                        logMsg(LOG_INFO, "Send:: wait\n");
                     }
                     else
                     {
-                        int err = WSAGetLastError();
-                        if (err == EAGAIN)
-                        {
-                            struct timeval tv = {};
-                            fd_set fds = {};
-
-                            tv.tv_sec = 1;
-                            FD_ZERO(&fds);
-                            FD_SET(0, &fds);
-                            select_res = select((SOCKET)(thread_data->input_local + 1), NULL, &fds, NULL, &tv);
-
-                            if(select_res == -1) {
-                                logMsg(LOG_ERR, "Send:: select error:: %d\n", WSAGetLastError());
-                                break;
-                            }
-
-                            logMsg(LOG_INFO, "Send:: wait\n");
-                        }
-                        else
-                        {
-                            logMsg(LOG_INFO, "Send:: send error:: %d\n", WSAGetLastError());
-                            break;
-                        }
+                        logMsg(LOG_INFO, "Send:: send error:: %d\n", WSAGetLastError());
+                        break;
                     }
-                } while (remaining > 0);
-
-                if(!success)
-                {
-                    logMsg(LOG_ERR, "send error\n");
-                    done_output_connection = 1;
-                    break;
                 }
+            } while (remaining > 0);
+
+            if(!success)
+            {
+                logMsg(LOG_ERR, "send error\n");
+                done_output_connection = 1;
+                break;
             }
         }
 
