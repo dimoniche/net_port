@@ -51,7 +51,7 @@ include_directories(
 
 add_executable(${EXEC_NAME}
         main.c
-        proxy/server/proxy_server.c
+        proxy/client/proxy_client.c
         resources/signal_handler.c
         resources/time_counter.c
 )

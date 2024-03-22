@@ -9,8 +9,6 @@
 #include <stdint.h>
 
 #include "logMsg.h"
-#include "db.h"
-#include "db_proc.h"
 #include "signal_handler.h"
 #include "settings.h"
 #include "time_utils.h"
@@ -23,12 +21,12 @@ static uint64_t last_monotonic_time;
 int main(int argc, char** argv) {
     logMsg(LOG_DEBUG, "Start...");
     logMsgInit();
-    logMsgOpen("../logs/module_net_port_server.log");
+    logMsgOpen("../logs/module_net_port.log");
     logMsg(LOG_DEBUG, "Start logger...");
 
     signal_init();
 
-    TDBConnectionData DB_conn_data = {(char*)"127.1", (char*)"5432"};
+    proxy_server_t* settings = get_client_settings();
 
     for (int i = 1; i < argc; i++) {
         char* s;
@@ -48,21 +46,36 @@ int main(int argc, char** argv) {
                 exit(-1);
             }
         }
-        if (strstr(argv[i], HOST_KEY) != NULL)
+        if (strstr(argv[i], HOST_KEY_IN) != NULL)
         {
             if (argv[i+1] != NULL)
-                DB_conn_data.ip = argv[i+1];
+            {
+                sscanf(argv[i+1], "%s", settings->input_address);
+            }
         }
-        if (strstr(argv[i], PORT_KEY) != NULL)
+        if (strstr(argv[i], HOST_KEY_OUT) != NULL)
         {
             if (argv[i+1] != NULL)
-                DB_conn_data.port = argv[i+1];
+            {
+                sscanf(argv[i+1], "%s", settings->output_address);
+            }  
+        }
+        if (strstr(argv[i], PORT_KEY_IN) != NULL)
+        {
+            if (argv[i+1] != NULL)
+            {
+                sscanf(argv[i+1], "%d", &settings->input_port);
+            }
+        }
+        if (strstr(argv[i], PORT_KEY_OUT) != NULL)
+        {
+            if (argv[i+1] != NULL)
+            {
+                sscanf(argv[i+1], "%d", &settings->output_port);
+            }  
         }
     }
 
-    db_init(DB_conn_data.ip, DB_conn_data.port);
-
-    // запускаем все потоки после инициализации криптоинтерфейса
     servers_init();
     switcher_servers_start();
 

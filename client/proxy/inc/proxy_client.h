@@ -44,34 +44,39 @@ typedef struct proxy_server_s
     uint16_t id;
     uint16_t port;
 
-    Thread listeningInputThread;
+    Thread input_thread;
+    Thread output_thread;
 
-    SOCKET input;
-    SOCKET output;
+    bool is_starting_input;
+    bool is_running_input;
+    bool stop_running_input;
 
+    char input_address[32];
+    uint16_t input_port;
     struct sockaddr_in input_addr;
+    SOCKET input;
+
+    bool is_starting_output;
+    bool is_running_output;
+    bool stop_running_output;
+
+    char output_address[32];
+    uint16_t output_port;
     struct sockaddr_in output_addr;
-
-    bool is_local_not_crypt;
-
-    bool isEnabled;
-    bool isStarting;
-    bool isRunning;
-    bool stopRunning;
+    SOCKET output;
 
 } proxy_server_t;
 
 typedef struct proxy_server_thread_data_s
 {
-    SOCKET local;
-
-    uint8_t receive_epdu[8192];
-    uint8_t receive_apdu[8192];
-    uint8_t sendBuff[8192];
+    uint8_t receive_input[81920];
+    uint8_t receive_output[81920];
 
     proxy_server_t data;
 
 } proxy_server_thread_data_t;
+
+proxy_server_t* get_client_settings();
 
 /**
  * \brief Инициализация прослушивателей портов

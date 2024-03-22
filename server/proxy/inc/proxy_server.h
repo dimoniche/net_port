@@ -70,8 +70,8 @@ typedef struct proxy_server_thread_data_s
     SOCKET input_local;
     SOCKET output_local;
 
-    uint8_t input_buf[8192];
-    uint8_t output_buf[8192];
+    uint8_t input_buf[81920];
+    uint8_t output_buf[81920];
 
     proxy_server_t data;
 

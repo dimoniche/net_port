@@ -290,7 +290,8 @@ connection_input_handler (void* parameter)
         if(FD_ISSET(thread_data->input_local, &read_set)) {
             len_epdu = recv(thread_data->input_local, (char *) thread_data->input_buf, sizeof(thread_data->input_buf),
                             0);
-            logMsg(LOG_INFO, "Receive input lenght: %d\n", len_epdu);
+
+            logMsg(LOG_INFO, "Receive data from input port %d: lenght %d\n",thread_data->data.input_port, len_epdu);
 
             if (len_epdu <= 0) {
                 if (EAGAIN != errno) {
@@ -299,9 +300,6 @@ connection_input_handler (void* parameter)
                 }
                 continue;
             }
-
-            
-            logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d", len_epdu);
 
             int remaining = len_epdu;
             int sent = 0;
@@ -312,7 +310,7 @@ connection_input_handler (void* parameter)
                                 (const char *)&thread_data->input_buf[sent],
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                logMsg(LOG_INFO, "Send data result %d", result);
+                logMsg(LOG_INFO, "Send data to port %d result %d\n", thread_data->data.output_port, result);
 
                 if (result != -1)
                 {
@@ -404,7 +402,8 @@ connection_output_handler (void* parameter)
         if(FD_ISSET(thread_data->output_local, &read_set)) {
             len_epdu = recv(thread_data->output_local, (char *) thread_data->output_buf, sizeof(thread_data->output_buf),
                             0);
-            logMsg(LOG_INFO, "Receive output lenght: %d\n", len_epdu);
+
+            logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",thread_data->data.output_port, len_epdu);
 
             if (len_epdu <= 0) {
                 if (EAGAIN != errno) {
@@ -413,8 +412,6 @@ connection_output_handler (void* parameter)
                 }
                 continue;
             }
-
-            logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d", len_epdu);
 
             int remaining = len_epdu;
             int sent = 0;
@@ -425,7 +422,7 @@ connection_output_handler (void* parameter)
                                 (const char *)&thread_data->output_buf[sent],
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                logMsg(LOG_INFO, "Send input data result %d", result);
+                logMsg(LOG_INFO, "Send data to port %d result %d\n", thread_data->data.input_port, result);
 
                 if (result != -1)
                 {

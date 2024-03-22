@@ -20,4 +20,4 @@ include_directories(
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/common)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/server)
-#add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/client)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/client)
