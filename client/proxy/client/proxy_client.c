@@ -353,12 +353,12 @@ server_output_start()
 {
     if (threads_data.data.is_running_output == false) {
 
-        threads_data.data.is_starting_input = true;
-        threads_data.data.stop_running_input = false;
+        threads_data.data.is_starting_output = true;
+        threads_data.data.stop_running_output = false;
 
-        threads_data.data.input_thread = Thread_create(server_output_thread, (void *) &threads_data.data, false);
+        threads_data.data.output_thread = Thread_create(server_output_thread, (void *) &threads_data.data, false);
 
-        Thread_start(threads_data.data.input_thread);
+        Thread_start(threads_data.data.output_thread);
 
         while (threads_data.data.is_starting_output)
             Thread_sleep(1);
