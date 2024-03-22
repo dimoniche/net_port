@@ -257,20 +257,19 @@ connection_input_handler (void* parameter)
 {
     proxy_server_thread_data_t * thread_data = parameter;
     int len_epdu;
-    int done_input_connection = 0;
     int done_output_connection = 0;
     void * seance_data = NULL;
 
     logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data.input_port);
 
-    while (!done_input_connection && !done_output_connection) {
+    while (!done_output_connection) {
         fd_set read_set;
         FD_ZERO(&read_set);
         FD_SET(thread_data->input_local, &read_set);
 
-        if(servers[thread_data->data.id].stop_output_running)
+        if(servers[thread_data->data.id].stop_input_running)
         {
-            logMsg(LOG_DEBUG,"Start disconnect on output_port %d\n", thread_data->data.output_port);
+            logMsg(LOG_DEBUG,"Start disconnect on input_port %d\n", thread_data->data.input_port);
             done_output_connection = 1;
             break;
         }
@@ -295,14 +294,14 @@ connection_input_handler (void* parameter)
 
             if (len_epdu <= 0) {
                 if (EAGAIN != errno) {
-                    logMsg(LOG_ERR, "Input recv() error:: %d\n", len_epdu);
+                    logMsg(LOG_ERR, "Input recv() error:: %d", len_epdu);
                     break;
                 }
                 continue;
             }
 
             
-            logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d\n", len_epdu);
+            logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d", len_epdu);
 
             int remaining = len_epdu;
             int sent = 0;
@@ -313,7 +312,7 @@ connection_input_handler (void* parameter)
                                 (const char *)&thread_data->input_buf[sent],
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                logMsg(LOG_INFO, "Send data result %d\n", result);
+                logMsg(LOG_INFO, "Send data result %d", result);
 
                 if (result != -1)
                 {
@@ -339,15 +338,15 @@ connection_input_handler (void* parameter)
                         select_res = select((SOCKET)(thread_data->output_local + 1), NULL, &fds, NULL, &tv);
 
                         if(select_res == -1) {
-                            logMsg(LOG_ERR, "Send:: select error:: %d\n", WSAGetLastError());
+                            logMsg(LOG_ERR, "Send:: select error:: %d", WSAGetLastError());
                             break;
                         }
 
-                        logMsg(LOG_INFO, "Send:: wait\n");
+                        logMsg(LOG_INFO, "Send:: wait");
                     }
                     else
                     {
-                        logMsg(LOG_INFO, "Send:: send error:: %d\n", WSAGetLastError());
+                        logMsg(LOG_INFO, "Send:: send error:: %d", WSAGetLastError());
                         break;
                     }
                 }
@@ -356,18 +355,13 @@ connection_input_handler (void* parameter)
             if(!success)
             {
                 logMsg(LOG_ERR, "send error\n");
-                done_output_connection = 1;
-                break;
             }
         }
 
         Thread_sleep(10);
     }
 
-    //logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data.input_port);
-    //close(thread_data->data.input);
-
-    free(thread_data);
+    logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data.input_port);
 
     return 0;
 }
@@ -377,20 +371,19 @@ connection_output_handler (void* parameter)
 {
     proxy_server_thread_data_t * thread_data = parameter;
     int len_epdu;
-    int done_input_connection = 0;
     int done_output_connection = 0;
     void * seance_data = NULL;
 
     logMsg(LOG_INFO, "Start new connection_output_handler on output_port %d\n", thread_data->data.output_port);
 
-    while (!done_input_connection && !done_output_connection) {
+    while (!done_output_connection) {
         fd_set read_set;
         FD_ZERO(&read_set);
         FD_SET(thread_data->output_local, &read_set);
 
-        if(servers[thread_data->data.id].stop_input_running)
+        if(servers[thread_data->data.id].stop_output_running)
         {
-            logMsg(LOG_DEBUG,"Start disconnect on input_port %d\n", thread_data->data.input_port);
+            logMsg(LOG_DEBUG,"Start disconnect on output_port %d\n", thread_data->data.output_port);
             done_output_connection = 1;
             break;
         }
@@ -415,13 +408,13 @@ connection_output_handler (void* parameter)
 
             if (len_epdu <= 0) {
                 if (EAGAIN != errno) {
-                    logMsg(LOG_ERR, "Input recv() error:: %d\n", len_epdu);
+                    logMsg(LOG_ERR, "Input recv() error:: %d", len_epdu);
                     break;
                 }
                 continue;
             }
 
-            logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d\n", len_epdu);
+            logMsg(LOG_INFO, "receive_crypt_data len_apdu:: %d", len_epdu);
 
             int remaining = len_epdu;
             int sent = 0;
@@ -432,7 +425,7 @@ connection_output_handler (void* parameter)
                                 (const char *)&thread_data->output_buf[sent],
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                logMsg(LOG_INFO, "Send input data result %d\n", result);
+                logMsg(LOG_INFO, "Send input data result %d", result);
 
                 if (result != -1)
                 {
@@ -458,7 +451,7 @@ connection_output_handler (void* parameter)
                         select_res = select((SOCKET)(thread_data->input_local + 1), NULL, &fds, NULL, &tv);
 
                         if(select_res == -1) {
-                            logMsg(LOG_ERR, "Send:: select error:: %d\n", WSAGetLastError());
+                            logMsg(LOG_ERR, "Send:: input select error:: %d", WSAGetLastError());
                             break;
                         }
 
@@ -466,7 +459,7 @@ connection_output_handler (void* parameter)
                     }
                     else
                     {
-                        logMsg(LOG_INFO, "Send:: send error:: %d\n", WSAGetLastError());
+                        logMsg(LOG_INFO, "Send:: send input error:: %d", WSAGetLastError());
                         break;
                     }
                 }
@@ -474,19 +467,14 @@ connection_output_handler (void* parameter)
 
             if(!success)
             {
-                logMsg(LOG_ERR, "send error\n");
-                done_output_connection = 1;
-                break;
+                logMsg(LOG_ERR, "send input error\n");
             }
         }
 
         Thread_sleep(10);
     }
 
-    //logMsg(LOG_INFO,"Disconnect on output_port %d\n", thread_data->data.output_port);
-    //close(thread_data->data.output);
-
-    free(thread_data);
+    logMsg(LOG_INFO,"Disconnect on output_port %d\n", thread_data->data.output_port);
 
     return 0;
 }
@@ -534,6 +522,7 @@ serverInputThread (void* parameter)
                 logMsg(LOG_INFO, "Connection accepted on input_port %d\n", server->input_port);
 
                 if(connections_data != NULL) {
+
                     connections_data->input_local = socket_local;
                    
                     logMsg(LOG_DEBUG, "Start thread create\n");
@@ -561,6 +550,8 @@ serverInputThread (void* parameter)
     logMsg(LOG_INFO,"Exit server id = %d on input_port = %d ...\n", server->id, server->input_port);
 
     server->is_input_running = false;
+
+    free(parameter);
 
     return 0;
 }

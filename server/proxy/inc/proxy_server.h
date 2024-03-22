@@ -72,7 +72,6 @@ typedef struct proxy_server_thread_data_s
 
     uint8_t input_buf[8192];
     uint8_t output_buf[8192];
-    uint8_t sendBuff[8192];
 
     proxy_server_t data;
 
