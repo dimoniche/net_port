@@ -79,13 +79,6 @@ typedef struct proxy_server_thread_data_s
 proxy_server_t* get_client_settings();
 
 /**
- * \brief Инициализация прослушивателей портов
- *
- * \return -1 ошибка
- */
-int servers_init();
-
-/**
  * \brief Запуск прослушивателей портов
  *
  * \return -1 ошибка

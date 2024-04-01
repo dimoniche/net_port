@@ -76,7 +76,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    servers_init();
     switcher_servers_start();
 
     while (1) {

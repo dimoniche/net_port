@@ -23,22 +23,6 @@ proxy_server_t* get_client_settings()
 }
 
 int
-servers_init()
-{
-    int32_t res = 0;
-
-    if(res < 0) {
-        logMsg(LOG_ERR, "Error reading switcher servers\n");
-        return -1;
-    }
-
-    memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
-    strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
-
-    return res;
-}
-
-int
 switcher_servers_start()
 {
     server_input_start();
