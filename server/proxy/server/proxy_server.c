@@ -62,6 +62,7 @@ server_input_init(proxy_server_t * server)
     server->stop_input_running = false;
     server->is_input_running = false;
     server->is_input_starting = false;
+    server->close_input_socket = false;
 
     return init_input_socket(server);
 }
@@ -72,6 +73,7 @@ server_output_init(proxy_server_t * server)
     server->stop_output_running = false;
     server->is_output_running = false;
     server->is_output_starting = false;
+    server->close_output_socket = false;
 
     return init_output_socket(server);
 }
@@ -267,7 +269,7 @@ connection_input_handler (void* parameter)
         FD_ZERO(&read_set);
         FD_SET(thread_data->input_local, &read_set);
 
-        if(servers[thread_data->data.id].stop_input_running)
+        if(servers[thread_data->data.id].close_input_socket)
         {
             logMsg(LOG_DEBUG,"Start disconnect on input_port %d\n", thread_data->data.input_port);
             done_output_connection = 1;
@@ -294,11 +296,12 @@ connection_input_handler (void* parameter)
             logMsg(LOG_INFO, "Receive data from input port %d: lenght %d\n",thread_data->data.input_port, len_epdu);
 
             if (len_epdu <= 0) {
-                if (EAGAIN != errno) {
-                    logMsg(LOG_ERR, "Input recv() error:: %d", len_epdu);
-                    break;
+                if(len_epdu == 0) {
+                    logMsg(LOG_INFO, "Input recv() connection closed\n");
+                } else {
+                  logMsg(LOG_ERR, "Input recv() error:: %d\n", WSAGetLastError());
                 }
-                continue;
+                break;
             }
 
             int remaining = len_epdu;
@@ -356,8 +359,12 @@ connection_input_handler (void* parameter)
             }
         }
 
-        Thread_sleep(10);
+        Thread_sleep(1);
     }
+
+    // сообщим о закрытии клиенту
+    close(thread_data->input_local);
+    servers[thread_data->data.id].close_output_socket = true;
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data.input_port);
 
@@ -379,7 +386,7 @@ connection_output_handler (void* parameter)
         FD_ZERO(&read_set);
         FD_SET(thread_data->output_local, &read_set);
 
-        if(servers[thread_data->data.id].stop_output_running)
+        if(servers[thread_data->data.id].close_output_socket)
         {
             logMsg(LOG_DEBUG,"Start disconnect on output_port %d\n", thread_data->data.output_port);
             done_output_connection = 1;
@@ -406,11 +413,12 @@ connection_output_handler (void* parameter)
             logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",thread_data->data.output_port, len_epdu);
 
             if (len_epdu <= 0) {
-                if (EAGAIN != errno) {
-                    logMsg(LOG_ERR, "Input recv() error:: %d", len_epdu);
-                    break;
+                if(len_epdu == 0) {
+                    logMsg(LOG_INFO, "Output recv() connection closed\n");
+                } else {
+                  logMsg(LOG_ERR, "Output recv() error:: %d\n", WSAGetLastError());
                 }
-                continue;
+                break;
             }
 
             int remaining = len_epdu;
@@ -468,8 +476,12 @@ connection_output_handler (void* parameter)
             }
         }
 
-        Thread_sleep(10);
+        Thread_sleep(1);
     }
+
+    // сообщим о закрытии клиенту
+    close(thread_data->output_local);
+    servers[thread_data->data.id].close_output_socket = false;
 
     logMsg(LOG_INFO,"Disconnect on output_port %d\n", thread_data->data.output_port);
 
@@ -539,7 +551,7 @@ serverInputThread (void* parameter)
             }
         }
 
-        Thread_sleep(10);
+        Thread_sleep(1);
     }
 
     close(server->input);
@@ -615,7 +627,7 @@ serverOutputThread (void* parameter)
             }
         }
 
-        Thread_sleep(10);
+        Thread_sleep(1);
     }
 
     close(server->output);

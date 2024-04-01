@@ -52,6 +52,7 @@ typedef struct proxy_server_s
     bool is_input_starting;
     bool is_input_running;
     bool stop_input_running;
+    bool close_input_socket;
 
     uint16_t output_port;
     SOCKET output;
@@ -62,6 +63,7 @@ typedef struct proxy_server_s
     bool is_output_starting;
     bool is_output_running;
     bool stop_output_running;
+    bool close_output_socket;
 
 } proxy_server_t;
 

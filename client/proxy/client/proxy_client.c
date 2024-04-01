@@ -35,8 +35,6 @@ servers_init()
     memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
     strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
 
-    init_sockets();
-
     return res;
 }
 
@@ -103,7 +101,11 @@ init_sockets()
 void*
 server_input_thread (void* parameter)
 {
+    restart_input_thread:
+
     int len_apdu;
+
+    init_sockets();
 
     if (0 > connect(threads_data.data.input, (struct sockaddr *) &threads_data.data.input_addr,
                     sizeof(threads_data.data.input_addr)))
@@ -135,6 +137,7 @@ server_input_thread (void* parameter)
         if(select_res == -1) {
             break;
         } else if(select_res == 0) {
+            Thread_sleep(1);
             continue;
         }
 
@@ -143,16 +146,24 @@ server_input_thread (void* parameter)
             server_output_start();
 
             len_apdu = recv(threads_data.data.input, (char *) threads_data.receive_input, sizeof(threads_data.receive_input), 0);
-            if(len_apdu == 0) continue;
 
             logMsg(LOG_INFO, "Receive data from input port %d: lenght %d\n",threads_data.data.input_port, len_apdu);
 
-            if (len_apdu < 0) {
-                if (EAGAIN != errno) {
-                    logMsg(LOG_ERR, "Output input recv() error:: %d\n", len_apdu);
-                    break;
+            if (len_apdu <= 0) {
+                if(len_apdu == 0) {
+                    logMsg(LOG_INFO, "Output recv() connection closed\n");
+                } else {
+                  logMsg(LOG_ERR, "Output recv() error:: %d\n", WSAGetLastError());
                 }
-                continue;
+
+                // останавливаем внутренний порт
+                threads_data.data.stop_running_output = true;
+
+                Thread_sleep(1000);
+
+                logMsg(LOG_INFO, "Restart Input thread\n");
+
+                goto restart_input_thread;
             }
 
             int remaining = len_apdu;
@@ -252,21 +263,22 @@ server_output_thread (void* parameter)
         if(select_res == -1) {
             break;
         } else if(select_res == 0) {
+            Thread_sleep(1);
             continue;
         }
 
         if(FD_ISSET(threads_data.data.output, &read_set)) {
             len_apdu = recv(threads_data.data.output, (char *) threads_data.receive_output, sizeof(threads_data.receive_output), 0);
-            if(len_apdu == 0) continue;
 
             logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",threads_data.data.output_port, len_apdu);
 
-            if (len_apdu < 0) {
-                if (EAGAIN != errno) {
-                    logMsg(LOG_ERR, "Output recv() error:: %d\n", len_apdu);
-                    break;
+            if (len_apdu <= 0) {
+                if(len_apdu == 0) {
+                    logMsg(LOG_INFO, "Output recv() connection closed\n");
+                } else {
+                  logMsg(LOG_ERR, "Output recv() error:: %d\n", WSAGetLastError());
                 }
-                continue;
+                break;
             }
 
             int remaining = len_apdu;
