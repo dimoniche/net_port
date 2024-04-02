@@ -28,8 +28,8 @@ set(CMAKE_SYSTEM_NAME Linux)
 
 # set(CMAKE_C_COMPILER arm-linux-gnueabihf-gcc)
 # set(CMAKE_CXX_COMPILER arm-linux-gnueabihf-g++)
-set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
-set(PostgreSQL_INCLUDE_DIRS "\\usr\\include\\postgresql")
+# set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
+# set(PostgreSQL_INCLUDE_DIRS "\\usr\\include\\postgresql")
 
 link_directories(${PostgreSQL_LIBRARY_DIRS})
 
