@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 3.7)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")
+
 project(module_net_port_client C)
 
 set(CMAKE_C_STANDARD 11)
@@ -26,12 +28,8 @@ set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 
 set(CMAKE_SYSTEM_NAME Linux)
 
-# set(CMAKE_C_COMPILER arm-linux-gnueabihf-gcc)
-# set(CMAKE_CXX_COMPILER arm-linux-gnueabihf-g++)
-# set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
-# set(PostgreSQL_INCLUDE_DIRS "\\usr\\include\\postgresql")
-
-link_directories(${PostgreSQL_LIBRARY_DIRS})
+set(CMAKE_C_COMPILER arm-linux-gnueabihf-gcc)
+set(CMAKE_CXX_COMPILER arm-linux-gnueabihf-g++)
 
 # feature checks
 include(CheckLibraryExists)
@@ -41,11 +39,13 @@ check_library_exists(rt clock_gettime "time.h" CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
 include(TestBigEndian)
 test_big_endian(PLATFORM_IS_BIGENDIAN)
 
+add_subdirectory(common)
+
 include_directories(
         .
-        ${PostgreSQL_INCLUDE_DIRS}
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
+        ${CMAKE_CURRENT_LIST_DIR}/common/inc
         ${PROJECT_BINARY_DIR}
 )
 
@@ -57,6 +57,6 @@ add_executable(${EXEC_NAME}
 )
 
 target_link_libraries(${EXEC_NAME}
-        proxy_common
+        client_proxy_common
         -lrt
 )

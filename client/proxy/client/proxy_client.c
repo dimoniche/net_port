@@ -85,7 +85,7 @@ init_sockets()
 void*
 server_input_thread (void* parameter)
 {
-    restart_input_thread:
+    restart_input_thread:;
 
     int len_apdu;
 
@@ -206,6 +206,8 @@ server_input_thread (void* parameter)
     close(threads_data.data.input);
 
     logMsg(LOG_INFO,"Exit server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.input_port);
+
+    if(threads_data.data.stop_running_input == false) goto restart_input_thread;
 
     threads_data.data.is_running_input = false;
 
