@@ -26,8 +26,6 @@ set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 
 set(CMAKE_SYSTEM_NAME Linux)
 
-# set(CMAKE_C_COMPILER arm-linux-gnueabihf-gcc)
-# set(CMAKE_CXX_COMPILER arm-linux-gnueabihf-g++)
 set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
 set(PostgreSQL_INCLUDE_DIRS "\\usr\\include\\postgresql")
 
@@ -40,6 +38,8 @@ check_library_exists(rt clock_gettime "time.h" CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
 # check if we are on a little or a big endian
 include(TestBigEndian)
 test_big_endian(PLATFORM_IS_BIGENDIAN)
+
+add_subdirectory(common)
 
 include_directories(
         .
@@ -60,6 +60,6 @@ add_executable(${EXEC_NAME}
 )
 
 target_link_libraries(${EXEC_NAME}
-        proxy_common
+        server_proxy_common
         -lrt
 )

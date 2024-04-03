@@ -19,6 +19,5 @@ include_directories(
         ${PROJECT_BINARY_DIR}
 )
 
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/common)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/server)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/client)
