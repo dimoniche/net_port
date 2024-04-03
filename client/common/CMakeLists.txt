@@ -3,9 +3,6 @@ set(CMAKE_C_STANDARD 11)
 
 set(CMAKE_SYSTEM_NAME Linux)
 
-set(CMAKE_C_COMPILER arm-linux-gnueabihf-gcc)
-set(CMAKE_CXX_COMPILER arm-linux-gnueabihf-g++)
-
 set(proxy_common_SRCS
         ${CMAKE_CURRENT_LIST_DIR}/log/logMsg.c
         ${CMAKE_CURRENT_LIST_DIR}/hal/memory/lib_memory.c
