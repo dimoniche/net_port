@@ -5,7 +5,6 @@
 
 #include "logMsg.h"
 
-static proxy_servers_settings_t proxy_settings;
 static proxy_server_thread_data_t threads_data;
 
 int init_sockets();
@@ -30,12 +29,6 @@ switcher_servers_start()
     logMsg(LOG_DEBUG, "Clients started!\n");
 
     return 0;
-}
-
-int
-switcher_servers_stop()
-{
-  return 0;
 }
 
 int
@@ -152,7 +145,6 @@ server_input_thread (void* parameter)
 
             int remaining = len_apdu;
             int sent = 0;
-            int success = 0;
 
             do {
                 int result = send(threads_data.data.output,
@@ -167,7 +159,6 @@ server_input_thread (void* parameter)
                     remaining -= result;
                     if (remaining <= 0)
                     {
-                        success = 1;
                         break;
                     }
                 }
@@ -197,7 +188,7 @@ server_input_thread (void* parameter)
                         break;
                     }
                 }
-            } while (remaining > 0);
+            } while (1);
         }
 
         Thread_sleep(10);
@@ -256,7 +247,7 @@ server_output_thread (void* parameter)
         if(FD_ISSET(threads_data.data.output, &read_set)) {
             len_apdu = recv(threads_data.data.output, (char *) threads_data.receive_output, sizeof(threads_data.receive_output), 0);
 
-            logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",threads_data.data.output_port, len_apdu);
+            logMsg(LOG_INFO, "Receive data from output port %d: length %d\n",threads_data.data.output_port, len_apdu);
 
             if (len_apdu <= 0) {
                 if(len_apdu == 0) {
@@ -269,7 +260,6 @@ server_output_thread (void* parameter)
 
             int remaining = len_apdu;
             int sent = 0;
-            int success = 0;
 
             do {
                 int result = send(threads_data.data.input,
@@ -284,7 +274,6 @@ server_output_thread (void* parameter)
                     remaining -= result;
                     if (remaining <= 0)
                     {
-                        success = 1;
                         break;
                     }
                 }
@@ -314,7 +303,7 @@ server_output_thread (void* parameter)
                         break;
                     }
                 }
-            } while (remaining > 0);
+            } while (1);
         }
 
         Thread_sleep(10);

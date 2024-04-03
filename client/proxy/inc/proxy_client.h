@@ -2,19 +2,14 @@
 // Created by chistyakov_ds on 29.09.2022.
 //
 
-#ifndef CRYPT_SWITCHER_SWITCHER_H
-#define CRYPT_SWITCHER_SWITCHER_H
+#ifndef NET_PORT_CLIENT_H
+#define NET_PORT_CLIENT_H
 
 #include <stdint.h>
 #include <stdbool.h>
 
 #include "hal_thread.h"
 
-#ifdef _WIN32
-#include <io.h>
-#include <WinSock.h>
-#else
-#define SOCKET int
 #include <stdlib.h>
 #include <memory.h>
 #include <unistd.h>
@@ -24,20 +19,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#define SOCKET int
 #define Sleep(x) usleep(x*1000)
 #define WSAGetLastError() errno
-#endif
-
-#define INPUT_SOCKET    0
-#define OUTPUT_SOCKET   1
-
-#define HTTP_SERVER_ENABLE
-
-typedef struct proxy_servers_settings_s
-{
-  char local_address[32];
-
-} proxy_servers_settings_t;
 
 typedef struct proxy_server_s
 {
@@ -79,32 +63,10 @@ typedef struct proxy_server_thread_data_s
 proxy_server_t* get_client_settings();
 
 /**
- * \brief Запуск прослушивателей портов
+ * \brief
  *
  * \return -1 ошибка
  */
 int switcher_servers_start();
 
-/**
- * \brief Остановка прослушивателей портов
- *
- * \return -1 ошибка
- */
-int
-switcher_servers_stop();
-
-/**
- * \brief Количество криптоканалов
- *
- * \return количество каналов
- */
-int getCountCryptServers();
-
-/**
- * \brief Количество открытых криптографических сессий
- *
- * \return количество каналов
- */
-uint32_t getCount_Open_Crypt_Session();
-
-#endif //CRYPT_SWITCHER_SWITCHER_H
+#endif //NET_PORT_CLIENT_H
