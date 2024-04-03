@@ -262,6 +262,8 @@ connection_input_handler (void* parameter)
     int done_output_connection = 0;
     void * seance_data = NULL;
 
+    thread_data->data.is_input_running = true;
+
     logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data.input_port);
 
     while (!done_output_connection) {
@@ -366,6 +368,8 @@ connection_input_handler (void* parameter)
     close(thread_data->input_local);
     servers[thread_data->data.id].close_output_socket = true;
 
+    thread_data->data.is_input_running = false;
+
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data.input_port);
 
     return 0;
@@ -378,6 +382,8 @@ connection_output_handler (void* parameter)
     int len_epdu;
     int done_output_connection = 0;
     void * seance_data = NULL;
+
+    thread_data->data.is_output_running = true;
 
     logMsg(LOG_INFO, "Start new connection_output_handler on output_port %d\n", thread_data->data.output_port);
 
@@ -483,6 +489,7 @@ connection_output_handler (void* parameter)
     close(thread_data->output_local);
     servers[thread_data->data.id].close_output_socket = false;
 
+    thread_data->data.is_output_running = false;
     logMsg(LOG_INFO,"Disconnect on output_port %d\n", thread_data->data.output_port);
 
     return 0;
@@ -498,55 +505,57 @@ serverInputThread (void* parameter)
 
     server->is_input_running = true;
     server->is_input_starting = false;
+    server->is_input_connected = false;
 
     SOCKET socket_local;
 
     while (server->stop_input_running == false) {
+        if(!server->is_input_connected) {
+            fd_set read_set;
+            FD_ZERO(&read_set);
+            FD_SET(server->input, &read_set);
 
-        fd_set read_set;
-        FD_ZERO(&read_set);
-        FD_SET(server->input, &read_set);
+            struct timeval timeout;
+            timeout.tv_sec = 1;
+            timeout.tv_usec = 0;
 
-        struct timeval timeout;
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
+            int select_res = select(server->input + 1, &read_set, NULL, NULL, &timeout);
+            if(select_res == -1) {
+                break;
+            } else if(select_res == 0) {
+                continue;
+            }
 
-        int select_res = select(server->input + 1, &read_set, NULL, NULL, &timeout);
-        if(select_res == -1) {
-            break;
-        } else if(select_res == 0) {
-            continue;
-        }
-
-        if(FD_ISSET(server->input, &read_set)) {
-            if (0 <= (socket_local = accept(server->input, (struct sockaddr *) NULL, NULL)))
-            {
-                int flags = fcntl(socket_local, F_GETFL, 0);
-                if(fcntl(socket_local, F_SETFL, flags|O_NONBLOCK) < 0) {
-                    logMsg(LOG_DEBUG, "accept fcntl ERROR\n");
-                    close(socket_local);
-                    continue;
-                }
-
-                logMsg(LOG_INFO, "Connection accepted on input_port %d\n", server->input_port);
-
-                if(connections_data != NULL) {
-
-                    connections_data->input_local = socket_local;
-                   
-                    logMsg(LOG_DEBUG, "Start thread create\n");
-
-                    Thread thread = Thread_create(connection_input_handler, (void *) connections_data, true);
-
-                    if (thread != NULL) {
-                        Thread_start(thread);
-                        logMsg(LOG_DEBUG, "Handler assigned\n");
-                    } else {
-                        logMsg(LOG_DEBUG, "Thread not create\n");
+            if(FD_ISSET(server->input, &read_set)) {
+                if (0 <= (socket_local = accept(server->input, (struct sockaddr *) NULL, NULL)))
+                {
+                    int flags = fcntl(socket_local, F_GETFL, 0);
+                    if(fcntl(socket_local, F_SETFL, flags|O_NONBLOCK) < 0) {
+                        logMsg(LOG_DEBUG, "accept fcntl ERROR\n");
+                        close(socket_local);
+                        continue;
                     }
-                } else {
-                    logMsg(LOG_DEBUG, "Malloc ERROR\n");
-                    close(socket_local);
+
+                    logMsg(LOG_INFO, "Connection accepted on input_port %d\n", server->input_port);
+
+                    if(connections_data != NULL) {
+
+                        connections_data->input_local = socket_local;
+                    
+                        logMsg(LOG_DEBUG, "Start thread create\n");
+
+                        Thread thread = Thread_create(connection_input_handler, (void *) connections_data, true);
+
+                        if (thread != NULL) {
+                            Thread_start(thread);
+                            logMsg(LOG_DEBUG, "Handler assigned\n");
+                        } else {
+                            logMsg(LOG_DEBUG, "Thread not create\n");
+                        }
+                    } else {
+                        logMsg(LOG_DEBUG, "Malloc ERROR\n");
+                        close(socket_local);
+                    }
                 }
             }
         }
@@ -575,54 +584,57 @@ serverOutputThread (void* parameter)
 
     server->is_output_running = true;
     server->is_output_starting = false;
+    server->is_output_connected = false;
 
     SOCKET socket_local;
 
     while (server->stop_output_running == false) {
+        if(!server->is_output_connected) {
 
-        fd_set read_set;
-        FD_ZERO(&read_set);
-        FD_SET(server->output, &read_set);
+            fd_set read_set;
+            FD_ZERO(&read_set);
+            FD_SET(server->output, &read_set);
 
-        struct timeval timeout;
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
+            struct timeval timeout;
+            timeout.tv_sec = 1;
+            timeout.tv_usec = 0;
 
-        int select_res = select(server->output + 1, &read_set, NULL, NULL, &timeout);
-        if(select_res == -1) {
-            break;
-        } else if(select_res == 0) {
-            continue;
-        }
+            int select_res = select(server->output + 1, &read_set, NULL, NULL, &timeout);
+            if(select_res == -1) {
+                break;
+            } else if(select_res == 0) {
+                continue;
+            }
 
-        if(FD_ISSET(server->output, &read_set)) {
-            if (0 <= (socket_local = accept(server->output, (struct sockaddr *) NULL, NULL)))
-            {
-                int flags = fcntl(socket_local, F_GETFL, 0);
-                if(fcntl(socket_local, F_SETFL, flags|O_NONBLOCK) < 0) {
-                    logMsg(LOG_DEBUG, "accept fcntl ERROR\n");
-                    close(socket_local);
-                    continue;
-                }
-
-                logMsg(LOG_INFO, "Connection accepted on output_port %d\n", server->output_port);
-
-                if(connections_data != NULL) {
-                    connections_data->output_local = socket_local;
-
-                    logMsg(LOG_DEBUG, "Start thread create\n");
-
-                    Thread thread = Thread_create(connection_output_handler, (void *) connections_data, true);
-
-                    if (thread != NULL) {
-                        Thread_start(thread);
-                        logMsg(LOG_DEBUG, "Handler assigned\n");
-                    } else {
-                        logMsg(LOG_DEBUG, "Thread not create\n");
+            if(FD_ISSET(server->output, &read_set)) {
+                if (0 <= (socket_local = accept(server->output, (struct sockaddr *) NULL, NULL)))
+                {
+                    int flags = fcntl(socket_local, F_GETFL, 0);
+                    if(fcntl(socket_local, F_SETFL, flags|O_NONBLOCK) < 0) {
+                        logMsg(LOG_DEBUG, "accept fcntl ERROR\n");
+                        close(socket_local);
+                        continue;
                     }
-                } else {
-                    logMsg(LOG_DEBUG, "Malloc ERROR\n");
-                    close(socket_local);
+
+                    logMsg(LOG_INFO, "Connection accepted on output_port %d\n", server->output_port);
+
+                    if(connections_data != NULL) {
+                        connections_data->output_local = socket_local;
+
+                        logMsg(LOG_DEBUG, "Start thread create\n");
+
+                        Thread thread = Thread_create(connection_output_handler, (void *) connections_data, true);
+
+                        if (thread != NULL) {
+                            Thread_start(thread);
+                            logMsg(LOG_DEBUG, "Handler assigned\n");
+                        } else {
+                            logMsg(LOG_DEBUG, "Thread not create\n");
+                        }
+                    } else {
+                        logMsg(LOG_DEBUG, "Malloc ERROR\n");
+                        close(socket_local);
+                    }
                 }
             }
         }
