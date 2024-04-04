@@ -4,6 +4,7 @@
 #include <sys/time.h>
 
 #include "logMsg.h"
+#include "time_counter.h"
 
 static proxy_server_thread_data_t threads_data;
 
@@ -81,6 +82,7 @@ server_input_thread (void* parameter)
     restart_input_thread:;
 
     int len_apdu;
+    uint64_t last_exchange_time = get_time_counter();
 
     logMsg(LOG_INFO, "Restart input server\n");
 
@@ -120,6 +122,15 @@ server_input_thread (void* parameter)
             continue;
         }
 
+        /*if(get_time_counter() - last_exchange_time > 900) {
+            // останавливаем внутренний порт
+            threads_data.data.stop_running_output = true;
+
+            logMsg(LOG_INFO, "Restart by timeout Input thread\n");
+
+            goto restart_input_thread;
+        }*/
+
         if(FD_ISSET(threads_data.data.input, &read_set)) {
 
             server_output_start();
@@ -137,6 +148,7 @@ server_input_thread (void* parameter)
 
                 // останавливаем внутренний порт
                 threads_data.data.stop_running_output = true;
+                close(threads_data.data.input);
 
                 Thread_sleep(1000);
 
@@ -147,6 +159,8 @@ server_input_thread (void* parameter)
 
             int remaining = len_apdu;
             int sent = 0;
+
+            last_exchange_time = get_time_counter();
 
             do {
                 int result = send(threads_data.data.output,

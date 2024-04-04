@@ -21,7 +21,7 @@ static uint64_t last_monotonic_time;
 int main(int argc, char** argv) {
     logMsg(LOG_DEBUG, "Start...");
     logMsgInit();
-    logMsgOpen("../logs/module_net_port.log");
+    logMsgOpen("logs/module_net_port.log");
     logMsg(LOG_DEBUG, "Start logger...");
 
     signal_init();
