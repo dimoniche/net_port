@@ -51,6 +51,12 @@ init_sockets()
         return -2;
     }
 
+    int optval = 1;
+    if(0 > setsockopt(*(socket_in), SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval))) {
+        logMsg(LOG_ERR, "setsockopt() input error\n");
+        return -2;
+    }
+
     if (0 > (*(socket_out) = socket(AF_INET, SOCK_STREAM, 0)))
     {
         logMsg(LOG_ERR, "socket() output error\n");
@@ -110,19 +116,7 @@ server_input_thread (void* parameter)
         FD_ZERO(&read_set);
         FD_SET(threads_data.data.input, &read_set);
 
-        struct timeval timeout;
-        timeout.tv_sec = 1;
-        timeout.tv_usec = 0;
-
-        int select_res = select(threads_data.data.input + 1, &read_set, NULL, NULL, &timeout);
-        if(select_res == -1) {
-            break;
-        } else if(select_res == 0) {
-            Thread_sleep(1);
-            continue;
-        }
-
-        if(get_time_counter() - last_exchange_time > 300) {
+        if(get_time_counter() - last_exchange_time > 120) {
             // останавливаем внутренний порт
             threads_data.data.stop_running_output = true;
             close(threads_data.data.input);
@@ -130,6 +124,19 @@ server_input_thread (void* parameter)
             logMsg(LOG_INFO, "Restart by timeout Input thread\n");
 
             goto restart_input_thread;
+        }
+
+        struct timeval timeout;
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 0;
+
+        int select_res = select(threads_data.data.input + 1, &read_set, NULL, NULL, &timeout);
+        logMsg(LOG_DEBUG, "Result select %d\n", select_res);
+
+        if(select_res == -1) {
+            break;
+        } else if(select_res == 0) {
+            continue;
         }
 
         if(FD_ISSET(threads_data.data.input, &read_set)) {
