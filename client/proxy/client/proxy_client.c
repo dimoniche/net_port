@@ -122,14 +122,15 @@ server_input_thread (void* parameter)
             continue;
         }
 
-        /*if(get_time_counter() - last_exchange_time > 900) {
+        if(get_time_counter() - last_exchange_time > 300) {
             // останавливаем внутренний порт
             threads_data.data.stop_running_output = true;
+            close(threads_data.data.input);
 
             logMsg(LOG_INFO, "Restart by timeout Input thread\n");
 
             goto restart_input_thread;
-        }*/
+        }
 
         if(FD_ISSET(threads_data.data.input, &read_set)) {
 
