@@ -82,6 +82,8 @@ server_input_thread (void* parameter)
 
     int len_apdu;
 
+    logMsg(LOG_INFO, "Restart input server\n");
+
     init_sockets();
 
     if (0 > connect(threads_data.data.input, (struct sockaddr *) &threads_data.data.input_addr,
@@ -196,7 +198,7 @@ server_input_thread (void* parameter)
 
     close(threads_data.data.input);
 
-    logMsg(LOG_INFO,"Exit server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.input_port);
+    logMsg(LOG_INFO,"Exit input server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.input_port);
 
     if(threads_data.data.stop_running_input == false) goto restart_input_thread;
 
@@ -209,6 +211,8 @@ void*
 server_output_thread (void* parameter)
 {
     int len_apdu;
+
+    logMsg(LOG_INFO, "Start output server\n");
 
     if (0 > connect(threads_data.data.output, (struct sockaddr *) &threads_data.data.output_addr,
                     sizeof(threads_data.data.output_addr)))
@@ -309,9 +313,9 @@ server_output_thread (void* parameter)
         Thread_sleep(10);
     }
 
-    close(threads_data.data.input);
+    close(threads_data.data.output);
 
-    logMsg(LOG_INFO,"Exit server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.output_port);
+    logMsg(LOG_INFO,"Exit output server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.output_port);
 
     threads_data.data.is_running_output = false;
 
