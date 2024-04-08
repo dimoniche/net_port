@@ -29,7 +29,7 @@ const api = axios.create({
 });
 
 const validationSchema = yup.object({
-    login: yup
+    name: yup
         .string('Введите логин')
         .required('Логин не указан'),
     password: yup
@@ -58,12 +58,12 @@ const Login = (props) => {
     }, []);
 
     const authHandler = async (values) => {
-        const { login, password } = values;
+        const { name, password } = values;
         setSubmitting(true);
         try {
             const { data } = await api.post('/authentication', {
                 strategy: AUTH_STRATEGY,
-                login,
+                name,
                 password
             });
 
@@ -78,7 +78,7 @@ const Login = (props) => {
             //updateAbility(props.ability, user);
 
             if (props.resetError != undefined) props.resetError();
-            history.push('/main');
+            history('/');
         } catch (error) {
             console.log(JSON.stringify(error.message)); // TODO: Add winston or other logger solution
 
@@ -89,7 +89,7 @@ const Login = (props) => {
 
     const formik = useFormik({
         initialValues: {
-            login: '',
+            name: '',
             password: '',
         },
         validationSchema: validationSchema,
@@ -122,14 +122,14 @@ const Login = (props) => {
                         }}
                         autoFocus={true}
                         disabled={isSubmitting}
-                        error={formik.touched.login && Boolean(formik.errors.login)}
+                        error={formik.touched.name && Boolean(formik.errors.name)}
                         fullWidth
                         label="Логин"
                         margin="normal"
-                        name="login"
+                        name="name"
                         onChange={formik.handleChange}
                         type="text"
-                        value={formik.values.login}
+                        value={formik.values.name}
                         variant="outlined"
                     />
                     <FormControl fullWidth variant="outlined">

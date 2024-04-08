@@ -7,5 +7,6 @@
         "proxy_server.h": "c",
         "proxy_client.h": "c",
         "logmsg.h": "c"
-    }
+    },
+    "git.ignoreLimitWarning": true
 }

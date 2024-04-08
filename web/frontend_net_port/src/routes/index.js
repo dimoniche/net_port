@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { useCookies } from 'react-cookie';
 import CssBaseline from '@mui/material/CssBaseline';
+import isEmpty from 'lodash/isEmpty';
 
 import Main from '../pages/Main';
 import NotFound from '../pages/NotFound';
@@ -11,15 +12,26 @@ import Settings from '../pages/Settings';
 
 import {
     Route,
-    Routes
+    Routes,
+    Navigate
 } from 'react-router-dom';
+
+function RequireAuth({ children }) {
+    const [cookies] = useCookies();
+  
+    if (isEmpty(cookies.token)) {
+      return <Navigate to="/login" />;
+    }
+  
+    return children;
+  }
 
 const AppRoutes = (props) => {
     return (
         <Suspense fallback={<div>Загрузка...</div>}>
             <Routes>
-                <Route exact path="/" element={<MainLayout><Main/></MainLayout>}/>
-                <Route exact path="/settings" element={<MainLayout><Settings/></MainLayout>}/>
+                <Route exact path="/" element={<RequireAuth><MainLayout><Main/></MainLayout></RequireAuth>}/>
+                <Route exact path="/settings" element={<RequireAuth><MainLayout><Settings/></MainLayout></RequireAuth>}/>
 
                 <Route path='/login' element={<CssBaseline><Login/></CssBaseline>}/>
                 <Route path='*' element={<CssBaseline><NotFound/></CssBaseline>}/>

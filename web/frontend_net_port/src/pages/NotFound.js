@@ -44,7 +44,7 @@ const NotFound = () => {
                     }}
                 >
                     <Button
-                        onClick={() => history.push('/')}
+                        onClick={() => history('/')}
                         variant="contained"
                     >назад</Button>
                 </Box>

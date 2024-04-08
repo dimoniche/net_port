@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { useTheme } from '@mui/material/styles';
+import { useCookies } from 'react-cookie';
+import { useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
 import Drawer from '@mui/material/Drawer';
@@ -18,16 +20,26 @@ import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
 import isEmpty from 'lodash/isEmpty';
 import Button from '@mui/material/Button';
+import Tooltip from '@mui/material/Tooltip';
+import ExitToAppIcon from '@mui/icons-material/ExitToApp';
 
 import { mainNavSection, minorNavSection } from "../routes";
 import { AppBar, DrawerHeader, Main, drawerWidth } from './MainLayout.styles';
 
 export default function PersistentDrawerLeft({ children, ...rest }) {
     const theme = useTheme();
+    const [cookies, , removeCookie] = useCookies();
+    const history = useNavigate();
 
     const [open, setOpen] = React.useState(true);
     const handleDrawerOpen = () => setOpen(true);
     const handleDrawerClose = () => setOpen(false);
+
+    const handleLogout = () => {
+        removeCookie('token');
+        removeCookie('user');
+        history('/login');
+    };
 
     return (
         <React.Fragment>
@@ -51,9 +63,21 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                 component="div"
                                 sx={{ flexGrow: 1 }}
                             >
-                                КОНФИГУРАТОР
+                                NET PORT
                             </Typography>
-
+                            <Tooltip title="Текущий пользователь">
+                                <Typography>
+                                    {cookies.user != undefined ? cookies.user.name : ''}
+                                </Typography>
+                            </Tooltip>
+                            <Tooltip title="Выход">
+                                <IconButton
+                                    color="inherit"
+                                    onClick={handleLogout}
+                                >
+                                    <ExitToAppIcon />
+                                </IconButton>
+                            </Tooltip>
                         </Toolbar>
                     </AppBar>
                 </Box>

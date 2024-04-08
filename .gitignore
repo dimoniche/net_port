@@ -2,3 +2,6 @@
 /.idea
 /cmake-build*
 /build
+node_modules
+combined.log
+error.log
