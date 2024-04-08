@@ -4,6 +4,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import theme from './theme';
 
 import AppRoutes from './routes';
+import Login from './pages/Login';
 
 function App() {
   return (
