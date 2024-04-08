@@ -5,12 +5,12 @@ const theme = createTheme({
 
     palette: {
         background: {
-            default: colors.common.white, //'#969ba3',
+            default: colors.common.white,
             paper: colors.common.white
         },
         primary: {
             contrastText: '#ffffff',
-            main: '#f1602c'
+            main: '#00602c'
         },
         text: {
             primary: '#1e1e1e',

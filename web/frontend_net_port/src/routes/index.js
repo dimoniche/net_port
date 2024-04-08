@@ -1,43 +1,33 @@
 import React, { Suspense, lazy } from 'react';
+import { useCookies } from 'react-cookie';
 
 import Main from '../pages/Main';
+import MainLayout from '../components/MainLayout';
+
+import Settings from '../pages/Settings';
 
 import {
     Route,
-    Switch,
-    Redirect
+    Routes
 } from 'react-router-dom';
-
-//<MainLayout {...rest}>{children}</MainLayout>
-
-const ProtectedRoute = ({ children, ...rest }) => {
-    return (
-        <Route
-            {...rest}
-            render={() =>
-                {children}
-            }
-        ></Route>
-    );
-};
 
 const AppRoutes = (props) => {
     return (
         <Suspense fallback={<div>Загрузка...</div>}>
-            <Switch>
-                <ProtectedRoute exact path='/'><Redirect to='/main' /></ProtectedRoute>
-                <ProtectedRoute path='/main'><Main /></ProtectedRoute>
-            </Switch>
+            <Routes>
+                <Route exact path="/" element={<MainLayout><Main/></MainLayout>}/>
+                <Route exact path="/settings" element={<MainLayout><Settings/></MainLayout>}/>
+            </Routes>
         </Suspense>
     )
 };
 
 const mainNavSection = [
-    { title: 'Главная', href: '/main', name: 'MainTitle' },
+    { title: 'Главная', href: '/', name: 'MainTitle' },
 ];
 
 const minorNavSection = [
-    { title: 'Параметры УСПД', href: '/conf', name: 'MainTitle' },
+    { title: 'Параметры', href: '/settings', name: 'MainTitle' },
 ];
 
 export default AppRoutes;
