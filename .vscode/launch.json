@@ -43,6 +43,20 @@
                     "ignoreFailures": true
                 }
             ]
+        },
+        {
+            "name": "Deploy server",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceRoot}/web/deploy/main.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Build netport image",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceRoot}/web/deploy/build.py",
+            "console": "integratedTerminal"
         }
     ]
 }

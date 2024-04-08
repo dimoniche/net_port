@@ -33,7 +33,7 @@ const AppRoutes = (props) => {
                 <Route exact path="/" element={<RequireAuth><MainLayout><Main/></MainLayout></RequireAuth>}/>
                 <Route exact path="/settings" element={<RequireAuth><MainLayout><Settings/></MainLayout></RequireAuth>}/>
 
-                <Route path='/login' element={<CssBaseline><Login/></CssBaseline>}/>
+                <Route exact path='/login' element={<CssBaseline><Login/></CssBaseline>}/>
                 <Route path='*' element={<CssBaseline><NotFound/></CssBaseline>}/>
             </Routes>
         </Suspense>
