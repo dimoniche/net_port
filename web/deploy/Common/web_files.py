@@ -9,9 +9,9 @@ def send_files_to_server(ip, user, password):
     ftp_client = client.open_sftp()
 
     print("Send backend")
-    ftp_client.put("result\\backend.tgz", '/root/backend.tgz')
+    ftp_client.put("web\\result\\backend.tgz", '/root/backend.tgz')
     print("Send frontend")
-    ftp_client.put("result\\frontend.tgz", '/root/frontend.tgz')
+    ftp_client.put("web\\result\\frontend.tgz", '/root/frontend.tgz')
 
     ftp_client.close()
 
@@ -28,7 +28,7 @@ def extract_server(ip, user, password):
     status_command = stdout.channel.recv_exit_status()
     # удаляем папку с backend
     print("Delete folder Backend")
-    stdin, stdout, stderr = client.exec_command('rm -r /root/net_port_ui')
+    stdin, stdout, stderr = client.exec_command('rm -r /root/net_port_ui/backend_net_port')
     status_command = stdout.channel.recv_exit_status()
     # Распаковываем backend
     print("Extract backend")

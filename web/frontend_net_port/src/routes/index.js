@@ -30,10 +30,11 @@ const AppRoutes = (props) => {
     return (
         <Suspense fallback={<div>Загрузка...</div>}>
             <Routes>
-                <Route exact path="/" element={<RequireAuth><MainLayout><Main/></MainLayout></RequireAuth>}/>
-                <Route exact path="/settings" element={<RequireAuth><MainLayout><Settings/></MainLayout></RequireAuth>}/>
+                <Route path="/" element={<Navigate to="/main" />}/>
+                <Route path="/main" element={<RequireAuth><MainLayout><Main/></MainLayout></RequireAuth>}/>
+                <Route path="/settings" element={<RequireAuth><MainLayout><Settings/></MainLayout></RequireAuth>}/>
 
-                <Route exact path='/login' element={<CssBaseline><Login/></CssBaseline>}/>
+                <Route path='/login' element={<CssBaseline><Login/></CssBaseline>}/>
                 <Route path='*' element={<CssBaseline><NotFound/></CssBaseline>}/>
             </Routes>
         </Suspense>

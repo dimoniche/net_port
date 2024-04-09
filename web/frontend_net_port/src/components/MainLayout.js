@@ -104,32 +104,6 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                     <Divider />
                         <NavBlock navData={minorNavSection} />
                     <Divider />
-                    <Box
-                        sx={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                        }}
-                    >
-                        <List>
-                            <ListItem
-                                style={{ position: "fixed", bottom: "0" }}
-                            >
-                                <Stack direction="row" spacing={1} justifyContent="flex-start" alignItems="center" >
-                                    <Button
-                                        sx={{
-                                            color: 'text.secondary',
-                                            fontWeight: 'medium',
-                                            textTransform: 'none'
-                                        }}
-                                    >
-                                        <span>
-                                            Конфигурирование
-                                        </span>
-                                    </Button>
-                                </Stack>
-                            </ListItem>
-                        </List>
-                    </Box>
                 </Drawer>
                 <Main open={open}>
                     <DrawerHeader />

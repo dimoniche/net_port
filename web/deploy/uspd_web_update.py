@@ -7,8 +7,8 @@ import shutil
 def uspd_web_update(build, ssh_ip, ssh_user, ssh_password):
 
     # создаем архив с backend
-    inFolder = "backend_net_port"
-    outFolder = "result"
+    inFolder = "web\\backend_net_port"
+    outFolder = "web\\result"
 
     if not os.path.isdir(outFolder):
         os.makedirs(outFolder)
@@ -22,7 +22,7 @@ def uspd_web_update(build, ssh_ip, ssh_user, ssh_password):
     print("success\n")
 
     # создаем сборку frontend
-    inFolder =  "frontend_net_port"
+    inFolder =  "web\\frontend_net_port"
     print("Create client: " + inFolder)
 
     if not os.path.isdir(inFolder + '\\node_modules'):
@@ -37,7 +37,7 @@ def uspd_web_update(build, ssh_ip, ssh_user, ssh_password):
     print("success\n")
 
     # создаем архив с frontend
-    inFolder = "frontend_net_port\\build"
+    inFolder = "web\\frontend_net_port\\build"
 
     print("Create tar with backend in folder: " + outFolder)
     web_files.make_tarfile(outFolder + "\\frontend.tgz", inFolder)
