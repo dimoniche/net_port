@@ -29,7 +29,7 @@ const api = axios.create({
 });
 
 const validationSchema = yup.object({
-    name: yup
+    login: yup
         .string('Введите логин')
         .required('Логин не указан'),
     password: yup
@@ -58,12 +58,12 @@ const Login = (props) => {
     }, []);
 
     const authHandler = async (values) => {
-        const { name, password } = values;
+        const { login, password } = values;
         setSubmitting(true);
         try {
             const { data } = await api.post('/authentication', {
                 strategy: AUTH_STRATEGY,
-                name,
+                login,
                 password
             });
 
@@ -89,7 +89,7 @@ const Login = (props) => {
 
     const formik = useFormik({
         initialValues: {
-            name: '',
+            login: '',
             password: '',
         },
         validationSchema: validationSchema,
@@ -122,14 +122,14 @@ const Login = (props) => {
                         }}
                         autoFocus={true}
                         disabled={isSubmitting}
-                        error={formik.touched.name && Boolean(formik.errors.name)}
+                        error={formik.touched.login && Boolean(formik.errors.login)}
                         fullWidth
                         label="Логин"
                         margin="normal"
-                        name="name"
+                        name="login"
                         onChange={formik.handleChange}
                         type="text"
-                        value={formik.values.name}
+                        value={formik.values.login}
                         variant="outlined"
                     />
                     <FormControl fullWidth variant="outlined">

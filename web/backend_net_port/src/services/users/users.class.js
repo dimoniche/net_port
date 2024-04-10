@@ -13,13 +13,8 @@ exports.Users = class Users extends Service {
 
   async update(id, data) {
     const user = await this.get(id);
-    if (user.name == 'admin') {
-      if (data.password != undefined && user.password != data.password) {
-        data = { password: data.password };
-      } else {
-        return await this.find();
-      }
-    }
+
+    console.log(data);
 
     await this.db1
       .from('users')
@@ -32,7 +27,7 @@ exports.Users = class Users extends Service {
 
   async remove(id) {
     const user = await this.get(id);
-    if (user.name == 'admin') return await this.find();
+    if (user.login == 'admin') return await this.find();
 
     await this.db1
       .from('users')

@@ -67,7 +67,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                             </Typography>
                             <Tooltip title="Текущий пользователь">
                                 <Typography>
-                                    {cookies.user != undefined ? cookies.user.name : ''}
+                                    {cookies.user != undefined ? cookies.user.login : ''}
                                 </Typography>
                             </Tooltip>
                             <Tooltip title="Выход">

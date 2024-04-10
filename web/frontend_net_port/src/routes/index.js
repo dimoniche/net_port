@@ -9,6 +9,7 @@ import MainLayout from '../components/MainLayout';
 import Login from '../pages/Login';
 
 import Settings from '../pages/Settings';
+import Servers from '../pages/Servers';
 
 import {
     Route,
@@ -33,6 +34,7 @@ const AppRoutes = (props) => {
                 <Route path="/" element={<Navigate to="/main" />}/>
                 <Route path="/main" element={<RequireAuth><MainLayout><Main/></MainLayout></RequireAuth>}/>
                 <Route path="/settings" element={<RequireAuth><MainLayout><Settings/></MainLayout></RequireAuth>}/>
+                <Route path="/servers" element={<RequireAuth><MainLayout><Servers/></MainLayout></RequireAuth>}/>
 
                 <Route path='/login' element={<CssBaseline><Login/></CssBaseline>}/>
                 <Route path='*' element={<CssBaseline><NotFound/></CssBaseline>}/>
@@ -42,11 +44,12 @@ const AppRoutes = (props) => {
 };
 
 const mainNavSection = [
-    { title: 'Главная', href: '/', name: 'MainTitle' },
+    { title: 'Главная', href: '/main', name: 'MainTitle' },
 ];
 
 const minorNavSection = [
-    { title: 'Параметры', href: '/settings', name: 'MainTitle' },
+    { title: 'Профиль', href: '/settings', name: 'MainTitle' },
+    { title: 'Серверы', href: '/servers', name: 'MainTitle' },
 ];
 
 export default AppRoutes;
