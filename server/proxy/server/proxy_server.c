@@ -63,6 +63,7 @@ server_input_init(proxy_server_t * server)
     server->is_input_running = false;
     server->is_input_starting = false;
     server->close_input_socket = false;
+    server->is_input_connected = false;
 
     return init_input_socket(server);
 }
@@ -74,6 +75,7 @@ server_output_init(proxy_server_t * server)
     server->is_output_running = false;
     server->is_output_starting = false;
     server->close_output_socket = false;
+    server->is_output_connected = false;
 
     return init_output_socket(server);
 }
@@ -262,7 +264,7 @@ connection_input_handler (void* parameter)
     int done_output_connection = 0;
     void * seance_data = NULL;
 
-    thread_data->data.is_input_running = true;
+    thread_data->data.is_input_connected = true;
 
     logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data.input_port);
 
@@ -368,7 +370,7 @@ connection_input_handler (void* parameter)
     close(thread_data->input_local);
     servers[thread_data->data.id].close_output_socket = true;
 
-    thread_data->data.is_input_running = false;
+    thread_data->data.is_input_connected = false;
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data.input_port);
 
