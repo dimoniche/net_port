@@ -33,12 +33,11 @@ switcher_servers_start()
 }
 
 int
-init_sockets()
+init_input_sockets()
 {
     int ret = 1;
 
     SOCKET * socket_in = &threads_data.data.input;
-    SOCKET * socket_out = &threads_data.data.output;
 
     if (0 > (*(socket_in) = socket(AF_INET, SOCK_STREAM, 0)))
     {
@@ -57,6 +56,22 @@ init_sockets()
         return -2;
     }
 
+    memset(&threads_data.data.input_addr, 0, sizeof(threads_data.data.input_addr));
+
+    threads_data.data.input_addr.sin_family = AF_INET;
+    threads_data.data.input_addr.sin_addr.s_addr = inet_addr(threads_data.data.input_address);
+    threads_data.data.input_addr.sin_port = htons(threads_data.data.input_port);
+
+    return 0;
+}
+
+int
+init_output_sockets()
+{
+    int ret = 1;
+
+    SOCKET * socket_out = &threads_data.data.output;
+
     if (0 > (*(socket_out) = socket(AF_INET, SOCK_STREAM, 0)))
     {
         logMsg(LOG_ERR, "socket() output error\n");
@@ -68,12 +83,7 @@ init_sockets()
         return -2;
     }
 
-    memset(&threads_data.data.input_addr, 0, sizeof(threads_data.data.input_addr));
     memset(&threads_data.data.output_addr, 0, sizeof(threads_data.data.output_addr));
-
-    threads_data.data.input_addr.sin_family = AF_INET;
-    threads_data.data.input_addr.sin_addr.s_addr = inet_addr(threads_data.data.input_address);
-    threads_data.data.input_addr.sin_port = htons(threads_data.data.input_port);
 
     threads_data.data.output_addr.sin_family = AF_INET;
     threads_data.data.output_addr.sin_addr.s_addr = inet_addr(threads_data.data.output_address);
@@ -92,7 +102,7 @@ server_input_thread (void* parameter)
 
     logMsg(LOG_INFO, "Restart input server\n");
 
-    init_sockets();
+    init_input_sockets();
 
     if (0 > connect(threads_data.data.input, (struct sockaddr *) &threads_data.data.input_addr,
                     sizeof(threads_data.data.input_addr)))
@@ -127,11 +137,10 @@ server_input_thread (void* parameter)
         }
 
         struct timeval timeout;
-        timeout.tv_sec = 5;
+        timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
         int select_res = select(threads_data.data.input + 1, &read_set, NULL, NULL, &timeout);
-        logMsg(LOG_DEBUG, "Result select %d\n", select_res);
 
         if(select_res == -1) {
             break;
@@ -158,7 +167,7 @@ server_input_thread (void* parameter)
                 threads_data.data.stop_running_output = true;
                 close(threads_data.data.input);
 
-                Thread_sleep(1000);
+                Thread_sleep(10);
 
                 logMsg(LOG_INFO, "Restart Input thread\n");
 
@@ -169,6 +178,16 @@ server_input_thread (void* parameter)
             int sent = 0;
 
             last_exchange_time = get_time_counter();
+
+            while(!threads_data.data.is_running_output) {
+                Thread_sleep(10);
+
+                if(get_time_counter() - last_exchange_time > 120) {
+
+                    logMsg(LOG_INFO, "Restart Input thread if output no started\n");
+                    goto restart_input_thread;
+                }
+            }
 
             do {
                 int result = send(threads_data.data.output,
@@ -235,6 +254,8 @@ server_output_thread (void* parameter)
     int len_apdu;
 
     logMsg(LOG_INFO, "Start output server\n");
+
+    init_output_sockets();
 
     if (0 > connect(threads_data.data.output, (struct sockaddr *) &threads_data.data.output_addr,
                     sizeof(threads_data.data.output_addr)))
