@@ -9,6 +9,7 @@ import MainLayout from '../components/MainLayout';
 import Login from '../pages/Login';
 
 import Settings from '../pages/Settings';
+import UserSettingsEdit from '../pages/UsersSettings/UserSettingsEdit';
 import Servers from '../pages/Servers';
 
 import {
@@ -33,7 +34,10 @@ const AppRoutes = (props) => {
             <Routes>
                 <Route path="/" element={<Navigate to="/main" />}/>
                 <Route path="/main" element={<RequireAuth><MainLayout><Main/></MainLayout></RequireAuth>}/>
+
                 <Route path="/settings" element={<RequireAuth><MainLayout><Settings/></MainLayout></RequireAuth>}/>
+                <Route path="/settings/user" element={<RequireAuth><MainLayout><UserSettingsEdit/></MainLayout></RequireAuth>}/>
+
                 <Route path="/servers" element={<RequireAuth><MainLayout><Servers/></MainLayout></RequireAuth>}/>
 
                 <Route path='/login' element={<CssBaseline><Login/></CssBaseline>}/>
