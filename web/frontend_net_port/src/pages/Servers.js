@@ -14,7 +14,7 @@ import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 
 import { Loader } from '../components/Loader';
-import { ServerSettingsData } from './ServerSettings/ServerSettingsData';
+import ServerSettingsData from './ServerSettings/ServerSettingsData';
 import CommonDialog from '../components/CommonDialog';
 
 const Servers = () => {

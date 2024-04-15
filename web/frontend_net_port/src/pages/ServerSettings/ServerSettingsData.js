@@ -62,4 +62,4 @@ const ServerSettingsData = ({ data, editHandler }) => (
     </>
 );
 
-export { ServerSettingsData };
+export default ServerSettingsData;

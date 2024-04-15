@@ -18,7 +18,7 @@ import isEmpty from 'lodash/isEmpty';
 
 const InputFieldWidth = { width: '100%' };
 
-const ServerSettingsEdit = () => {
+const NewServerSettingsData = () => {
     const serverId = useParams();
     const { api } = useContext(ApiContext);
     const history = useNavigate();
@@ -35,40 +35,7 @@ const ServerSettingsEdit = () => {
     }
 
     useEffect(() => {
-        const abortController = new AbortController();
 
-        async function fetchData(abortController) {
-            let response_error = false;
-            setChangedData(false);
-
-            const server = await api
-                .get(`/servers/${serverId.id}`, {
-                    signal: abortController.signal
-                })
-                .catch((err) => {
-                    response_error = true;
-                    setError(err);
-                    setAddError(true);
-                });
-
-            if (response_error) return;
-            if (abortController.signal.aborted) return;
-
-            if (server.status == 200) {
-                formik.setValues({
-                    input_port: server.data[0].input_port,
-                    output_port: server.data[0].output_port,
-                    description: server.data[0].description
-                });
-
-                setServerData(serverData);
-            }
-        }
-        fetchData(abortController);
-
-        return () => {
-            //abortController.abort();
-        }
     }, [])
 
     const formHandler = async (values) => {
@@ -76,10 +43,15 @@ const ServerSettingsEdit = () => {
         setAddError(false);
 
         var data;
-        data = { input_port: values.input_port, output_port: values.output_port, description: values.description };
+        data = { 
+            input_port: formik.values.input_port, 
+            output_port: formik.values.output_port, 
+            description: formik.values.description,
+            user_id: cookies.user.id
+        };
 
         try {
-            api.put(`/servers/${serverId}`, data)
+            api.post(`/servers`, data)
                 .then(response => {
                     setSubmitting(false);
                     history(-1);
@@ -130,7 +102,7 @@ const ServerSettingsEdit = () => {
                             display: 'flex',
                             flexDirection: 'column',
                         }}>
-                            <span>Редактирование настроек сервера</span>
+                            <span>Настройки нового сервера</span>
                             <Box sx={{ mt: 2, flexGrow: 1 }}>
                             <Grid container spacing={1}>
                                 <Divider sx={{ mb: 2 }} />
@@ -219,4 +191,4 @@ const ServerSettingsEdit = () => {
     );
 };
 
-export default ServerSettingsEdit;
+export default NewServerSettingsData;

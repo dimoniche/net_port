@@ -11,6 +11,7 @@ import Login from '../pages/Login';
 import Settings from '../pages/Settings';
 import UserSettingsEdit from '../pages/UsersSettings/UserSettingsEdit';
 import ServerSettingsEdit from '../pages/ServerSettings/ServerSettingsEdit';
+import NewServerSettingsData from '../pages/ServerSettings/NewServerSettingsData';
 import Servers from '../pages/Servers';
 
 import {
@@ -41,6 +42,7 @@ const AppRoutes = (props) => {
 
                 <Route path="/servers" element={<RequireAuth><MainLayout><Servers/></MainLayout></RequireAuth>}/>
                 <Route path="/servers/edit/:id" element={<RequireAuth><MainLayout><ServerSettingsEdit/></MainLayout></RequireAuth>}/>
+                <Route path="/servers/new" element={<RequireAuth><MainLayout><NewServerSettingsData/></MainLayout></RequireAuth>}/>
 
                 <Route path='/login' element={<CssBaseline><Login/></CssBaseline>}/>
                 <Route path='*' element={<CssBaseline><NotFound/></CssBaseline>}/>
@@ -56,6 +58,7 @@ const mainNavSection = [
 const minorNavSection = [
     { title: 'Профиль', href: '/settings', name: 'MainTitle' },
     { title: 'Серверы', href: '/servers', name: 'MainTitle' },
+    { title: 'Статистика', href: '/statistic', name: 'MainTitle' },
 ];
 
 export default AppRoutes;

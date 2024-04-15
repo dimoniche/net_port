@@ -17,4 +17,13 @@ exports.Servers = class Servers {
       .where('user_id', Number(id))
       .select();
   }
+
+  async create(data) {
+
+    await this.db
+      .insert(data)
+      .into('servers');
+
+    return await this.find();
+  }
 };
