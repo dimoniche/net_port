@@ -308,6 +308,10 @@ server_output_thread (void* parameter)
             int remaining = len_apdu;
             int sent = 0;
 
+            while(!threads_data.data.is_running_input) {
+                Thread_sleep(10);
+            }
+
             do {
                 int result = send(threads_data.data.input,
                                 (const char *)&threads_data.receive_output[sent],
