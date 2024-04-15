@@ -10,6 +10,8 @@ import Login from '../pages/Login';
 
 import Settings from '../pages/Settings';
 import UserSettingsEdit from '../pages/UsersSettings/UserSettingsEdit';
+import NewUserSettingsData from '../pages/UsersSettings/NewUserSettingsData';
+
 import ServerSettingsEdit from '../pages/ServerSettings/ServerSettingsEdit';
 import NewServerSettingsData from '../pages/ServerSettings/NewServerSettingsData';
 import Servers from '../pages/Servers';
@@ -23,10 +25,6 @@ import {
 function RequireAuth({ children }) {
     const [cookies] = useCookies();
   
-    if (isEmpty(cookies.token)) {
-      return <Navigate to="/login" />;
-    }
-  
     return children;
   }
 
@@ -39,6 +37,7 @@ const AppRoutes = (props) => {
 
                 <Route path="/settings" element={<RequireAuth><MainLayout><Settings/></MainLayout></RequireAuth>}/>
                 <Route path="/settings/user" element={<RequireAuth><MainLayout><UserSettingsEdit/></MainLayout></RequireAuth>}/>
+                <Route path="/settings/user/new" element={<CssBaseline><NewUserSettingsData/></CssBaseline>}/>
 
                 <Route path="/servers" element={<RequireAuth><MainLayout><Servers/></MainLayout></RequireAuth>}/>
                 <Route path="/servers/edit/:id" element={<RequireAuth><MainLayout><ServerSettingsEdit/></MainLayout></RequireAuth>}/>

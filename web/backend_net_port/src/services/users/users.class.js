@@ -39,6 +39,8 @@ exports.Users = class Users extends Service {
 
   async create(data) {
 
+    console.log(data);
+    
     await this.db1
       .insert(data)
       .into('users');

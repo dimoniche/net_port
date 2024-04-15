@@ -22,9 +22,12 @@ import isEmpty from 'lodash/isEmpty';
 import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
 import ExitToAppIcon from '@mui/icons-material/ExitToApp';
+import LoginIcon from '@mui/icons-material/Login';
+import Modal from '@mui/material/Modal';
 
 import { mainNavSection, minorNavSection } from "../routes";
 import { AppBar, DrawerHeader, Main, drawerWidth } from './MainLayout.styles';
+import Login from "../pages/Login";
 
 export default function PersistentDrawerLeft({ children, ...rest }) {
     const theme = useTheme();
@@ -35,10 +38,21 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const handleDrawerOpen = () => setOpen(true);
     const handleDrawerClose = () => setOpen(false);
 
+    const [openLogin, setOpenLogin] = React.useState(false);
+
     const handleLogout = () => {
         removeCookie('token');
         removeCookie('user');
-        history('/login');
+    };
+
+    const handleLogin = () => {
+        //history('/login');
+        setOpenLogin(true);
+    };
+
+    const handleClose = () => {
+        //history('/login');
+        setOpenLogin(false);
     };
 
     return (
@@ -70,6 +84,8 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                     {cookies.user != undefined ? cookies.user.login : ''}
                                 </Typography>
                             </Tooltip>
+                            {
+                                cookies.user != undefined ?
                             <Tooltip title="Выход">
                                 <IconButton
                                     color="inherit"
@@ -77,7 +93,16 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                 >
                                     <ExitToAppIcon />
                                 </IconButton>
-                            </Tooltip>
+                            </Tooltip> : 
+                            <Tooltip title="Вход">
+                            <IconButton
+                                color="inherit"
+                                onClick={handleLogin}
+                            >
+                                <LoginIcon />
+                            </IconButton>
+                            </Tooltip>                            
+                            }
                         </Toolbar>
                     </AppBar>
                 </Box>
@@ -110,6 +135,16 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                     {children}
                 </Main>                
             </Box>
+            <Modal
+                aria-labelledby="unstyled-modal-title"
+                aria-describedby="unstyled-modal-description"
+                align-items="center"
+                justify-content="center"
+                open={openLogin}
+                onClose={handleClose}
+            >
+                <Login></Login>
+            </Modal>
         </React.Fragment>
     );
 }

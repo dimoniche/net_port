@@ -20,6 +20,7 @@ import IconButton from '@mui/material/IconButton';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import FormControl from '@mui/material/FormControl';
+import Grid from '@mui/material/Grid';
 
 //import updateAbility from "../config/permission";
 
@@ -86,6 +87,11 @@ const Login = (props) => {
             setAuthError(true);
         }
     }
+
+    const registerUser = () => {
+        console.log("!!!!");
+        history('/settings/user/new');
+    };
 
     const formik = useFormik({
         initialValues: {
@@ -160,6 +166,8 @@ const Login = (props) => {
                         />
                     </FormControl>
                     <Box sx={{ py: 2 }}>
+                    <Grid container spacing={1}>
+                    <Grid item xs={6}>
                         <Button
                             color="primary"
                             disabled={isSubmitting}
@@ -170,6 +178,20 @@ const Login = (props) => {
                         >
                             Вход
                         </Button>
+                    </Grid>
+                    <Grid item xs={6}>
+                        <Button
+                            color="primary"
+                            disabled={isSubmitting}
+                            fullWidth
+                            size="large"
+                            onClick={registerUser}
+                            variant="contained"
+                        >
+                            Регистрация
+                        </Button>
+                    </Grid>
+                    </Grid>
                     </Box>
                     {authError && <Alert
                         severity="error"
