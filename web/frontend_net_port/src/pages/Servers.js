@@ -39,7 +39,7 @@ const Servers = () => {
             let response_error = false;
 
             const servers = await api
-                .get(`/servers/${cookies.user.id}`, {
+                .get(`/servers/0?user_id=${cookies.user.id}`, {
                     signal: abortController.signal
                 })
                 .catch((err) => {
@@ -86,32 +86,34 @@ const Servers = () => {
     };
 
     return (
+        <>
+        <TableContainer component={Paper} sx={{ maxWidth: 540, mt: 2 }}>
+            <Table sx={{ minWidth: 450 }} aria-label="simple table">
+                <TableBody>
+                    <TableRow
+                        sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                    >
+                        <TableCell component="th" scope="row">
+                            <b>Сервер</b>
+                        </TableCell>
+                        <TableCell align="right">
+                            <Button
+                                color="primary"
+                                size="large"
+                                variant="contained"
+                                type="submit"
+                                onClick={() => { newHandler(); }}
+                            >
+                                Добавить
+                            </Button>
+                        </TableCell>
+                    </TableRow>
+                </TableBody>
+            </Table>
+        </TableContainer>
+        {
         isLoaded && !isEmpty(serversData) ?
             <>
-                <TableContainer component={Paper} sx={{ maxWidth: 540, mt: 2 }}>
-                    <Table sx={{ minWidth: 450 }} aria-label="simple table">
-                        <TableBody>
-                            <TableRow
-                                sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
-                            >
-                                <TableCell component="th" scope="row">
-                                    <b>Сервер</b>
-                                </TableCell>
-                                <TableCell align="right">
-                                    <Button
-                                        color="primary"
-                                        size="large"
-                                        variant="contained"
-                                        type="submit"
-                                        onClick={() => { newHandler(); }}
-                                    >
-                                        Добавить
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        </TableBody>
-                    </Table>
-                </TableContainer>
                 {serversData.sort(function (a, b) { return a.id - b.id; }).map((rs) => <ServerSettingsData key={rs.id} data={rs}
                     editHandler={() => {
                         editHandler(rs.id);
@@ -128,7 +130,9 @@ const Servers = () => {
                     handleSubmit={() => removeModalHandler()}
                 />
             </> :
-            <Loader />
+            <Loader title={'Доступных серверов нет'}/>
+        }
+        </>
     )
 };
 

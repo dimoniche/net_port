@@ -1,6 +1,6 @@
 import React from 'react';
 
-//import { Ability } from "@casl/ability";
+import { Ability } from "@casl/ability";
 import { AbilityContext } from "./components/Abilities";
 import { NotificationsProvider, setUpNotifications } from 'reapop';
 import { ThemeProvider } from '@mui/material/styles';
@@ -19,17 +19,17 @@ setUpNotifications({
     }
 });
 
-//const ability = new Ability();
+const ability = new Ability();
 
 function ErrorFallback({ error, resetErrorBoundary }) {
     console.log("page error", error);
 
-    if (error.response != undefined && error.response.status == 401) {
+    /*if (error.response != undefined && error.response.status == 401) {
         return (
             <Login reloginFlag={true} resetError={resetErrorBoundary} error={error}/>
         )
     }
-    else if (error.response != undefined && error.response.status == 403) {
+    else*/ if (error.response != undefined && error.response.status == 403) {
         return (
             <ErrorsPage message={"Нет прав доступа."} resetError={resetErrorBoundary} />
         )
@@ -49,16 +49,16 @@ function ErrorFallback({ error, resetErrorBoundary }) {
 
 const App = () => {
   return (
-      //<AbilityContext.Provider value={ability}>
+      <AbilityContext.Provider value={ability}>
           <ThemeProvider theme={theme}>
               <NotificationsProvider>
                   <Notifcations />
                   <ErrorBoundary FallbackComponent={ErrorFallback}>
-                      <AppRoutes />
+                      <AppRoutes ability={ability}/>
                   </ErrorBoundary>
               </NotificationsProvider>
           </ThemeProvider>
-      //</AbilityContext.Provider>
+      </AbilityContext.Provider>
   )
 };
 

@@ -15,11 +15,11 @@ module.exports = {
     get: [authenticate('jwt')],
     create: [hashPassword('password')],
     update: [hashPassword('password'), authenticate('jwt'),checkPermissions({
-      roles: [ 'admin' ],
+      roles: [ 'admin', 'user' ],
       field: 'role_name'
     })],
     patch: [hashPassword('password'), authenticate('jwt'),checkPermissions({
-      roles: [ 'admin' ],
+      roles: [ 'admin', 'user' ],
       field: 'role_name'
     })],
     remove: [authenticate('jwt'),checkPermissions({

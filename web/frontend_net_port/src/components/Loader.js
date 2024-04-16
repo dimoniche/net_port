@@ -3,7 +3,7 @@ import Paper from '@mui/material/Paper';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 
-const Loader = () => (
+const Loader = ({ title }) => (
     <Paper sx={{
         mt: 1,
         mb: 1,
@@ -15,7 +15,7 @@ const Loader = () => (
         justifyContent: 'center',
     }}>
         <Container maxWidth="sm">
-            <Typography align="center">Данные загружаются</Typography>
+            <Typography align="center">{title}</Typography>
         </Container>
     </Paper>
 );

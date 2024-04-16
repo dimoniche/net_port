@@ -55,6 +55,17 @@ const ServerSettingsData = ({ data, editHandler }) => (
                                 Редактировать
                             </Button>
                         </TableCell>
+                        <TableCell component="th" scope="row">
+                            <Button
+                                sx={{
+                                    mt: 2,
+                                }}
+                                variant="outlined"
+                                onClick={editHandler}
+                            >
+                                Статистика
+                            </Button>
+                        </TableCell>
                     </StyledTableRow>
                 </TableBody>
             </Table>

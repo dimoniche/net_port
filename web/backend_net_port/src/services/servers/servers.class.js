@@ -11,11 +11,19 @@ exports.Servers = class Servers {
       .select();
   }
 
-  async get(id) {
-    return this.db
-      .from('servers')
-      .where('user_id', Number(id))
-      .select();
+  async get(id, param) {
+
+    if (param.query.user_id == null) {
+      return this.db
+        .from('servers')
+        .where('id', Number(id))
+        .select();
+    } else {
+      return this.db
+        .from('servers')
+        .where('user_id', Number(param.query.user_id))
+        .select();
+    }
   }
 
   async create(data) {

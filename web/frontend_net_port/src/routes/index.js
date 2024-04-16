@@ -1,16 +1,13 @@
 import React, { Suspense, lazy } from 'react';
 import { useCookies } from 'react-cookie';
 import CssBaseline from '@mui/material/CssBaseline';
-import isEmpty from 'lodash/isEmpty';
 
 import Main from '../pages/Main';
 import NotFound from '../pages/NotFound';
 import MainLayout from '../components/MainLayout';
-import Login from '../pages/Login';
 
 import Settings from '../pages/Settings';
 import UserSettingsEdit from '../pages/UsersSettings/UserSettingsEdit';
-import NewUserSettingsData from '../pages/UsersSettings/NewUserSettingsData';
 
 import ServerSettingsEdit from '../pages/ServerSettings/ServerSettingsEdit';
 import NewServerSettingsData from '../pages/ServerSettings/NewServerSettingsData';
@@ -33,14 +30,14 @@ const AppRoutes = (props) => {
         <Suspense fallback={<div>Загрузка...</div>}>
             <Routes>
                 <Route path="/" element={<Navigate to="/main" />}/>
-                <Route path="/main" element={<RequireAuth><MainLayout><Main/></MainLayout></RequireAuth>}/>
+                <Route path="/main" element={<RequireAuth><MainLayout ability={props.ability}><Main/></MainLayout></RequireAuth>}/>
 
-                <Route path="/settings" element={<RequireAuth><MainLayout><Settings/></MainLayout></RequireAuth>}/>
-                <Route path="/settings/user" element={<RequireAuth><MainLayout><UserSettingsEdit/></MainLayout></RequireAuth>}/>
+                <Route path="/settings" element={<RequireAuth><MainLayout ability={props.ability}><Settings/></MainLayout></RequireAuth>}/>
+                <Route path="/settings/user" element={<RequireAuth><MainLayout ability={props.ability}><UserSettingsEdit/></MainLayout></RequireAuth>}/>
 
-                <Route path="/servers" element={<RequireAuth><MainLayout><Servers/></MainLayout></RequireAuth>}/>
-                <Route path="/servers/edit/:id" element={<RequireAuth><MainLayout><ServerSettingsEdit/></MainLayout></RequireAuth>}/>
-                <Route path="/servers/new" element={<RequireAuth><MainLayout><NewServerSettingsData/></MainLayout></RequireAuth>}/>
+                <Route path="/servers" element={<RequireAuth><MainLayout ability={props.ability}><Servers/></MainLayout></RequireAuth>}/>
+                <Route path="/servers/edit/:id" element={<RequireAuth><MainLayout ability={props.ability}><ServerSettingsEdit/></MainLayout></RequireAuth>}/>
+                <Route path="/servers/new" element={<RequireAuth><MainLayout ability={props.ability}><NewServerSettingsData/></MainLayout></RequireAuth>}/>
 
                 <Route path='*' element={<CssBaseline><NotFound/></CssBaseline>}/>
             </Routes>
@@ -53,9 +50,8 @@ const mainNavSection = [
 ];
 
 const minorNavSection = [
-    { title: 'Профиль', href: '/settings', name: 'MainTitle' },
-    { title: 'Серверы', href: '/servers', name: 'MainTitle' },
-    { title: 'Статистика', href: '/statistic', name: 'MainTitle' },
+    { title: 'Профиль', href: '/settings', name: 'Config' },
+    { title: 'Серверы', href: '/servers', name: 'Config' },
 ];
 
 export default AppRoutes;

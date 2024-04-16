@@ -58,7 +58,7 @@ const Settings = () => {
         <UserSettingsData key='usersettings' data={userSettings} editHandler={() => {
             editRSSettingHandler();
         }} />
-        </> : <Loader />
+        </> : <Loader title={'Данные загружаются'}/>
     )
 };
 

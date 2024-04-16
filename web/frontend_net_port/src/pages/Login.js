@@ -22,7 +22,7 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import FormControl from '@mui/material/FormControl';
 import Grid from '@mui/material/Grid';
 
-//import updateAbility from "../config/permission";
+import updateAbility from "../config/permission";
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -76,12 +76,12 @@ const Login = (props) => {
             setAuthError(false);
             authCtx.setAuthState(true); // FIX: change authCtx usage
 
-            //updateAbility(props.ability, user);
+            updateAbility(props.ability, user);
 
             if (props.resetError != undefined) props.resetError();
             history('/');
         } catch (error) {
-            console.log(JSON.stringify(error.message)); // TODO: Add winston or other logger solution
+            console.log(error); // TODO: Add winston or other logger solution
 
             setSubmitting(false);
             setAuthError(true);
