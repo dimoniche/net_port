@@ -54,6 +54,8 @@ def extract_server(ip, user, password):
     status_command = stdout.channel.recv_exit_status()
     stdin, stdout, stderr = client.exec_command('rm -rf /root/build')
     status_command = stdout.channel.recv_exit_status()
+    stdin, stdout, stderr = client.exec_command('systemctl restart nginx')
+    status_command = stdout.channel.recv_exit_status()
 
     print("Frontend is extracted...")
     print("Path: /var/www/netport/\n")
