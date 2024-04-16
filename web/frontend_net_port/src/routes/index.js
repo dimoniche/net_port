@@ -37,13 +37,11 @@ const AppRoutes = (props) => {
 
                 <Route path="/settings" element={<RequireAuth><MainLayout><Settings/></MainLayout></RequireAuth>}/>
                 <Route path="/settings/user" element={<RequireAuth><MainLayout><UserSettingsEdit/></MainLayout></RequireAuth>}/>
-                <Route path="/settings/user/new" element={<CssBaseline><NewUserSettingsData/></CssBaseline>}/>
 
                 <Route path="/servers" element={<RequireAuth><MainLayout><Servers/></MainLayout></RequireAuth>}/>
                 <Route path="/servers/edit/:id" element={<RequireAuth><MainLayout><ServerSettingsEdit/></MainLayout></RequireAuth>}/>
                 <Route path="/servers/new" element={<RequireAuth><MainLayout><NewServerSettingsData/></MainLayout></RequireAuth>}/>
 
-                <Route path='/login' element={<CssBaseline><Login/></CssBaseline>}/>
                 <Route path='*' element={<CssBaseline><NotFound/></CssBaseline>}/>
             </Routes>
         </Suspense>

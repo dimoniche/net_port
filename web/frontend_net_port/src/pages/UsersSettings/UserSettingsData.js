@@ -53,14 +53,6 @@ const UserSettingsData = ({ data, editHandler }) => (
                         sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                     >
                         <TableCell component="th" scope="row">
-                            <b>Телефон</b>
-                        </TableCell>
-                        <TableCell align="right">{data.phone || '---'}</TableCell>
-                    </StyledTableRow>
-                    <StyledTableRow
-                        sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
-                    >
-                        <TableCell component="th" scope="row">
                             <Button
                                 sx={{
                                     mt: 2,

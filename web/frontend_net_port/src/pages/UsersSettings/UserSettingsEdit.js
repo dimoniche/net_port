@@ -174,7 +174,7 @@ const UserSettingsEdit = () => {
             <FormControl fullWidth variant="outlined">
             <TextField
                 sx={InputFieldWidth}
-                label="Пользователь"
+                label="Логин"
                 variant="outlined"
                 onChange={formik.handleChange}
                 onKeyUp={() => {
@@ -282,22 +282,6 @@ const UserSettingsEdit = () => {
             >
             </TextField>
             </Grid>
-            <Grid item xs={6}>
-            <TextField
-                sx={InputFieldWidth}
-                label="телефон"
-                variant="outlined"
-                onChange={formik.handleChange}
-                onKeyUp={() => {
-                    setChangedData(true);
-                }}
-                name="phone"
-                value={formik.values.phone || ''}
-                error={formik.touched.phone && Boolean(formik.errors.phone)}
-            >
-            </TextField>
-            </Grid>
-            <Grid item xs={6}></Grid>
             <Grid item xs={6}>
                 {addError && <Alert
                     severity="error"

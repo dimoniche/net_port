@@ -14,8 +14,6 @@ exports.Users = class Users extends Service {
   async update(id, data) {
     const user = await this.get(id);
 
-    console.log(data);
-
     await this.db1
       .from('users')
       .where('id', Number(id))
@@ -39,12 +37,10 @@ exports.Users = class Users extends Service {
 
   async create(data) {
 
-    console.log(data);
-    
     await this.db1
       .insert(data)
       .into('users');
 
-    return await this.find();
+    return "user add";
   }
 };

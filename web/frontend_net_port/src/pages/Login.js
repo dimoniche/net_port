@@ -89,8 +89,7 @@ const Login = (props) => {
     }
 
     const registerUser = () => {
-        console.log("!!!!");
-        history('/settings/user/new');
+        props.register();
     };
 
     const formik = useFormik({
@@ -103,27 +102,12 @@ const Login = (props) => {
     });
 
     return (
-        <Box
-            sx={{
-                backgroundColor: 'background.default',
-                left: '0',
-                bottom: '0',
-                position: 'absolute',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%',
-                width: '100%',
-                justifyContent: 'center',
-            }}
-        >
-            <Container maxWidth="sm" autoFocus={true}>
                 <form onSubmit={formik.handleSubmit}>
                     <TextField
                         inputProps={{
-                            autocomplete: 'new-password',
+                            autoComplete: 'new-password',
                             form: {
-                                autocomplete: 'off',
+                                autoComplete: 'off',
                             },
                         }}
                         autoFocus={true}
@@ -149,7 +133,7 @@ const Login = (props) => {
                             name="password"
                             value={formik.values.password}
                             error={formik.touched.password && Boolean(formik.errors.password)}
-                            id="outlined-adornment-password"
+                            id="new_outlined-adornment-password"
                             type={showPassword ? 'text' : 'password'}
 
                             endAdornment={
@@ -212,8 +196,6 @@ const Login = (props) => {
                         Время сессии истекло. Пожалуйста, войдите заново.
                     </Alert>}
                 </form>
-            </Container>
-        </Box>
     )
 };
 

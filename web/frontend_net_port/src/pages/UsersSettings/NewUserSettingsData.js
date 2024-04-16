@@ -27,7 +27,7 @@ import Container from '@mui/material/Container';
 
 const InputFieldWidth = { width: '100%' };
 
-const NewUserSettingsData = () => {
+const NewUserSettingsData = (props) => {
     const { userId } = useParams();
     const { api } = useContext(ApiContext);
     const [cookies] = useCookies();
@@ -56,32 +56,41 @@ const NewUserSettingsData = () => {
         var data;
         if (!isEmpty(formik.values.password)) {
             if(formik.values.password == formik.values.repassword) {
-                data = { login: formik.values.login, password: formik.values.password, username: formik.values.username, email: formik.values.email, phone: formik.values.phone };
+                data = { login: formik.values.login, 
+                    password: formik.values.password, 
+                    username: formik.values.username, 
+                    email: formik.values.email, 
+                    phone: formik.values.phone,
+                    role_name: formik.values.role_name
+                 };
             } else {
                 setWrongPassword(true);
                 return;
             }
         } else {
-            data = { login: formik.values.login, username: formik.values.username, email: formik.values.email, phone: formik.values.phone };
+            setAddError(true);
         }
 
         setSubmitting(true);
         setAddError(false);
 
         try {
-            api.put(`/users`, data)
+            api.post(`/users`, data)
                 .then(response => {
                     setSubmitting(false);
-                    history(-1);
+                    props.closeHandle();
                 })
                 .catch(error => {
-                    console.error(error.response);
-                    if (error.response.status == 422) {
+                    console.error(error);
 
+                    if(!isEmpty(error.response)) {
+                        if (error.response.status == 422) {
+
+                        }
+                        if (error.response.status === 401) setError(error);
+                        setSubmitting(false);
+                        setAddError(true);
                     }
-                    if (error.response.status === 401) setError(error);
-                    setSubmitting(false);
-                    setAddError(true);
                 });
         } catch (error) {
             setError(error);
@@ -90,10 +99,6 @@ const NewUserSettingsData = () => {
         }
     };
 
-    const formReset = async (values) => {
-        history(-1);
-    }
-
     const InitValues = {
         login: "",
         password: "",
@@ -101,6 +106,7 @@ const NewUserSettingsData = () => {
         username: "",
         email: "",
         phone: "",
+        role_name: "user"
     };
 
     let Schema = Yup.object({
@@ -122,21 +128,6 @@ const NewUserSettingsData = () => {
 
     return (
         <React.Fragment>
-        <Box
-            sx={{
-                backgroundColor: 'background.default',
-                left: '0',
-                bottom: '0',
-                position: 'absolute',
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%',
-                width: '100%',
-                justifyContent: 'center',
-            }}
-        >
-        <Container  autoFocus={true}>
         <Paper sx={{
             mt: 1,
             mb: 1,
@@ -154,7 +145,7 @@ const NewUserSettingsData = () => {
             <FormControl fullWidth variant="outlined">
             <TextField
                 sx={InputFieldWidth}
-                label="Пользователь"
+                label="Логин"
                 variant="outlined"
                 onChange={formik.handleChange}
                 onKeyUp={() => {
@@ -214,7 +205,7 @@ const NewUserSettingsData = () => {
                         name="repassword"
                         value={formik.values.repassword || ''}
                         error={formik.touched.repassword && Boolean(formik.errors.repassword)}
-                        id="outlined-adornment-password"
+                        id="outlined-adornment-re_password"
                         type={showRePassword ? 'text' : 'password'}
                         endAdornment={
                             <InputAdornment position="end">
@@ -263,22 +254,6 @@ const NewUserSettingsData = () => {
             </TextField>
             </Grid>
             <Grid item xs={6}>
-            <TextField
-                sx={InputFieldWidth}
-                label="телефон"
-                variant="outlined"
-                onChange={formik.handleChange}
-                onKeyUp={() => {
-                    setChangedData(true);
-                }}
-                name="phone"
-                value={formik.values.phone || ''}
-                error={formik.touched.phone && Boolean(formik.errors.phone)}
-            >
-            </TextField>
-            </Grid>
-            <Grid item xs={6}></Grid>
-            <Grid item xs={6}>
                 {addError && <Alert
                     severity="error"
                     variant="filled"
@@ -287,7 +262,8 @@ const NewUserSettingsData = () => {
                     }}
                 >
                     <AlertTitle>Ошибка</AlertTitle>
-                    Ошибка при сохранении настроек пользователя
+                    Ошибка при создании нового пользователя.
+                    Возможно такой пользователь уже существует
                 </Alert>}
             </Grid>
             <Grid item xs={6}></Grid>
@@ -300,23 +276,12 @@ const NewUserSettingsData = () => {
                     variant="contained"
                     onClick={formHandler}
                 >
-                    Сохранить
-                </Button>
-                <> </>
-                <Button
-                    size="large"
-                    variant="outlined"
-                    type="reset"
-                    onClick={formReset}
-                >
-                    Отмена
+                    Добавить
                 </Button>
             </Grid>
             </Grid>
         </Box>
         </Paper>
-        </Container>
-        </Box>
         <CommonDialog
             open={wrongPassword}
             title={"Ошибка"}
@@ -324,7 +289,6 @@ const NewUserSettingsData = () => {
             handleCancel={() => setWrongPassword(false)}
             handleSubmit={() => setWrongPassword(false)}
         />
-
         </React.Fragment>
     );
 };

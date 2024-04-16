@@ -28,6 +28,31 @@ import Modal from '@mui/material/Modal';
 import { mainNavSection, minorNavSection } from "../routes";
 import { AppBar, DrawerHeader, Main, drawerWidth } from './MainLayout.styles';
 import Login from "../pages/Login";
+import NewUserSettingsData from "../pages/UsersSettings/NewUserSettingsData";
+
+const style = {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: 600,
+    bgcolor: 'background.paper',
+    border: '2px solid #000',
+    boxShadow: 24,
+    p: 6,
+};
+
+const styleRegister = {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: 900,
+    bgcolor: 'background.paper',
+    border: '2px solid #000',
+    boxShadow: 24,
+    p: 6,
+};
 
 export default function PersistentDrawerLeft({ children, ...rest }) {
     const theme = useTheme();
@@ -39,6 +64,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const handleDrawerClose = () => setOpen(false);
 
     const [openLogin, setOpenLogin] = React.useState(false);
+    const [openRegister, setOpenRegister] = React.useState(false);
 
     const handleLogout = () => {
         removeCookie('token');
@@ -46,13 +72,21 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     };
 
     const handleLogin = () => {
-        //history('/login');
         setOpenLogin(true);
     };
 
-    const handleClose = () => {
-        //history('/login');
+    const handleCloseLogin = () => {
         setOpenLogin(false);
+    };
+
+    const handleRegister = () => {
+        setOpenLogin(false);
+        setOpenRegister(true);
+    };
+
+    const handleCloseRegister = () => {
+        setOpenRegister(false);
+        setOpenLogin(true);
     };
 
     return (
@@ -141,9 +175,19 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 align-items="center"
                 justify-content="center"
                 open={openLogin}
-                onClose={handleClose}
+                onClose={handleCloseLogin}
             >
-                <Login></Login>
+                <Box sx={style}><Login register={handleRegister}/></Box>
+            </Modal>
+            <Modal
+                aria-labelledby="unstyled-modal-title"
+                aria-describedby="unstyled-modal-description"
+                align-items="center"
+                justify-content="center"
+                open={openRegister}
+                onClose={handleCloseRegister}
+            >
+                <Box sx={styleRegister}><NewUserSettingsData closeHandle={handleCloseRegister}/></Box>
             </Modal>
         </React.Fragment>
     );
