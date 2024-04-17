@@ -194,7 +194,7 @@ server_input_thread (void* parameter)
                                 (const char *)&threads_data.receive_input[sent],
                                 len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                logMsg(LOG_INFO, "Send data to port %d result %d\n", threads_data.data.output_port, result);
+                logMsg(LOG_INFO, "Send data to output_port %d result %d\n", threads_data.data.output_port, result);
 
                 if (result != -1)
                 {
@@ -208,6 +208,7 @@ server_input_thread (void* parameter)
                 else
                 {
                     int err = WSAGetLastError();
+                    logMsg(LOG_INFO, "Send data to output_port %d WSAGetLastError %d\n", threads_data.data.output_port, err);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -224,6 +225,7 @@ server_input_thread (void* parameter)
                         }
 
                         logMsg(LOG_INFO, "Send:: wait\n");
+                        if(!threads_data.data.is_running_output) break;
                     }
                     else
                     {
@@ -231,7 +233,7 @@ server_input_thread (void* parameter)
                         break;
                     }
                 }
-            } while (1);
+            } while (threads_data.data.is_running_output);
         }
 
         Thread_sleep(10);
@@ -317,7 +319,7 @@ server_output_thread (void* parameter)
                                 (const char *)&threads_data.receive_output[sent],
                                 len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                logMsg(LOG_INFO, "Send data to port %d result %d\n", threads_data.data.input_port, result);
+                logMsg(LOG_INFO, "Send data to input_port %d result %d\n", threads_data.data.input_port, result);
 
                 if (result != -1)
                 {
@@ -331,6 +333,7 @@ server_output_thread (void* parameter)
                 else
                 {
                     int err = WSAGetLastError();
+                    logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", threads_data.data.input_port, err);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -347,6 +350,7 @@ server_output_thread (void* parameter)
                         }
 
                         logMsg(LOG_INFO, "Send:: wait\n");
+                        if(!threads_data.data.is_running_input) break;
                     }
                     else
                     {
@@ -354,7 +358,7 @@ server_output_thread (void* parameter)
                         break;
                     }
                 }
-            } while (1);
+            } while (threads_data.data.is_running_input);
         }
 
         Thread_sleep(10);

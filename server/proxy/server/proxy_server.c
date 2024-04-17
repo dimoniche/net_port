@@ -328,6 +328,7 @@ connection_input_handler (void* parameter)
                 if(get_time_counter() - last_exchange_time > 120) {
 
                     logMsg(LOG_INFO, "Restart Input thread if output no started\n");
+                    done_output_connection = 1;
                     break;
                 }
             }
@@ -338,6 +339,7 @@ connection_input_handler (void* parameter)
                 if(get_time_counter() - last_exchange_time > 120) {
 
                     logMsg(LOG_INFO, "Restart Input thread if output no started\n");
+                    done_output_connection = 1;
                     break;
                 }
             }
@@ -362,6 +364,7 @@ connection_input_handler (void* parameter)
                 else
                 {
                     int err = WSAGetLastError();
+                    logMsg(LOG_INFO, "Send data to output_port %d WSAGetLastError %d\n", thread_data->data.output_port, err);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -378,6 +381,8 @@ connection_input_handler (void* parameter)
                         }
 
                         logMsg(LOG_INFO, "Send:: wait");
+                        if(!thread_data->data.is_output_connected) break;
+                        if(thread_data->data.close_input_socket) break;
                     }
                     else
                     {
@@ -491,6 +496,7 @@ connection_output_handler (void* parameter)
                 else
                 {
                     int err = WSAGetLastError();
+                    logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", thread_data->data.input_port, err);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -507,6 +513,8 @@ connection_output_handler (void* parameter)
                         }
 
                         logMsg(LOG_INFO, "Send:: wait\n");
+                        if(!thread_data->data.is_input_connected) break;
+                        if(thread_data->data.close_output_socket) break;
                     }
                     else
                     {
