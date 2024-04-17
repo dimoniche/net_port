@@ -11,11 +11,8 @@
 #define HOST_KEY                "--host"
 #define PORT_KEY                "-p"
 
-#define HOST_KEY_IN                "--host_in"
-#define PORT_KEY_IN                "-p_in"
-
-#define HOST_KEY_OUT                "--host_out"
-#define PORT_KEY_OUT                "-p_out"
+#define USER_ID                "--user"
+#define LOG_FILE               "--log"
 
 #define MODULE_NAME                             "'net_port'"
 #define VERSION PRODUCT_VERSION_MAJOR_MINOR_PATCH_STR

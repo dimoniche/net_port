@@ -55,6 +55,8 @@ const ServerSettingsData = ({ data, editHandler }) => (
                                 Редактировать
                             </Button>
                         </TableCell>
+                        {
+                            false ? 
                         <TableCell component="th" scope="row">
                             <Button
                                 sx={{
@@ -65,7 +67,8 @@ const ServerSettingsData = ({ data, editHandler }) => (
                             >
                                 Статистика
                             </Button>
-                        </TableCell>
+                        </TableCell> : <></>
+                        }
                     </StyledTableRow>
                 </TableBody>
             </Table>

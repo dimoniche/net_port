@@ -28,9 +28,9 @@ void input_server_stop(proxy_server_t * server);
 void input_server_wait_stop(proxy_server_t * server);
 
 int
-servers_init()
+servers_init(uint16_t user_id)
 {
-    int32_t res = get_user_server_ports(1, &servers, &servers_count);
+    int32_t res = get_user_server_ports(user_id, &servers, &servers_count);
 
     if(res < 0) {
         logMsg(LOG_ERR, "Error reading switcher servers\n");
