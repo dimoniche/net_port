@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/server/module_net_port_server-0.0.0",
-            "args": [],
+            "args": ["--user", "1"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],

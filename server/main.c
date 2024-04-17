@@ -22,13 +22,13 @@ static uint64_t last_monotonic_time;
 
 int main(int argc, char** argv) {
     logMsg(LOG_DEBUG, "Start...");
+    logMsgInit();
 
     signal_init();
 
     TDBConnectionData DB_conn_data = {(char*)"127.1", (char*)"5432"};
 
-    char log[128] = {0};
-    uint16_t user_id = 1;
+    uint32_t user_id = 0;
 
     for (int i = 1; i < argc; i++) {
         char* s;
@@ -60,26 +60,22 @@ int main(int argc, char** argv) {
         }
         if (strstr(argv[i], USER_ID) != NULL)
         {
-           if (argv[i+1] != NULL)
-            {
-                sscanf(argv[i+1], "%s", user_id);
-            }
-        }
-        if (strstr(argv[i], LOG_FILE) != NULL)
-        {
             if (argv[i+1] != NULL)
-                log = argv[i+1];
+            {
+                sscanf(argv[i+1], "%d", &user_id);
+            }
+
+            i++;
         }
     }
 
-    logMsgInit();
+    char log[128];
+    sprintf(log, "logs/module_net_port_server_u%d.log", user_id);
     logMsgOpen(log);
     logMsg(LOG_DEBUG, "Start logger...");
-    logMsgOpen(log);
 
     db_init(DB_conn_data.ip, DB_conn_data.port);
 
-    // запускаем все потоки после инициализации криптоинтерфейса
     servers_init(user_id);
     switcher_servers_start();
 

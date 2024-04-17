@@ -86,7 +86,7 @@ typedef struct proxy_server_thread_data_s
  *
  * \return -1 ошибка
  */
-int servers_init(uint16_t user_id);
+int servers_init(uint32_t user_id);
 
 /**
  * \brief Запуск прослушивателей портов

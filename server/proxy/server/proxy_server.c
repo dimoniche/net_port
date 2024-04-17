@@ -28,7 +28,7 @@ void input_server_stop(proxy_server_t * server);
 void input_server_wait_stop(proxy_server_t * server);
 
 int
-servers_init(uint16_t user_id)
+servers_init(uint32_t user_id)
 {
     int32_t res = get_user_server_ports(user_id, &servers, &servers_count);
 
