@@ -131,8 +131,13 @@ server_input_thread (void* parameter)
             threads_data.data.stop_running_output = true;
             close(threads_data.data.input);
 
-            logMsg(LOG_INFO, "Restart by timeout Input thread\n");
+            logMsg(LOG_INFO, "Timeout Input thread");
 
+            while(threads_data.data.is_running_output) {
+                Thread_sleep(10);
+            }
+
+            logMsg(LOG_INFO, "Restart by timeout Input thread\n");
             goto restart_input_thread;
         }
 
@@ -150,7 +155,7 @@ server_input_thread (void* parameter)
 
         if(FD_ISSET(threads_data.data.input, &read_set)) {
 
-            server_output_start();
+            if(threads_data.data.stop_running_input) break;
 
             len_apdu = recv(threads_data.data.input, (char *) threads_data.receive_input, sizeof(threads_data.receive_input), 0);
 
@@ -158,21 +163,24 @@ server_input_thread (void* parameter)
 
             if (len_apdu <= 0) {
                 if(len_apdu == 0) {
-                    logMsg(LOG_INFO, "Output recv() connection closed\n");
+                    logMsg(LOG_INFO, "Input recv() connection closed\n");
                 } else {
-                  logMsg(LOG_ERR, "Output recv() error:: %d\n", WSAGetLastError());
+                  logMsg(LOG_ERR, "Input recv() error:: %d\n", WSAGetLastError());
                 }
 
                 // останавливаем внутренний порт
                 threads_data.data.stop_running_output = true;
                 close(threads_data.data.input);
 
-                Thread_sleep(10);
+                while(threads_data.data.is_running_output) {
+                    Thread_sleep(10);
+                }
 
                 logMsg(LOG_INFO, "Restart Input thread\n");
-
                 goto restart_input_thread;
             }
+
+            server_output_start();
 
             int remaining = len_apdu;
             int sent = 0;
@@ -294,6 +302,8 @@ server_output_thread (void* parameter)
         }
 
         if(FD_ISSET(threads_data.data.output, &read_set)) {
+            if(threads_data.data.stop_running_output) break;
+
             len_apdu = recv(threads_data.data.output, (char *) threads_data.receive_output, sizeof(threads_data.receive_output), 0);
 
             logMsg(LOG_INFO, "Receive data from output port %d: length %d\n",threads_data.data.output_port, len_apdu);
@@ -309,6 +319,8 @@ server_output_thread (void* parameter)
 
             int remaining = len_apdu;
             int sent = 0;
+
+            if(threads_data.data.stop_running_output) break;
 
             while(!threads_data.data.is_running_input) {
                 Thread_sleep(10);
@@ -369,6 +381,7 @@ server_output_thread (void* parameter)
     logMsg(LOG_INFO,"Exit output server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.output_port);
 
     threads_data.data.is_running_output = false;
+    threads_data.data.stop_running_output = false;
 
     return 0;
 }
