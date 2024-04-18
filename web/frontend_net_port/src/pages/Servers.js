@@ -118,14 +118,14 @@ const Servers = () => {
                     editHandler={() => {
                         editHandler(rs.id);
                     }}
-                    deleteHandler={() => {
+                    removeHandle={() => {
                         deleteHandler(rs.id);
                     }}
                 />)}
                 <CommonDialog
                     open={open}
-                    title="Удаление сервера"
-                    content="Вы действительно уверены, что хотите удалить сервер?"
+                    title={"Удаление сервера"}
+                    text={"Вы действительно уверены, что хотите удалить сервер?"}
                     handleCancel={() => setOpen(false)}
                     handleSubmit={() => removeModalHandler()}
                 />

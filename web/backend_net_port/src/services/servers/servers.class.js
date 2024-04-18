@@ -31,7 +31,10 @@ exports.Servers = class Servers {
 
   async remove(id) {
 
-    const server = await this.get(id);
+    const server = await this.db
+      .from('servers')
+      .where('id', Number(id))
+      .first();
 
     await this.db
       .from('servers')
@@ -44,7 +47,10 @@ exports.Servers = class Servers {
 
     await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
   
-    return `server${id} remove`;
+    return this.db
+      .from('servers')
+      .where('user_id', Number(server.user_id))
+      .select();
   }
 
   async create(data) {
