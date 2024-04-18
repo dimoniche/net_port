@@ -8,10 +8,21 @@ exports.Servers = class Servers {
     this.db = dbInstance;
   }
 
-  async find() {
-    return this.db
-      .from('servers')
-      .select();
+  async find(params) {
+
+    if (params.query.inputports != null) {
+      return this.db
+        .from('servers')
+        .select('input_port');
+    } else if (params.query.outputports != null) {
+      return this.db
+        .from('servers')
+        .select('output_port');
+    } else {
+      return this.db
+        .from('servers')
+        .select();
+    }
   }
 
   async get(id, param) {
