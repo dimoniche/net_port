@@ -1,5 +1,9 @@
 'use strict';
 
+const fs = require('fs');
+const util = require('util');
+const exec = util.promisify(require('child_process').exec);
+
 const { Service } = require('feathers-knex');
 
 exports.Users = class Users extends Service {
@@ -20,7 +24,7 @@ exports.Users = class Users extends Service {
       .update(data)
       .returning('*');
 
-    return await this.find();
+    return `user${id} update`;
   }
 
   async remove(id) {
@@ -32,15 +36,61 @@ exports.Users = class Users extends Service {
       .where('id', id)
       .del();
 
-    return await this.find();
+    const command_start_service = 'systemctl';
+    const args_disable_service = 'disable';
+    const args_name_service = `net_port_u${id}`;
+
+    await exec(`${command_start_service} ${args_disable_service} ${args_name_service}`);
+  
+    const filepath = `/etc/systemd/system/net_port_u${id}.service`;
+
+    try {
+      fs.unlinkSync(filepath);
+    } catch (e) {
+      return e;
+    }
+
+    return `user${id} remove`;
   }
 
   async create(data) {
-
-    await this.db1
+    
+    const id = await this.db1
       .insert(data)
-      .into('users');
+      .into('users')
+      .returning('id');
 
-    return "user add";
+    const service = String(`\
+[Unit]\n\
+Description=net port service user ${id}\n\
+After=network.target auditd.service\n\
+\n\
+[Service]\n\
+WorkingDirectory=/root/net_port\n\
+ExecStart=/root/net_port/module_net_port_server-0.0.0 --user ${id}\n\
+User=root\n\
+Type=simple\n\
+Restart=always\n\
+RestartSec=5\n\
+\n\
+[Install]\n\
+WantedBy=multi-user.target\n`);
+  
+    const filepath = `/etc/systemd/system/net_port_u${id}.service`;
+    //const filepath = `C:\\tmp\\net_port_u${id}.service`;
+
+    try {
+      fs.writeFileSync(filepath, service, { flag: "wx" });
+    } catch (e) {
+      return e;
+    }
+
+    const command_start_service = 'systemctl';
+    const args_enable_service = 'enable';
+    const args_name_service = `net_port_u${id}`;
+
+    await exec(`${command_start_service} ${args_enable_service} ${args_name_service}`);
+
+    return `user${id} add`;
   }
 };

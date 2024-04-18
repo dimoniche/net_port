@@ -1,5 +1,8 @@
 'use strict';
 
+const util = require('util');
+const exec = util.promisify(require('child_process').exec);
+
 exports.Servers = class Servers {
   constructor(dbInstance) {
     this.db = dbInstance;
@@ -26,12 +29,36 @@ exports.Servers = class Servers {
     }
   }
 
+  async remove(id) {
+
+    const server = await this.get(id);
+
+    await this.db
+      .from('servers')
+      .where('id', id)
+      .del();
+
+    const command_start_service = 'systemctl';
+    const args_restart_service = 'restart';
+    const args_name_service = `net_port_u${server.user_id}`;
+
+    await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+  
+    return `server${id} remove`;
+  }
+
   async create(data) {
 
     await this.db
       .insert(data)
       .into('servers');
 
-    return await this.find();
+    const command_start_service = 'systemctl';
+    const args_restart_service = 'restart';
+    const args_name_service = `net_port_u${data.user_id}`;
+
+    await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+
+    return `server add`;
   }
 };
