@@ -52,11 +52,15 @@ exports.Servers = class Servers {
       .where('id', id)
       .del();
 
-    const command_start_service = 'systemctl';
-    const args_restart_service = 'restart';
-    const args_name_service = `net_port_u${server.user_id}`;
+    try {
+      const command_start_service = 'systemctl';
+      const args_restart_service = 'restart';
+      const args_name_service = `net_port_u${server.user_id}`;
 
-    await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+      await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+    } catch (e) {
+
+    }
   
     return this.db
       .from('servers')
@@ -70,12 +74,36 @@ exports.Servers = class Servers {
       .insert(data)
       .into('servers');
 
-    const command_start_service = 'systemctl';
-    const args_restart_service = 'restart';
-    const args_name_service = `net_port_u${data.user_id}`;
+    try {
+      const command_start_service = 'systemctl';
+      const args_restart_service = 'restart';
+      const args_name_service = `net_port_u${data.user_id}`;
 
-    await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+      await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+    } catch (e) {
+
+    }
 
     return `server add`;
+  }
+
+  async update(id, data) {
+
+    await this.db
+      .from('servers')
+      .where('id', Number(id))
+      .update(data);
+
+    try {
+      const command_start_service = 'systemctl';
+      const args_restart_service = 'restart';
+      const args_name_service = `net_port_u${data.user_id}`;
+
+      await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+    } catch (e) {
+
+    }
+
+    return `server ${id} updated`;
   }
 };

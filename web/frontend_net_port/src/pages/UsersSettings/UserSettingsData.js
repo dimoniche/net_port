@@ -49,7 +49,7 @@ const UserSettingsData = ({ data, editHandler }) => (
                         </TableCell>
                         <TableCell align="right">{data.email || '---'}</TableCell>
                     </StyledTableRow>
-                    <StyledTableRow
+                    <TableRow
                         sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                     >
                         <TableCell component="th" scope="row">
@@ -63,7 +63,7 @@ const UserSettingsData = ({ data, editHandler }) => (
                                 Редактировать
                             </Button>
                         </TableCell>
-                    </StyledTableRow>
+                    </TableRow>
                 </TableBody>
             </Table>
         </TableContainer>

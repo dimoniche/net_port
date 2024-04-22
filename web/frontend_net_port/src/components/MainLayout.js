@@ -18,6 +18,7 @@ import Tooltip from '@mui/material/Tooltip';
 import ExitToAppIcon from '@mui/icons-material/ExitToApp';
 import LoginIcon from '@mui/icons-material/Login';
 import Modal from '@mui/material/Modal';
+import HelpCenterIcon from '@mui/icons-material/HelpCenter';
 
 import { mainNavSection, minorNavSection } from "../routes";
 import { AppBar, DrawerHeader, Main, drawerWidth } from './MainLayout.styles';
@@ -60,6 +61,10 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const handleDrawerOpen = () => setOpen(true);
     const handleDrawerClose = () => setOpen(false);
 
+    const [openRight, setOpenRight] = React.useState(true);
+    const handleDrawerOpenRight = () => setOpenRight(true);
+    const handleDrawerCloseRight = () => setOpenRight(false);
+
     const [openLogin, setOpenLogin] = React.useState(false);
     const [openRegister, setOpenRegister] = React.useState(false);
 
@@ -100,7 +105,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
             <Box sx={{ display: 'flex' }}>
                 <CssBaseline />
                 <Box sc={{ flexGrow: 1 }}>
-                    <AppBar position="fixed" open={open}>
+                    <AppBar position="fixed" open={open} openRight={openRight}>
                         <Toolbar>
                             <IconButton
                                 color="inherit"
@@ -141,8 +146,19 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                             >
                                 <LoginIcon />
                             </IconButton>
-                            </Tooltip>                            
+                            </Tooltip>
                             }
+                            <Tooltip title="Помощь">
+                            <IconButton
+                                color="inherit"
+                                aria-label="open drawer"
+                                onClick={handleDrawerOpenRight}
+                                edge="start"
+                                sx={{ mr: 2, ...(openRight && { display: 'none' }) }}
+                            >
+                                <HelpCenterIcon />
+                            </IconButton>
+                            </Tooltip>
                         </Toolbar>
                     </AppBar>
                 </Box>
@@ -178,9 +194,30 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                     </Can>
                     <Divider />
                 </Drawer>
-                <Main open={open}>
+                <Drawer
+                    sx={{
+                        flexShrink: 0,
+                        '& .MuiDrawer-paper': {
+                            width: drawerWidth,
+                            boxSizing: 'border-box',
+                        },
+                    }}
+                    variant="persistent"
+                    anchor="right"
+                    open={openRight}
+                >
+                    <Divider />
+                    <DrawerHeader>
+                        <IconButton onClick={handleDrawerCloseRight}>
+                            {theme.direction == 'rtl' ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+                        </IconButton>
+                    </DrawerHeader>
+                    <Divider />
+                </Drawer>
+                <Main open={open} openRight={openRight}>
                     <DrawerHeader />
                     {children}
+                    <DrawerHeader />
                 </Main>                
             </Box>
             <Modal

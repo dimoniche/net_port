@@ -51,8 +51,6 @@ const Servers = () => {
             if (abortController.signal.aborted) return;
 
             if (servers.status === 200) {
-                console.log(servers.data);
-
                 setServersData(servers.data);
                 setIsLoaded(true);
             }
@@ -85,6 +83,27 @@ const Servers = () => {
         }
     };
 
+    const restartServices = () => {
+        var data;
+        data = { user_id: cookies.user.id };
+
+        try {
+            api.put(`/servers/${serversData[0].id}`, data)
+                .then(response => {
+                })
+                .catch(error => {
+                    console.error(error.response);
+                    if (error.response.status == 422) {
+
+                    }
+                    if (error.response.status === 401) setError(error);
+                });
+        } catch (error) {
+            setError(error);
+            console.log(JSON.stringify(error.message));
+        }
+    };
+
     return (
         <>
         <TableContainer component={Paper} sx={{ maxWidth: 540, mt: 2 }}>
@@ -103,8 +122,28 @@ const Servers = () => {
                                 variant="contained"
                                 type="submit"
                                 onClick={() => { newHandler(); }}
+                                disabled={cookies.user.role_name == 'admin' ? false : !isEmpty(serversData) ? serversData.length >= 5 : true}
                             >
                                 Добавить
+                            </Button>
+                        </TableCell>
+                    </TableRow>
+                    <TableRow
+                        sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                    >
+                        <TableCell component="th" scope="row">
+                            <b>Все службы</b>
+                        </TableCell>
+                        <TableCell align="right">
+                            <Button
+                                color="primary"
+                                size="large"
+                                variant="contained"
+                                type="submit"
+                                onClick={() => { restartServices(); }}
+                                disabled={isEmpty(serversData)}
+                            >
+                                Перезагрузить
                             </Button>
                         </TableCell>
                     </TableRow>

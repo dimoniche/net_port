@@ -15,6 +15,8 @@ import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Paper from '@mui/material/Paper';
 import isEmpty from 'lodash/isEmpty';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from "@mui/material/FormControlLabel";
 
 const InputFieldWidth = { width: '100%' };
 
@@ -58,7 +60,8 @@ const ServerSettingsEdit = () => {
                 formik.setValues({
                     input_port: server.data[0].input_port,
                     output_port: server.data[0].output_port,
-                    description: server.data[0].description
+                    description: server.data[0].description,
+                    enable: server.data[0].enable
                 });
 
                 setServerData(serverData);
@@ -76,10 +79,10 @@ const ServerSettingsEdit = () => {
         setAddError(false);
 
         var data;
-        data = { input_port: values.input_port, output_port: values.output_port, description: values.description };
+        data = { input_port: formik.values.input_port, output_port: formik.values.output_port, description: formik.values.description, enable: formik.values.enable, user_id: cookies.user.id };
 
         try {
-            api.put(`/servers/${serverId}`, data)
+            api.put(`/servers/${serverId.id}`, data)
                 .then(response => {
                     setSubmitting(false);
                     history(-1);
@@ -104,16 +107,23 @@ const ServerSettingsEdit = () => {
         history(-1);
     }
 
+    const serverState = () => {
+        setChangedData(true);
+        formik.setFieldValue("enable", !formik.values.enable)
+    }
+
     const InitValues = {
         input_port: "",
         output_port: "",
         description: "",
+        enable: false,
     };
 
     let Schema = Yup.object({
-        input_port: Yup.number().required(),
-        output_port: Yup.number().required(),
+        input_port: Yup.number().min(6000).max(7000).required(),
+        output_port: Yup.number().min(6000).max(7000).required(),
         description: Yup.string(),
+        enable: Yup.boolean(),
     });
 
     const formik = useFormik({
@@ -122,100 +132,112 @@ const ServerSettingsEdit = () => {
     });
 
     return (
-                        <Paper sx={{
-                            mt: 1,
-                            mb: 1,
-                            p: 2,
-                            bottom: '0',
-                            display: 'flex',
-                            flexDirection: 'column',
-                        }}>
-                            <span>Редактирование настроек сервера</span>
-                            <Box sx={{ mt: 2, flexGrow: 1 }}>
-                            <Grid container spacing={1}>
-                                <Divider sx={{ mb: 2 }} />
-                                <Grid item xs={6}>
-                                <TextField
-                                    sx={InputFieldWidth}
-                                    label="Входящий порт"
-                                    variant="outlined"
-                                    onChange={formik.handleChange}
-                                    onKeyUp={() => {
-                                        setChangedData(true);
-                                    }}
-                                    name="input_port"
-                                    value={formik.values.input_port || ''}
-                                    error={formik.touched.input_port && Boolean(formik.errors.input_port)}
-                                >
-                                </TextField>
-                                </Grid>
-                                <Grid item xs={6}>
-                                <TextField
-                                    sx={InputFieldWidth}
-                                    label="Перенаправляемый порт"
-                                    variant="outlined"
-                                    onChange={formik.handleChange}
-                                    onKeyUp={() => {
-                                        setChangedData(true);
-                                    }}
-                                    name="output_port"
-                                    value={formik.values.output_port || ''}
-                                    error={formik.touched.output_port && Boolean(formik.errors.output_port)}
-                                >
-                                </TextField>
-                                </Grid>
-                                <Grid item xs={6}>
-                                <TextField
-                                    sx={InputFieldWidth}
-                                    label="Описание сервера"
-                                    variant="outlined"
-                                    onChange={formik.handleChange}
-                                    onKeyUp={() => {
-                                        setChangedData(true);
-                                    }}
-                                    name="description"
-                                    value={formik.values.description || ''}
-                                    error={formik.touched.description && Boolean(formik.errors.description)}
-                                >
-                                </TextField>
-                                </Grid>
-                                <Grid item xs={6}></Grid>
-                                <Grid item xs={6}>
-                                    <Button
-                                        color="primary"
-                                        disabled={!isChangedData}
-                                        size="large"
-                                        type="submit"
-                                        variant="contained"
-                                        onClick={formHandler}
-                                    >
-                                        Сохранить
-                                    </Button>
-                                    <> </>
-                                    <Button
-                                        size="large"
-                                        variant="outlined"
-                                        type="reset"
-                                        onClick={formReset}
-                                    >
-                                        Отмена
-                                    </Button>
-                                </Grid>
-                                <Grid item xs={6}>
-                                    {addError && <Alert
-                                        severity="error"
-                                        variant="filled"
-                                        onClose={() => {
-                                            setAddError(false);
-                                        }}
-                                    >
-                                        <AlertTitle>Ошибка</AlertTitle>
-                                        Ошибка при сохранении настроек сервера
-                                    </Alert>}
-                                </Grid>
-                            </Grid>
-                            </Box>
-                        </Paper>
+        <Paper sx={{
+            mt: 1,
+            mb: 1,
+            p: 2,
+            bottom: '0',
+            display: 'flex',
+            flexDirection: 'column',
+            maxWidth: 800,
+        }}>
+            <span><b>Редактирование настроек сервера</b></span>
+            <Box sx={{ mt: 2, flexGrow: 1 }}>
+            <Grid container spacing={1}>
+                <Divider sx={{ mb: 2 }} />
+                <Grid item xs={6}>
+                <TextField
+                    sx={InputFieldWidth}
+                    label="Входящий порт"
+                    variant="outlined"
+                    onChange={formik.handleChange}
+                    onKeyUp={() => {
+                        setChangedData(true);
+                    }}
+                    name="input_port"
+                    value={formik.values.input_port || ''}
+                    error={formik.touched.input_port && Boolean(formik.errors.input_port)}
+                    disabled={cookies.user.role_name == 'admin' ? false : true}
+                >
+                </TextField>
+                </Grid>
+                <Grid item xs={6}>
+                <TextField
+                    sx={InputFieldWidth}
+                    label="Перенаправляемый порт"
+                    variant="outlined"
+                    onChange={formik.handleChange}
+                    onKeyUp={() => {
+                        setChangedData(true);
+                    }}
+                    name="output_port"
+                    value={formik.values.output_port || ''}
+                    error={formik.touched.output_port && Boolean(formik.errors.output_port)}
+                    disabled={cookies.user.role_name == 'admin' ? false : true}
+                >
+                </TextField>
+                </Grid>
+                <Grid item xs={6}>
+                <TextField
+                    sx={InputFieldWidth}
+                    label="Описание сервера"
+                    variant="outlined"
+                    onChange={formik.handleChange}
+                    onKeyUp={() => {
+                        setChangedData(true);
+                    }}
+                    name="description"
+                    value={formik.values.description || ''}
+                    error={formik.touched.description && Boolean(formik.errors.description)}
+                >
+                </TextField>
+                </Grid>
+                <Grid item xs={6}></Grid>
+                <Grid item xs={6}>
+                <FormControlLabel control={
+                <Checkbox
+                    checked={formik.values.enable}
+                    onChange={serverState}
+                    inputProps={{ 'aria-label': 'controlled' }}
+                />} label={formik.values.enable ? "Сервер включен" : "Сервер отключен"} />
+                </Grid>
+                <Grid item xs={6}></Grid>
+                <Grid item xs={6}>
+                    <Button
+                        color="primary"
+                        disabled={!isChangedData}
+                        size="large"
+                        type="submit"
+                        variant="contained"
+                        onClick={formHandler}
+                    >
+                        Сохранить
+                    </Button>
+                    <> </>
+                    <Button
+                        size="large"
+                        variant="outlined"
+                        type="reset"
+                        onClick={formReset}
+                    >
+                        Отмена
+                    </Button>
+                </Grid>
+                <Grid item xs={6}>
+                    {addError && <Alert
+                        severity="error"
+                        variant="filled"
+                        onClose={() => {
+                            setAddError(false);
+                        }}
+                    >
+                        <AlertTitle>Ошибка</AlertTitle>
+                        Ошибка при сохранении настроек сервера
+                    </Alert>}
+                </Grid>
+            </Grid>
+            </Box>
+        </Paper>
     );
 };
 

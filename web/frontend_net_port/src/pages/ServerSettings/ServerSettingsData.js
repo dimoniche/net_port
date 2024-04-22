@@ -34,6 +34,14 @@ const ServerSettingsData = ({ data, editHandler, removeHandle }) => (
                     </TableRow>
                 </TableHead>
                 <TableBody>
+                <StyledTableRow
+                        sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                    >
+                        <TableCell component="th" scope="row">
+                            <b>Сервер</b>
+                        </TableCell>
+                        <TableCell align="right">{data.enable ? 'включен' : 'отключен'}</TableCell>
+                    </StyledTableRow>
                     <StyledTableRow
                         sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                     >
@@ -50,7 +58,7 @@ const ServerSettingsData = ({ data, editHandler, removeHandle }) => (
                         </TableCell>
                         <TableCell align="right">{data.output_port || '---'}</TableCell>
                     </StyledTableRow>
-                    <StyledTableRow
+                    <TableRow
                         sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                     >
                         <TableCell component="th" scope="row">
@@ -78,7 +86,7 @@ const ServerSettingsData = ({ data, editHandler, removeHandle }) => (
                             </Button>
                         </TableCell> : <></>
                         }
-                    </StyledTableRow>
+                    </TableRow>
                 </TableBody>
             </Table>
         </TableContainer>

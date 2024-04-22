@@ -13,6 +13,7 @@ const Loader = ({ title }) => (
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
+        width: 800
     }}>
         <Container maxWidth="sm">
             <Typography align="center">{title}</Typography>

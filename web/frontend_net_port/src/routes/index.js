@@ -54,5 +54,9 @@ const minorNavSection = [
     { title: 'Серверы', href: '/servers', name: 'Config' },
 ];
 
+const helpTitle = [
+    { title: 'Главная', name: 'MainTitle' },
+];
+
 export default AppRoutes;
 export { mainNavSection, minorNavSection };

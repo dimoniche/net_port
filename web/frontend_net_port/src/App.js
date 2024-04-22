@@ -6,11 +6,13 @@ import { NotificationsProvider, setUpNotifications } from 'reapop';
 import { ThemeProvider } from '@mui/material/styles';
 import theme from './theme';
 import { ErrorBoundary } from 'react-error-boundary'
+import { useNavigate } from 'react-router-dom';
+import { useCookies } from 'react-cookie';
 
 import AppRoutes from './routes';
-import Login from './pages/Login';
 import ErrorsPage from './errors/ErrorsPage';
 import Notifcations from "./notifications/Notifications";
+import updateAbility from "./config/permission";
 
 setUpNotifications({
     defaultProps: {
@@ -22,14 +24,21 @@ setUpNotifications({
 const ability = new Ability();
 
 function ErrorFallback({ error, resetErrorBoundary }) {
+    const history = useNavigate();
+    const [cookies, , removeCookie] = useCookies();
+
     console.log("page error", error);
 
-    /*if (error.response != undefined && error.response.status == 401) {
-        return (
-            <Login reloginFlag={true} resetError={resetErrorBoundary} error={error}/>
-        )
+    if (error.response != undefined && error.response.status == 401) {
+        removeCookie('token');
+        removeCookie('user');
+        
+        history('/main');
+        updateAbility(ability, null);
+
+        return (<></>)
     }
-    else*/ if (error.response != undefined && error.response.status == 403) {
+    else if (error.response != undefined && error.response.status == 403) {
         return (
             <ErrorsPage message={"Нет прав доступа."} resetError={resetErrorBoundary} />
         )

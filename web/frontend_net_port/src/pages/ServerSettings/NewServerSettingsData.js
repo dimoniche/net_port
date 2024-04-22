@@ -102,7 +102,8 @@ const NewServerSettingsData = () => {
             input_port: formik.values.input_port, 
             output_port: formik.values.output_port, 
             description: formik.values.description,
-            user_id: cookies.user.id
+            user_id: cookies.user.id,
+            enable: true,
         };
 
         try {
@@ -156,8 +157,9 @@ const NewServerSettingsData = () => {
             bottom: '0',
             display: 'flex',
             flexDirection: 'column',
+            maxWidth: 800,
         }}>
-            <span>Настройки нового сервера</span>
+            <span><b>Настройки нового сервера</b></span>
             <Box sx={{ mt: 2, flexGrow: 1 }}>
             <Grid container spacing={1}>
                 <Divider sx={{ mb: 2 }} />
@@ -173,6 +175,7 @@ const NewServerSettingsData = () => {
                     name="input_port"
                     value={formik.values.input_port || ''}
                     error={formik.touched.input_port && Boolean(formik.errors.input_port)}
+                    disabled={cookies.user.role_name == 'admin' ? false : true}
                 >
                 </TextField>
                 </Grid>
@@ -188,6 +191,7 @@ const NewServerSettingsData = () => {
                     name="output_port"
                     value={formik.values.output_port || ''}
                     error={formik.touched.output_port && Boolean(formik.errors.output_port)}
+                    disabled={cookies.user.role_name == 'admin' ? false : true}
                 >
                 </TextField>
                 </Grid>
