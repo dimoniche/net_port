@@ -61,7 +61,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const handleDrawerOpen = () => setOpen(true);
     const handleDrawerClose = () => setOpen(false);
 
-    const [openRight, setOpenRight] = React.useState(true);
+    const [openRight, setOpenRight] = React.useState(false);
     const handleDrawerOpenRight = () => setOpenRight(true);
     const handleDrawerCloseRight = () => setOpenRight(false);
 
