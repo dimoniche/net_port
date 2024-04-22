@@ -43,6 +43,8 @@ typedef struct proxy_server_s
 {
     uint16_t id;
 
+    bool enable;
+
     uint16_t input_port;
     SOCKET input;
     struct sockaddr_in input_addr;

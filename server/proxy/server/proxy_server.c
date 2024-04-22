@@ -42,6 +42,9 @@ servers_init(uint32_t user_id)
     strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
 
     for(int i = 0; i < servers_count; i++) {
+
+        if(!servers[i].enable) continue;
+        
         if(server_input_init(&servers[i]) < 0) {
             servers[i].is_input_enabled = false;
         } else {
@@ -102,6 +105,8 @@ switcher_servers_start()
             continue;
         }
 
+        if(!server->enable) continue;
+        
         if(server->is_input_enabled)
         {
             server_input_start(connections_data);

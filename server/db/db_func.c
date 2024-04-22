@@ -18,7 +18,7 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     char str[128];
     uint16_t nFields, qntuples; // Столбцов/строк
 
-    snprintf(str, sizeof(str), "select input_port,output_port from servers where user_id=%d", user_id);
+    snprintf(str, sizeof(str), "select input_port,output_port,enable from servers where user_id=%d", user_id);
     logMsg(LOG_DEBUG, str);
 
     result = PQexec(get_db_connection(), str);
@@ -67,6 +67,7 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     for (uint16_t i = 0; i < qntuples; i++) {
         (*servers)[i].id = i;
         logMsg(LOG_DEBUG, "id__ = %d", (*servers)[i].id);
+        (*servers)[i].enable = true;
 
         for (uint16_t j = 0; j < nFields; j++) {
             if (!strcmp(PQfname(result, j), "input_port"))
@@ -78,6 +79,16 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
             {
                 (*servers)[i].output_port = strtol(PQgetvalue(result, i, j), NULL, 10);
                 logMsg(LOG_DEBUG, "output_port__ = %d", (*servers)[i].output_port);
+            }
+            if (!strcmp(PQfname(result, j), "enable"))
+            {
+                (*servers)[i].enable = PQgetvalue(result, i, j);
+                if (!strcmp(PQgetvalue(result, i, j), "f"))
+                {
+                    (*servers)[i].enable = false;
+                }
+                
+                logMsg(LOG_DEBUG, "enable = %d", (*servers)[i].enable);
             }
         }
     }
