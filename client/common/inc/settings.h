@@ -17,6 +17,9 @@
 #define HOST_KEY_OUT                "--host_out"
 #define PORT_KEY_OUT                "-p_out"
 
+#define HELP_KEY_FULL               "--help"
+#define HELP_KEY                    "--h"
+
 #define MODULE_NAME                             "'net_port'"
 #define VERSION PRODUCT_VERSION_MAJOR_MINOR_PATCH_STR
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=net port service
+
+[Service]
+WorkingDirectory=/home/pi/net_port
+ExecStart=/home/pi/net_port/module_net_port_client-0.0.1 --host_in 82.146.44.140 -p_in 6001 --host_out 127.0.0.1 -p_out 22
+User=pi
+Type=simple
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

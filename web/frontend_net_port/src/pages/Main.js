@@ -16,32 +16,39 @@ import Grid from '@mui/material/Grid';
 
 import { StyledTableCell, StyledTableRow } from '../theme/TableTheme';
 
+import net_port from '../files/net_port.service';
+
 const Main = () => {
 
     return (
         <Grid container spacing={1}>
+            <Grid item xs={8}>
             <TableContainer component={Paper} sx={{ maxWidth: 800, mt: 1 }}>
             <Table sx={{ minWidth: 800 }} aria-label="simple table">
             <TableBody>
+            <TableRow>
             <TableCell align="left">
             <> Сервис проксирования сетевых портов без выделения IP адреса для клиента.<br/>
                 Скаченный клиент подключается к выделенному порту сервиса (Перенаправляемый порт).<br/>
                 Пользователь подключается к сервису по другому порту (Входящий порт)<br/>
                 <br/>
                 Пример параметров подключения к сервису клиента:<br/>
-                <b>module_net_port_client-0.0.0 --host_in 82.146.44.140 -p_in 6002 --host_out 127.0.0.1 -p_out 22</b><br/>
+                <b>module_net_port_client-0.0.1 --host_in 82.146.44.140 -p_in 6002 --host_out 127.0.0.1 -p_out 22</b><br/>
                 где <b>--host_in</b> - адрес сервиса <br/>
                 <b>-p_in</b> - входящий от сервиса порт (выданный сервисом - перенаправляемый порт сервиса)<br/>
                 <b>--host_out</b> - адрес перенаправления клиента<br/>
                 <b>-p_out</b> - порт перенаправления (22 порт - ssh)<br/>
             </>
             </TableCell>
+            </TableRow>
             </TableBody> 
             </Table>
             </TableContainer>
-            
-            <TableContainer component={Paper} sx={{ maxWidth: 540, mt: 2 }}>
-            <Table sx={{ minWidth: 450 }} aria-label="simple table">
+            </Grid>
+            <Grid item xs={8}></Grid>
+            <Grid item xs={8}>
+            <TableContainer component={Paper} sx={{ maxWidth: 800, mt: 2 }}>
+            <Table sx={{ minWidth: 800 }} aria-label="simple table">
             <TableHead>
             <TableRow
                 sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
@@ -79,6 +86,44 @@ const Main = () => {
             </TableBody>
             </Table>
             </TableContainer>
+            </Grid>
+            <Grid item xs={8}>
+            <TableContainer component={Paper} sx={{ maxWidth: 800, mt: 2 }}>
+            <Table sx={{ minWidth: 800 }} aria-label="simple table">
+            <TableBody>
+            <TableRow>
+            <TableCell align="left">
+                <>
+                При запуске в ОС LInux, можно запускать клиент как сервис с помощью, например <a href={"https://ru.wikipedia.org/wiki/Systemd"}> system.d</a><br/>
+                <br/>
+                <b>Пример запуска:</b><br/>
+                Файл описания сервиса, c названием <a href={net_port} download="net_port.service"> net_port.service </a>:<br/>
+                <br/>
+                <b>[Unit]</b><br/>
+                Description=net port service<br/>
+                <br/>
+                <b>[Service]</b><br/>
+                WorkingDirectory=/home/pi/net_port<br/>
+                ExecStart=/home/pi/net_port/module_net_port_client-0.0.1 --host_in 82.146.44.140 -p_in 6001 --host_out 127.0.0.1 -p_out 22<br/>
+                User=pi<br/>
+                Type=simple<br/>
+                Restart=always<br/>
+                RestartSec=5<br/>
+
+                <b>[Install]</b><br/>
+                WantedBy=multi-user.target<br/>
+                <br/>
+                <b>Для регистрации запуска сервиса:</b><br/>
+                systemctl enable net_port<br/>
+                Затем запуск сервиса<br/>
+                systemctl start net_port<br/>
+                </>
+            </TableCell>
+            </TableRow>
+            </TableBody>
+            </Table>
+            </TableContainer>
+            </Grid>
         </Grid>
     );
 };
