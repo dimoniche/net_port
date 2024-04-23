@@ -79,6 +79,7 @@ int main(int argc, char** argv) {
             if (argv[i+1] != NULL)
             {
                 sscanf(argv[i+1], "%s", settings->input_address);
+                show_help = false;
             }
         }
         if (strstr(argv[i], HOST_KEY_OUT) != NULL)
@@ -86,6 +87,7 @@ int main(int argc, char** argv) {
             if (argv[i+1] != NULL)
             {
                 sscanf(argv[i+1], "%s", settings->output_address);
+                show_help = false;
             }  
         }
         if (strstr(argv[i], PORT_KEY_IN) != NULL)
@@ -101,6 +103,7 @@ int main(int argc, char** argv) {
             if (argv[i+1] != NULL)
             {
                 sscanf(argv[i+1], "%d", &settings->output_port);
+                show_help = false;
             }  
         }
         if (strstr(argv[i], HELP_KEY_FULL) != NULL
