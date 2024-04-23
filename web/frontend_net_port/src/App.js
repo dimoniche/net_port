@@ -12,7 +12,6 @@ import { useCookies } from 'react-cookie';
 import AppRoutes from './routes';
 import ErrorsPage from './errors/ErrorsPage';
 import Notifcations from "./notifications/Notifications";
-import updateAbility from "./config/permission";
 
 setUpNotifications({
     defaultProps: {
@@ -32,10 +31,8 @@ function ErrorFallback({ error, resetErrorBoundary }) {
     if (error.response != undefined && error.response.status == 401) {
         removeCookie('token');
         removeCookie('user');
-        
-        history('/main');
-        updateAbility(ability, null);
 
+        window.location.reload();
         return (<></>)
     }
     else if (error.response != undefined && error.response.status == 403) {

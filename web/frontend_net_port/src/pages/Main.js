@@ -24,9 +24,9 @@ const Main = () => {
 
     return (
         <Grid container spacing={1}>
-            <Grid item xs={8}>
-            <TableContainer component={Paper} sx={{ maxWidth: 800, mt: 1 }}>
-            <Table sx={{ minWidth: 800 }} aria-label="simple table">
+            <Grid item xs={12}>
+            <TableContainer component={Paper} sx={{ maxWidth: 900, mt: 1 }}>
+            <Table sx={{ minWidth: 900 }} aria-label="simple table">
             <TableBody>
             <TableRow>
             <TableCell align="left">
@@ -47,10 +47,10 @@ const Main = () => {
             </Table>
             </TableContainer>
             </Grid>
-            <Grid item xs={8}></Grid>
-            <Grid item xs={8}>
-            <TableContainer component={Paper} sx={{ maxWidth: 800, mt: 2 }}>
-            <Table sx={{ minWidth: 800 }} aria-label="simple table">
+            <Grid item xs={12}></Grid>
+            <Grid item xs={12}>
+            <TableContainer component={Paper} sx={{ maxWidth: 900, mt: 2 }}>
+            <Table sx={{ minWidth: 900 }} aria-label="simple table">
             <TableHead>
             <TableRow
                 sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
@@ -97,9 +97,9 @@ const Main = () => {
             </Table>
             </TableContainer>
             </Grid>
-            <Grid item xs={8}>
-            <TableContainer component={Paper} sx={{ maxWidth: 800, mt: 2 }}>
-            <Table sx={{ minWidth: 800 }} aria-label="simple table">
+            <Grid item xs={12}>
+            <TableContainer component={Paper} sx={{ maxWidth: 900, mt: 2 }}>
+            <Table sx={{ minWidth: 900 }} aria-label="simple table">
             <TableBody>
             <TableRow>
             <TableCell align="left">
