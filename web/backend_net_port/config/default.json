@@ -20,7 +20,7 @@
             "audience": "localhost",
             "issuer": "feathers",
             "algorithm": "HS256",
-            "expiresIn": "1d"
+            "expiresIn": "30s"
         },
         "local": {
             "usernameField": "login",

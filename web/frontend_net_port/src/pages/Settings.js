@@ -28,6 +28,11 @@ const Settings = () => {
         async function fetchData(abortController) {
             let response_error = false;
 
+            if(isEmpty(cookies.user)) {
+                history('/main')
+                return;
+            }
+
             const user = await api
                 .get(`/users?login=${cookies.user.login}`, {
                     signal: abortController.signal

@@ -54,6 +54,11 @@ const UserSettingsEdit = () => {
             let response_error = false;
             setChangedData(false);
 
+            if(isEmpty(cookies.user)) {
+                history('/main')
+                return;
+            }
+
             const user = await api
                 .get(`/users?login=${cookies.user.login}`, {
                     signal: abortController.signal

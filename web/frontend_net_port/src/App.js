@@ -32,7 +32,9 @@ function ErrorFallback({ error, resetErrorBoundary }) {
         removeCookie('token');
         removeCookie('user');
 
+        history('/main')
         window.location.reload();
+
         return (<></>)
     }
     else if (error.response != undefined && error.response.status == 403) {

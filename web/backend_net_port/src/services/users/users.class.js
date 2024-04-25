@@ -16,8 +16,6 @@ exports.Users = class Users extends Service {
   }
 
   async update(id, data) {
-    const user = await this.get(id);
-
     await this.db1
       .from('users')
       .where('id', Number(id))
@@ -80,7 +78,7 @@ WantedBy=multi-user.target\n`);
     //const filepath = `C:\\tmp\\net_port_u${id}.service`;
 
     try {
-      fs.writeFileSync(filepath, service, { flag: "wx" });
+      fs.writeFileSync(filepath, service, { flag: 'wx' });
     } catch (e) {
       return e;
     }

@@ -38,6 +38,11 @@ const Servers = () => {
         async function fetchData(abortController) {
             let response_error = false;
 
+            if(isEmpty(cookies.user)) {
+                history('/main')
+                return;
+            }
+
             const servers = await api
                 .get(`/servers/0?user_id=${cookies.user.id}`, {
                     signal: abortController.signal
@@ -106,6 +111,8 @@ const Servers = () => {
 
     return (
         <>
+        {
+            !isEmpty(cookies.user) ? 
         <TableContainer component={Paper} sx={{ maxWidth: 540, mt: 2 }}>
             <Table sx={{ minWidth: 450 }} aria-label="simple table">
                 <TableBody>
@@ -149,7 +156,8 @@ const Servers = () => {
                     </TableRow>
                 </TableBody>
             </Table>
-        </TableContainer>
+        </TableContainer> : <></>
+        }
         {
         isLoaded && !isEmpty(serversData) ?
             <>
