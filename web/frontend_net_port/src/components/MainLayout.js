@@ -1,27 +1,28 @@
-import React, { useState, useEffect, useContext, useCallback } from 'react';
-import { useTheme } from '@mui/material/styles';
-import { useCookies } from 'react-cookie';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useContext, useCallback } from "react";
+import { useTheme } from "@mui/material/styles";
+import { useCookies } from "react-cookie";
+import { useNavigate } from "react-router-dom";
+import { ApiContext } from "../context/ApiContext";
 
-import Box from '@mui/material/Box';
-import Drawer from '@mui/material/Drawer';
-import CssBaseline from '@mui/material/CssBaseline';
-import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
-import Divider from '@mui/material/Divider';
-import IconButton from '@mui/material/IconButton';
-import MenuIcon from '@mui/icons-material/Menu';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import NavBlock from './NavBlock';
-import Tooltip from '@mui/material/Tooltip';
-import ExitToAppIcon from '@mui/icons-material/ExitToApp';
-import LoginIcon from '@mui/icons-material/Login';
-import Modal from '@mui/material/Modal';
-import HelpCenterIcon from '@mui/icons-material/HelpCenter';
+import Box from "@mui/material/Box";
+import Drawer from "@mui/material/Drawer";
+import CssBaseline from "@mui/material/CssBaseline";
+import Toolbar from "@mui/material/Toolbar";
+import Typography from "@mui/material/Typography";
+import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
+import MenuIcon from "@mui/icons-material/Menu";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import NavBlock from "./NavBlock";
+import Tooltip from "@mui/material/Tooltip";
+import ExitToAppIcon from "@mui/icons-material/ExitToApp";
+import LoginIcon from "@mui/icons-material/Login";
+import Modal from "@mui/material/Modal";
+import HelpCenterIcon from "@mui/icons-material/HelpCenter";
 
 import { mainNavSection, minorNavSection } from "../routes";
-import { AppBar, DrawerHeader, Main, drawerWidth } from './MainLayout.styles';
+import { AppBar, DrawerHeader, Main, drawerWidth } from "./MainLayout.styles";
 import Login from "../pages/Login";
 import NewUserSettingsData from "../pages/UsersSettings/NewUserSettingsData";
 
@@ -29,25 +30,25 @@ import { Can } from "./Abilities";
 import updateAbility from "../config/permission";
 
 const style = {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -50%)',
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
     width: 600,
-    bgcolor: 'background.paper',
-    border: '2px solid #000',
+    bgcolor: "background.paper",
+    border: "2px solid #000",
     boxShadow: 24,
     p: 6,
 };
 
 const styleRegister = {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -50%)',
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
     width: 900,
-    bgcolor: 'background.paper',
-    border: '2px solid #000',
+    bgcolor: "background.paper",
+    border: "2px solid #000",
     boxShadow: 24,
     p: 6,
 };
@@ -56,6 +57,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const theme = useTheme();
     const [cookies, , removeCookie] = useCookies();
     const history = useNavigate();
+    const { api } = useContext(ApiContext);
 
     const [open, setOpen] = React.useState(true);
     const handleDrawerOpen = () => setOpen(true);
@@ -69,10 +71,12 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const [openRegister, setOpenRegister] = React.useState(false);
 
     const handleLogout = () => {
-        removeCookie('token');
-        removeCookie('user');
-        
-        history('/main');
+        removeCookie("token");
+        removeCookie("user");
+
+        api.delete(`/authentication`).catch((err) => {});
+
+        history("/main");
         updateAbility(rest.ability, null);
     };
 
@@ -95,14 +99,14 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     };
 
     useEffect(() => {
-        if (rest.ability != undefined) {
+        if (rest.ability !== undefined) {
             updateAbility(rest.ability, cookies.user);
         }
     }, []);
 
     return (
         <React.Fragment>
-            <Box sx={{ display: 'flex' }}>
+            <Box sx={{ display: "flex" }}>
                 <CssBaseline />
                 <Box sc={{ flexGrow: 1 }}>
                     <AppBar position="fixed" open={open} openRight={openRight}>
@@ -112,7 +116,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                 aria-label="open drawer"
                                 onClick={handleDrawerOpen}
                                 edge="start"
-                                sx={{ mr: 2, ...(open && { display: 'none' }) }}
+                                sx={{ mr: 2, ...(open && { display: "none" }) }}
                             >
                                 <MenuIcon />
                             </IconButton>
@@ -126,38 +130,43 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                             </Typography>
                             <Tooltip title="Текущий пользователь">
                                 <Typography>
-                                    {cookies.user != undefined ? cookies.user.login : ''}
+                                    {cookies.user !== undefined
+                                        ? cookies.user.login
+                                        : ""}
                                 </Typography>
                             </Tooltip>
-                            {
-                                cookies.user != undefined ?
-                            <Tooltip title="Выход">
+                            {cookies.user !== undefined ? (
+                                <Tooltip title="Выход">
+                                    <IconButton
+                                        color="inherit"
+                                        onClick={handleLogout}
+                                    >
+                                        <ExitToAppIcon />
+                                    </IconButton>
+                                </Tooltip>
+                            ) : (
+                                <Tooltip title="Вход">
+                                    <IconButton
+                                        color="inherit"
+                                        onClick={handleLogin}
+                                    >
+                                        <LoginIcon />
+                                    </IconButton>
+                                </Tooltip>
+                            )}
+                            <Tooltip title="Помощь">
                                 <IconButton
                                     color="inherit"
-                                    onClick={handleLogout}
+                                    aria-label="open drawer"
+                                    onClick={handleDrawerOpenRight}
+                                    edge="start"
+                                    sx={{
+                                        mr: 2,
+                                        ...(openRight && { display: "none" }),
+                                    }}
                                 >
-                                    <ExitToAppIcon />
+                                    <HelpCenterIcon />
                                 </IconButton>
-                            </Tooltip> : 
-                            <Tooltip title="Вход">
-                            <IconButton
-                                color="inherit"
-                                onClick={handleLogin}
-                            >
-                                <LoginIcon />
-                            </IconButton>
-                            </Tooltip>
-                            }
-                            <Tooltip title="Помощь">
-                            <IconButton
-                                color="inherit"
-                                aria-label="open drawer"
-                                onClick={handleDrawerOpenRight}
-                                edge="start"
-                                sx={{ mr: 2, ...(openRight && { display: 'none' }) }}
-                            >
-                                <HelpCenterIcon />
-                            </IconButton>
                             </Tooltip>
                         </Toolbar>
                     </AppBar>
@@ -166,9 +175,9 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                     sx={{
                         width: drawerWidth,
                         flexShrink: 0,
-                        '& .MuiDrawer-paper': {
+                        "& .MuiDrawer-paper": {
                             width: drawerWidth,
-                            boxSizing: 'border-box',
+                            boxSizing: "border-box",
                         },
                     }}
                     variant="persistent"
@@ -177,29 +186,35 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 >
                     <DrawerHeader>
                         <IconButton onClick={handleDrawerClose}>
-                            {theme.direction == 'ltr' ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+                            {theme.direction == "ltr" ? (
+                                <ChevronLeftIcon />
+                            ) : (
+                                <ChevronRightIcon />
+                            )}
                         </IconButton>
                     </DrawerHeader>
                     <Divider />
-                    <NavBlock navData={mainNavSection} ability={rest.ability}/>
+                    <NavBlock navData={mainNavSection} ability={rest.ability} />
                     <Can I="read" a="Config" passThrough>
-                        {allowed => (
-                            allowed ?
-                            <>
-                                <Divider />
-                                <NavBlock navData={minorNavSection} />
-                            </> :
-                            <></>
-                        )}
+                        {(allowed) =>
+                            allowed ? (
+                                <>
+                                    <Divider />
+                                    <NavBlock navData={minorNavSection} />
+                                </>
+                            ) : (
+                                <></>
+                            )
+                        }
                     </Can>
                     <Divider />
                 </Drawer>
                 <Drawer
                     sx={{
                         flexShrink: 0,
-                        '& .MuiDrawer-paper': {
+                        "& .MuiDrawer-paper": {
                             width: drawerWidth,
-                            boxSizing: 'border-box',
+                            boxSizing: "border-box",
                         },
                     }}
                     variant="persistent"
@@ -209,7 +224,11 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                     <Divider />
                     <DrawerHeader>
                         <IconButton onClick={handleDrawerCloseRight}>
-                            {theme.direction == 'rtl' ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+                            {theme.direction == "rtl" ? (
+                                <ChevronLeftIcon />
+                            ) : (
+                                <ChevronRightIcon />
+                            )}
                         </IconButton>
                     </DrawerHeader>
                     <Divider />
@@ -218,7 +237,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                     <DrawerHeader />
                     {children}
                     <DrawerHeader />
-                </Main>                
+                </Main>
             </Box>
             <Modal
                 aria-labelledby="unstyled-modal-title"
@@ -228,7 +247,9 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 open={openLogin}
                 onClose={handleCloseLogin}
             >
-                <Box sx={style}><Login register={handleRegister} ability={rest.ability}/></Box>
+                <Box sx={style}>
+                    <Login register={handleRegister} ability={rest.ability} />
+                </Box>
             </Modal>
             <Modal
                 aria-labelledby="unstyled-modal-title"
@@ -238,7 +259,12 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 open={openRegister}
                 onClose={handleCloseRegister}
             >
-                <Box sx={styleRegister}><NewUserSettingsData closeHandle={handleCloseRegister}/></Box>
+                <Box sx={styleRegister}>
+                    <NewUserSettingsData
+                        ability={rest.ability}
+                        closeHandle={handleCloseRegister}
+                    />
+                </Box>
             </Modal>
         </React.Fragment>
     );

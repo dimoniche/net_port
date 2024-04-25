@@ -9,10 +9,7 @@
         "entity": "user",
         "service": "/api/v1/users",
         "secret": "0iJT0OrL0E9yVJwv1q+hQb/ziUc=",
-        "authStrategies": [
-            "jwt",
-            "local"
-        ],
+        "authStrategies": ["jwt", "local"],
         "jwtOptions": {
             "header": {
                 "typ": "access"
@@ -20,7 +17,7 @@
             "audience": "localhost",
             "issuer": "feathers",
             "algorithm": "HS256",
-            "expiresIn": "30s"
+            "expiresIn": "1d"
         },
         "local": {
             "usernameField": "login",
