@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useCallback } from "react";
 import { useTheme } from "@mui/material/styles";
 import { useCookies } from "react-cookie";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { ApiContext } from "../context/ApiContext";
 
 import Box from "@mui/material/Box";
@@ -57,6 +57,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const theme = useTheme();
     const [cookies, , removeCookie] = useCookies();
     const history = useNavigate();
+    const location = useLocation();
     const { api } = useContext(ApiContext);
 
     const [open, setOpen] = React.useState(true);
@@ -154,20 +155,26 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                     </IconButton>
                                 </Tooltip>
                             )}
-                            <Tooltip title="Помощь">
-                                <IconButton
-                                    color="inherit"
-                                    aria-label="open drawer"
-                                    onClick={handleDrawerOpenRight}
-                                    edge="start"
-                                    sx={{
-                                        mr: 2,
-                                        ...(openRight && { display: "none" }),
-                                    }}
-                                >
-                                    <HelpCenterIcon />
-                                </IconButton>
-                            </Tooltip>
+                            {location.pathname !== "/main" ? (
+                                <Tooltip title="Помощь">
+                                    <IconButton
+                                        color="inherit"
+                                        aria-label="open drawer"
+                                        onClick={handleDrawerOpenRight}
+                                        edge="start"
+                                        sx={{
+                                            mr: 2,
+                                            ...(openRight && {
+                                                display: "none",
+                                            }),
+                                        }}
+                                    >
+                                        <HelpCenterIcon />
+                                    </IconButton>
+                                </Tooltip>
+                            ) : (
+                                <></>
+                            )}
                         </Toolbar>
                     </AppBar>
                 </Box>
@@ -186,7 +193,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 >
                     <DrawerHeader>
                         <IconButton onClick={handleDrawerClose}>
-                            {theme.direction == "ltr" ? (
+                            {theme.direction === "ltr" ? (
                                 <ChevronLeftIcon />
                             ) : (
                                 <ChevronRightIcon />
@@ -209,30 +216,68 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                     </Can>
                     <Divider />
                 </Drawer>
-                <Drawer
-                    sx={{
-                        flexShrink: 0,
-                        "& .MuiDrawer-paper": {
-                            width: drawerWidth,
-                            boxSizing: "border-box",
-                        },
-                    }}
-                    variant="persistent"
-                    anchor="right"
-                    open={openRight}
-                >
-                    <Divider />
-                    <DrawerHeader>
-                        <IconButton onClick={handleDrawerCloseRight}>
-                            {theme.direction == "rtl" ? (
-                                <ChevronLeftIcon />
-                            ) : (
-                                <ChevronRightIcon />
-                            )}
-                        </IconButton>
-                    </DrawerHeader>
-                    <Divider />
-                </Drawer>
+                {location.pathname !== "/main" ? (
+                    <Drawer
+                        sx={{
+                            flexShrink: 0,
+                            "& .MuiDrawer-paper": {
+                                width: drawerWidth,
+                                boxSizing: "border-box",
+                            },
+                        }}
+                        variant="persistent"
+                        anchor="right"
+                        open={openRight}
+                    >
+                        <Divider />
+                        <DrawerHeader>
+                            <IconButton onClick={handleDrawerCloseRight}>
+                                {theme.direction === "rtl" ? (
+                                    <ChevronLeftIcon />
+                                ) : (
+                                    <ChevronRightIcon />
+                                )}
+                            </IconButton>
+                        </DrawerHeader>
+                        <Divider />
+                        {location.pathname === "/main" ? (
+                            <></>
+                        ) : location.pathname === "/settings" ? (
+                            <>
+                                <b>Настройки пользователя.</b>
+                                <br />
+                                Настраиваются параметры доступа к сервису,
+                                <br />
+                                логин и пароль.
+                            </>
+                        ) : location.pathname === "/servers" ? (
+                            <>
+                                <b>Настройки серверов</b>
+                                <br />
+                                Возможно добавить новый сервер доступа с помощью
+                                кнопки <b>"Добавить"</b>.
+                                <br />
+                                Кнопкой <b>"Перезагрузить"</b> осуществляется
+                                перезапуск всех запущенных и пользователя
+                                сервисов доступа к удаленным устройствам.
+                                <br />
+                                <br />
+                                Настройки каждого сервера включают в себя
+                                возможность выключить ожидание подключения
+                                пользователей и устройств. <b>Входящий порт</b>
+                                это порт подключения пользователя из вне к
+                                сервису.
+                                <b>Перенаправляемый порт</b> это порт к которому
+                                подключается установленный на внешнем устройстве
+                                клиент для поддержания постоянного соединения.
+                            </>
+                        ) : (
+                            <></>
+                        )}
+                    </Drawer>
+                ) : (
+                    <></>
+                )}
                 <Main open={open} openRight={openRight}>
                     <DrawerHeader />
                     {children}
