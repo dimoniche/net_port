@@ -7,3 +7,5 @@ combined.log
 error.log
 result
 __pycache__
+.vs
+/client_win/out
