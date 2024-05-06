@@ -19,6 +19,7 @@ import { StyledTableCell, StyledTableRow } from "../theme/TableTheme";
 import net_port from "../files/net_port.service";
 import arm_linux_gnueabihf from "../files/module_net_port_client-0.0.1_arm-linux-gnueabihf";
 import x64_arm_linux from "../files/module_net_port_client-0.0.1_x64-linux";
+import x86_linux from "../files/module_net_port_client-0.0.1_x86-linux";
 
 const Main = () => {
     return (
@@ -141,7 +142,17 @@ const Main = () => {
                                 <TableCell component="th" scope="row">
                                     <b>Клиент x86 Linux</b>
                                 </TableCell>
-                                <TableCell align="right">{"нет"}</TableCell>
+                                <TableCell align="right">
+                                    {
+                                        <a
+                                            href={x86_linux}
+                                            download="module_net_port_client-0.0.1"
+                                        >
+                                            {" "}
+                                            module_net_port_client-0.0.1{" "}
+                                        </a>
+                                    }
+                                </TableCell>
                             </StyledTableRow>
                             <StyledTableRow
                                 sx={{

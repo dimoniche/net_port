@@ -1,41 +1,37 @@
 /* eslint-disable eqeqeq */
-import React, { useContext, useState, useEffect } from 'react';
-import axios from 'axios';
-import { useCookies } from 'react-cookie';
-import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext'; // FIX: change authCtx usage
-import { API_BASE_URL, API_TIMEOUT, AUTH_STRATEGY } from '../consts';
-import Alert from '@mui/material/Alert';
-import AlertTitle from '@mui/material/AlertTitle';
-import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
-import * as yup from 'yup';
-import { useFormik } from 'formik';
-import Container from '@mui/material/Container';
-import TextField from '@mui/material/TextField';
-import OutlinedInput from '@mui/material/OutlinedInput';
-import InputLabel from '@mui/material/InputLabel';
-import InputAdornment from '@mui/material/InputAdornment';
-import IconButton from '@mui/material/IconButton';
-import Visibility from '@mui/icons-material/Visibility';
-import VisibilityOff from '@mui/icons-material/VisibilityOff';
-import FormControl from '@mui/material/FormControl';
-import Grid from '@mui/material/Grid';
+import React, { useContext, useState, useEffect } from "react";
+import axios from "axios";
+import { useCookies } from "react-cookie";
+import { useNavigate } from "react-router-dom";
+import { AuthContext } from "../context/AuthContext"; // FIX: change authCtx usage
+import { API_BASE_URL, API_TIMEOUT, AUTH_STRATEGY } from "../consts";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import * as yup from "yup";
+import { useFormik } from "formik";
+import Container from "@mui/material/Container";
+import TextField from "@mui/material/TextField";
+import OutlinedInput from "@mui/material/OutlinedInput";
+import InputLabel from "@mui/material/InputLabel";
+import InputAdornment from "@mui/material/InputAdornment";
+import IconButton from "@mui/material/IconButton";
+import Visibility from "@mui/icons-material/Visibility";
+import VisibilityOff from "@mui/icons-material/VisibilityOff";
+import FormControl from "@mui/material/FormControl";
+import Grid from "@mui/material/Grid";
 
 import updateAbility from "../config/permission";
 
 const api = axios.create({
     baseURL: API_BASE_URL,
-    timeout: API_TIMEOUT
+    timeout: API_TIMEOUT,
 });
 
 const validationSchema = yup.object({
-    login: yup
-        .string('Введите логин')
-        .required('Логин не указан'),
-    password: yup
-        .string('Введите пароль')
-        .required('Пароль не указан'),
+    login: yup.string("Введите логин").required("Логин не указан"),
+    password: yup.string("Введите пароль").required("Пароль не указан"),
 });
 
 //TODO: Fix 'Can't perform a React state update on an unmounted component.'
@@ -46,15 +42,15 @@ const Login = (props) => {
     const [authError, setAuthError] = useState(false);
     const [isSubmitting, setSubmitting] = useState(false);
 
-    const [relogin,] = useState(props.reloginFlag);
+    const [relogin] = useState(props.reloginFlag);
 
     const [showPassword, setShowPassword] = React.useState(false);
 
     const handleClickShowPassword = () => setShowPassword((show) => !show);
 
     useEffect(() => {
-        removeCookie('token');
-        removeCookie('user');
+        removeCookie("token");
+        removeCookie("user");
         authCtx.setAuthState(false);
     }, []);
 
@@ -62,15 +58,15 @@ const Login = (props) => {
         const { login, password } = values;
         setSubmitting(true);
         try {
-            const { data } = await api.post('/authentication', {
+            const { data } = await api.post("/authentication", {
                 strategy: AUTH_STRATEGY,
                 login,
-                password
+                password,
             });
 
             const { accessToken, user } = data;
-            setCookie('token', accessToken);
-            setCookie('user', user);
+            setCookie("token", accessToken);
+            setCookie("user", user);
 
             setSubmitting(false);
             setAuthError(false);
@@ -79,14 +75,14 @@ const Login = (props) => {
             updateAbility(props.ability, user);
 
             if (props.resetError != undefined) props.resetError();
-            history('/');
+            history("/");
         } catch (error) {
             console.log(error); // TODO: Add winston or other logger solution
 
             setSubmitting(false);
             setAuthError(true);
         }
-    }
+    };
 
     const registerUser = () => {
         props.register();
@@ -94,63 +90,71 @@ const Login = (props) => {
 
     const formik = useFormik({
         initialValues: {
-            login: '',
-            password: '',
+            login: "",
+            password: "",
         },
         validationSchema: validationSchema,
-        onSubmit: authHandler
+        onSubmit: authHandler,
     });
 
     return (
-                <form onSubmit={formik.handleSubmit}>
-                    <TextField
-                        inputProps={{
-                            autoComplete: 'new-password',
-                            form: {
-                                autoComplete: 'off',
-                            },
-                        }}
-                        autoFocus={true}
-                        disabled={isSubmitting}
-                        error={formik.touched.login && Boolean(formik.errors.login)}
-                        fullWidth
-                        label="Логин"
-                        margin="normal"
-                        name="login"
-                        onChange={formik.handleChange}
-                        type="text"
-                        value={formik.values.login}
-                        variant="outlined"
-                    />
-                    <FormControl fullWidth variant="outlined">
-                        <InputLabel htmlFor="outlined-adornment-password">Пароль</InputLabel>
-                        <OutlinedInput
-                            fullWidth
-                            label="Пароль"
-                            variant="outlined"
-                            disabled={isSubmitting}
-                            onChange={formik.handleChange}
-                            name="password"
-                            value={formik.values.password}
-                            error={formik.touched.password && Boolean(formik.errors.password)}
-                            id="new_outlined-adornment-password"
-                            type={showPassword ? 'text' : 'password'}
-
-                            endAdornment={
-                                <InputAdornment position="end">
-                                    <IconButton
-                                        aria-label="toggle password visibility"
-                                        onClick={handleClickShowPassword}
-                                        edge="end"
-                                    >
-                                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                                    </IconButton>
-                                </InputAdornment>
-                            }
-                        />
-                    </FormControl>
-                    <Box sx={{ py: 2 }}>
-                    <Grid container spacing={1}>
+        <form onSubmit={formik.handleSubmit}>
+            <TextField
+                inputProps={{
+                    autoComplete: "new-password",
+                    form: {
+                        autoComplete: "off",
+                    },
+                }}
+                autoFocus={true}
+                disabled={isSubmitting}
+                error={formik.touched.login && Boolean(formik.errors.login)}
+                fullWidth
+                label="Логин"
+                margin="normal"
+                name="login"
+                onChange={formik.handleChange}
+                type="text"
+                value={formik.values.login}
+                variant="outlined"
+            />
+            <FormControl fullWidth variant="outlined">
+                <InputLabel htmlFor="outlined-adornment-password">
+                    Пароль
+                </InputLabel>
+                <OutlinedInput
+                    fullWidth
+                    label="Пароль"
+                    variant="outlined"
+                    disabled={isSubmitting}
+                    onChange={formik.handleChange}
+                    name="password"
+                    value={formik.values.password}
+                    error={
+                        formik.touched.password &&
+                        Boolean(formik.errors.password)
+                    }
+                    id="new_outlined-adornment-password"
+                    type={showPassword ? "text" : "password"}
+                    endAdornment={
+                        <InputAdornment position="end">
+                            <IconButton
+                                aria-label="toggle password visibility"
+                                onClick={handleClickShowPassword}
+                                edge="end"
+                            >
+                                {showPassword ? (
+                                    <VisibilityOff />
+                                ) : (
+                                    <Visibility />
+                                )}
+                            </IconButton>
+                        </InputAdornment>
+                    }
+                />
+            </FormControl>
+            <Box sx={{ py: 2 }}>
+                <Grid container spacing={1}>
                     <Grid item xs={6}>
                         <Button
                             color="primary"
@@ -175,28 +179,38 @@ const Login = (props) => {
                             Регистрация
                         </Button>
                     </Grid>
-                    </Grid>
-                    </Box>
-                    {authError && <Alert
-                        severity="error"
-                        variant="filled"
-                        onClose={() => {
-                            setAuthError(false);
-                            formik.resetForm({});
-                        }}
-                    >
-                        <AlertTitle>Ошибка</AlertTitle>
-                        Проверьте пароль и/или логин
-                    </Alert>}
-                    {relogin && <Alert
-                        severity="info"
-                        variant="filled"
-                    >
-                        <AlertTitle>Внимание!</AlertTitle>
-                        Время сессии истекло. Пожалуйста, войдите заново.
-                    </Alert>}
-                </form>
-    )
+                    {false ? (
+                        <Grid item xs={6}>
+                            <a href="http://localhost:8080/api/v1/oauth/google">
+                                Login with Google
+                            </a>
+                        </Grid>
+                    ) : (
+                        <></>
+                    )}
+                </Grid>
+            </Box>
+            {authError && (
+                <Alert
+                    severity="error"
+                    variant="filled"
+                    onClose={() => {
+                        setAuthError(false);
+                        formik.resetForm({});
+                    }}
+                >
+                    <AlertTitle>Ошибка</AlertTitle>
+                    Проверьте пароль и/или логин
+                </Alert>
+            )}
+            {relogin && (
+                <Alert severity="info" variant="filled">
+                    <AlertTitle>Внимание!</AlertTitle>
+                    Время сессии истекло. Пожалуйста, войдите заново.
+                </Alert>
+            )}
+        </form>
+    );
 };
 
 export default Login;

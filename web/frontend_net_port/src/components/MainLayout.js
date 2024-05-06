@@ -29,6 +29,8 @@ import NewUserSettingsData from "../pages/UsersSettings/NewUserSettingsData";
 import { Can } from "./Abilities";
 import updateAbility from "../config/permission";
 
+import logo from "../assets/netport-120-120.png";
+
 const style = {
     position: "absolute",
     top: "50%",
@@ -192,6 +194,15 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                     open={open}
                 >
                     <DrawerHeader>
+                        {false ? (
+                            <img
+                                src={logo}
+                                alt="net port"
+                                style={{ height: "48px" }}
+                            />
+                        ) : (
+                            <></>
+                        )}
                         <IconButton onClick={handleDrawerClose}>
                             {theme.direction === "ltr" ? (
                                 <ChevronLeftIcon />
