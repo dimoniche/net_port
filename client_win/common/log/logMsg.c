@@ -176,18 +176,21 @@ void vlogMsg(int pri, const char* file, int line, const char* fmt, va_list ap)
         */
         timeInSeconds = (time_t)tv.tv_sec;
 
-        struct tm tm_now = {0};
+        struct tm * tm_now;
 
-        /*if (localtime(&timeInSeconds, &tm_now) == NULL) {
-          memset(&tm_now, 0, sizeof (tm_now));
-          tm_now.tm_mday = 1;
-          tm_now.tm_year = 123;
-        }*/
+        tm_now = localtime(&timeInSeconds);
+        
+        if(tm_now == NULL)
+        {
+          //memset(&tm_now, 0, sizeof (tm_now));
+          //tm_now.tm_mday = 1;
+          //tm_now.tm_year = 123;
+        }
 
         strftime(datebuf, DATEBUF_SIZE,
                  "%d.%m.%Y-%H:%M:%S", /* guaranteed to fit in 256 chars,
                                  hence don't check return code */
-                 &tm_now);
+                 tm_now);
     }
 
     /*

@@ -1,7 +1,7 @@
 #include "proxy_client.h"
 
 #include <fcntl.h>
-#include <sys/time.h>
+#include <time.h>
 
 #include "logMsg.h"
 #include "time_counter.h"
@@ -36,22 +36,30 @@ int
 init_input_sockets()
 {
     int ret = 1;
+    WSADATA wsaData;
+
+    int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+    if (iResult != NO_ERROR)
+        logMsg(LOG_ERR, "Error at WSAStartup().\n");
+    else
+        logMsg(LOG_ERR, "WSAStartup() is OK.\n");
 
     SOCKET * socket_in = &threads_data.data.input;
 
-    if (0 > (*(socket_in) = socket(AF_INET, SOCK_STREAM, 0)))
+    if (INVALID_SOCKET == (*(socket_in) = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)))
     {
         logMsg(LOG_ERR, "socket() input error\n");
         return -2;
     }
 
-    if (0 > setsockopt(*(socket_in), SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret))) {
+    bool optval = true;
+    if(SOCKET_ERROR == setsockopt(*(socket_in), SOL_SOCKET, SO_KEEPALIVE, (char*)&optval, sizeof(optval))) {
         logMsg(LOG_ERR, "setsockopt() input error\n");
         return -2;
     }
 
-    int optval = 1;
-    if(0 > setsockopt(*(socket_in), SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval))) {
+    if (SOCKET_ERROR == setsockopt(*(socket_in), SOL_SOCKET, SO_REUSEADDR, (char*)&ret, sizeof(ret))) {
         logMsg(LOG_ERR, "setsockopt() input error\n");
         return -2;
     }
@@ -111,8 +119,8 @@ server_input_thread (void* parameter)
     } else {
         logMsg(LOG_INFO, "Connect input server\n");
 
-        int flags = fcntl(threads_data.data.input , F_GETFL, 0);
-        if(fcntl(threads_data.data.input, F_SETFL, flags|O_NONBLOCK) < 0) {
+        u_long flags = 1;
+        if (ioctlsocket(threads_data.data.input, FIONBIO, &flags) != NO_ERROR) {
             logMsg(LOG_ERR, "connect fcntl error\n");
         }
     }
@@ -122,14 +130,14 @@ server_input_thread (void* parameter)
 
     while (threads_data.data.stop_running_input == false) {
 
-        fd_set read_set;
+        fd_set read_set = {0};
         FD_ZERO(&read_set);
         FD_SET(threads_data.data.input, &read_set);
 
         if(get_time_counter() - last_exchange_time > 120) {
             // останавливаем внутренний порт
             threads_data.data.stop_running_output = true;
-            close(threads_data.data.input);
+            closesocket(threads_data.data.input);
 
             logMsg(LOG_INFO, "Timeout Input thread");
 
@@ -141,7 +149,7 @@ server_input_thread (void* parameter)
             goto restart_input_thread;
         }
 
-        struct timeval timeout;
+        struct timeval timeout = {0};
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
@@ -170,7 +178,7 @@ server_input_thread (void* parameter)
 
                 // останавливаем внутренний порт
                 threads_data.data.stop_running_output = true;
-                close(threads_data.data.input);
+                closesocket(threads_data.data.input);
 
                 while(threads_data.data.is_running_output) {
                     Thread_sleep(10);
@@ -200,7 +208,7 @@ server_input_thread (void* parameter)
             do {
                 int result = send(threads_data.data.output,
                                 (const char *)&threads_data.receive_input[sent],
-                                len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                                len_apdu - sent, 0);
 
                 logMsg(LOG_INFO, "Send data to output_port %d result %d\n", threads_data.data.output_port, result);
 
@@ -219,8 +227,8 @@ server_input_thread (void* parameter)
                     logMsg(LOG_INFO, "Send data to output_port %d WSAGetLastError %d\n", threads_data.data.output_port, err);
                     if (err == EAGAIN)
                     {
-                        struct timeval tv = {};
-                        fd_set fds = {};
+                        struct timeval tv = {0};
+                        fd_set fds = {0};
 
                         tv.tv_sec = 1;
                         FD_ZERO(&fds);
@@ -247,7 +255,7 @@ server_input_thread (void* parameter)
         Thread_sleep(10);
     }
 
-    close(threads_data.data.input);
+    closesocket(threads_data.data.input);
 
     logMsg(LOG_INFO,"Exit input server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.input_port);
 
@@ -274,8 +282,8 @@ server_output_thread (void* parameter)
     } else {
         logMsg(LOG_INFO, "Connect output server\n");
 
-        int flags = fcntl(threads_data.data.output , F_GETFL, 0);
-        if(fcntl(threads_data.data.output, F_SETFL, flags|O_NONBLOCK) < 0) {
+        u_long flags = 1;
+        if (ioctlsocket(threads_data.data.input, FIONBIO, &flags) != NO_ERROR) {
             logMsg(LOG_ERR, "connect fcntl error\n");
         }
     }
@@ -285,11 +293,11 @@ server_output_thread (void* parameter)
 
     while (threads_data.data.stop_running_output == false) {
 
-        fd_set read_set;
+        fd_set read_set = {0};
         FD_ZERO(&read_set);
         FD_SET(threads_data.data.output, &read_set);
 
-        struct timeval timeout;
+        struct timeval timeout = {0};
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
@@ -329,7 +337,7 @@ server_output_thread (void* parameter)
             do {
                 int result = send(threads_data.data.input,
                                 (const char *)&threads_data.receive_output[sent],
-                                len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                                len_apdu - sent, 0);
 
                 logMsg(LOG_INFO, "Send data to input_port %d result %d\n", threads_data.data.input_port, result);
 
@@ -348,8 +356,8 @@ server_output_thread (void* parameter)
                     logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", threads_data.data.input_port, err);
                     if (err == EAGAIN)
                     {
-                        struct timeval tv = {};
-                        fd_set fds = {};
+                        struct timeval tv = {0};
+                        fd_set fds = {0};
 
                         tv.tv_sec = 1;
                         FD_ZERO(&fds);
@@ -376,7 +384,7 @@ server_output_thread (void* parameter)
         Thread_sleep(10);
     }
 
-    close(threads_data.data.output);
+    closesocket(threads_data.data.output);
 
     logMsg(LOG_INFO,"Exit output server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.output_port);
 

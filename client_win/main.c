@@ -13,7 +13,7 @@
 #include "signal_handler.h"
 #include "settings.h"
 #include "time_utils.h"
-//#include "proxy_client.h"
+#include "proxy_client.h"
 #include "hal_time.h"
 #include "time_counter.h"
 
@@ -46,16 +46,14 @@ int main(int argc, char** argv) {
 
     signal_init();
 
-    //proxy_server_t* settings = get_client_settings();
+    proxy_server_t* settings = get_client_settings();
 
-    //sprintf(settings->input_address,"82.146.44.140");
-    //sprintf(settings->output_address,"127.0.0.1");
-    //settings->output_port = 22;
+    sprintf(settings->input_address,"82.146.44.140");
+    sprintf(settings->output_address,"127.0.0.1");
 
     bool show_help = true;
 
-    //progname = basename(argv[0]);
-    progname = "net_port";
+    progname = "net_port_client";
 
     for (int i = 1; i < argc; i++) {
         char* s;
@@ -75,7 +73,7 @@ int main(int argc, char** argv) {
                 exit(-1);
             }
         }
-        /*if (strstr(argv[i], HOST_KEY_IN) != NULL)
+        if (strstr(argv[i], HOST_KEY_IN) != NULL)
         {
             if (argv[i+1] != NULL)
             {
@@ -106,20 +104,20 @@ int main(int argc, char** argv) {
                 sscanf(argv[i+1], "%d", &settings->output_port);
                 show_help = false;
             }  
-        }*/
-        if (strstr(argv[i], HELP_KEY_FULL) != NULL
+        }
+        /*if (strstr(argv[i], HELP_KEY_FULL) != NULL
         || strstr(argv[i], HELP_KEY) != NULL)
         {
             show_help = true;
-        }
+        }*/
     }
 
-    if(show_help) {
+    if (show_help) {
         print_usage();
         return 0;
     }
 
-    //switcher_servers_start();
+    switcher_servers_start();
 
     while (1) {
         if(Hal_getTimeInMs() - last_monotonic_time > 1000UL)
@@ -134,7 +132,7 @@ int main(int argc, char** argv) {
             last_monotonic_time = Hal_getTimeInMs();
         }
 
-        msleep(10);
+        Sleep(10);
     }
 
     return 0;

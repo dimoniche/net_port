@@ -15,12 +15,12 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include <winsock2.h>
+//#include <netinet/in.h>
+//#include <arpa/inet.h>
 
-#define SOCKET int
-#define Sleep(x) usleep(x*1000)
+//#define SOCKET int
+//#define Sleep(x) usleep(x*1000)
 #define WSAGetLastError() errno
 
 typedef struct proxy_server_s
@@ -36,7 +36,7 @@ typedef struct proxy_server_s
     bool stop_running_input;
 
     char input_address[32];
-    uint16_t input_port;
+    u_short input_port;
     struct sockaddr_in input_addr;
     SOCKET input;
 
@@ -45,7 +45,7 @@ typedef struct proxy_server_s
     bool stop_running_output;
 
     char output_address[32];
-    uint16_t output_port;
+    u_short output_port;
     struct sockaddr_in output_addr;
     SOCKET output;
 

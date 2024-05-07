@@ -43,7 +43,7 @@ add_subdirectory(common)
 
 include_directories(
         .
-        #${CMAKE_CURRENT_LIST_DIR}/proxy/inc
+        ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
         ${PROJECT_BINARY_DIR}
@@ -51,12 +51,14 @@ include_directories(
 
 add_executable(${EXEC_NAME}
         main.c
-        #proxy/client/proxy_client.c
+        proxy/client/proxy_client.c
         resources/signal_handler.c
         resources/time_counter.c
+        proxy/client/getopt.c
 )
 
 target_link_libraries(${EXEC_NAME}
         client_proxy_common
-        #-lrt
+        ws2_32 wsock32
+        -lrt
 )
