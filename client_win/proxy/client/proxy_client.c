@@ -59,7 +59,7 @@ init_input_sockets()
         return -2;
     }
 
-    if (SOCKET_ERROR == setsockopt(*(socket_in), SOL_SOCKET, SO_REUSEADDR, (char*)&ret, sizeof(ret))) {
+    if (SOCKET_ERROR == setsockopt(*(socket_in), SOL_SOCKET, SO_REUSEADDR, (char*)&optval, sizeof(optval))) {
         logMsg(LOG_ERR, "setsockopt() input error\n");
         return -2;
     }
@@ -80,14 +80,20 @@ init_output_sockets()
 
     SOCKET * socket_out = &threads_data.data.output;
 
-    if (0 > (*(socket_out) = socket(AF_INET, SOCK_STREAM, 0)))
+    if (INVALID_SOCKET == (*(socket_out) = socket(AF_INET, SOCK_STREAM, 0)))
     {
         logMsg(LOG_ERR, "socket() output error\n");
         return -2;
     }
 
-    if (0 > setsockopt(*(socket_out), SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret))) {
-        logMsg(LOG_ERR, "setsockopt() output error\n");
+    bool optval = true;
+    if (SOCKET_ERROR == setsockopt(*(socket_out), SOL_SOCKET, SO_KEEPALIVE, (char*)&optval, sizeof(optval))) {
+        logMsg(LOG_ERR, "setsockopt() input error\n");
+        return -2;
+    }
+
+    if (SOCKET_ERROR == setsockopt(*(socket_out), SOL_SOCKET, SO_REUSEADDR, (char*)&optval, sizeof(optval))) {
+        logMsg(LOG_ERR, "setsockopt() input error\n");
         return -2;
     }
 
