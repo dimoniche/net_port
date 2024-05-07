@@ -20,6 +20,8 @@ import net_port from "../files/net_port.service";
 import arm_linux_gnueabihf from "../files/module_net_port_client-0.0.1_arm-linux-gnueabihf";
 import x64_arm_linux from "../files/module_net_port_client-0.0.1_x64-linux";
 import x86_linux from "../files/module_net_port_client-0.0.1_x86-linux";
+import x64_windows from "../files/module_net_port_client-0.0.1-x64-windows.exe";
+import x86_windows from "../files/module_net_port_client-0.0.1-x86-windows.exe";
 
 const Main = () => {
     return (
@@ -176,6 +178,50 @@ const Main = () => {
                                     }
                                 </TableCell>
                             </StyledTableRow>
+                            <StyledTableRow
+                                sx={{
+                                    "&:last-child td, &:last-child th": {
+                                        border: 0,
+                                    },
+                                }}
+                            >
+                                <TableCell component="th" scope="row">
+                                    <b>Клиент x64 Windows</b>
+                                </TableCell>
+                                <TableCell align="right">
+                                    {
+                                        <a
+                                            href={x64_windows}
+                                            download="module_net_port_client-0.0.1.exe"
+                                        >
+                                            {" "}
+                                            module_net_port_client-0.0.1{" "}
+                                        </a>
+                                    }
+                                </TableCell>
+                            </StyledTableRow>
+                            <StyledTableRow
+                                sx={{
+                                    "&:last-child td, &:last-child th": {
+                                        border: 0,
+                                    },
+                                }}
+                            >
+                                <TableCell component="th" scope="row">
+                                    <b>Клиент x86 Windows</b>
+                                </TableCell>
+                                <TableCell align="right">
+                                    {
+                                        <a
+                                            href={x86_windows}
+                                            download="module_net_port_client-0.0.1.exe"
+                                        >
+                                            {" "}
+                                            module_net_port_client-0.0.1{" "}
+                                        </a>
+                                    }
+                                </TableCell>
+                            </StyledTableRow>
                         </TableBody>
                     </Table>
                 </TableContainer>
@@ -187,7 +233,7 @@ const Main = () => {
                             <TableRow>
                                 <TableCell align="left">
                                     <>
-                                        При запуске в ОС LInux, можно запускать
+                                        При запуске в ОС Linux, можно запускать
                                         клиент как сервис с помощью, например{" "}
                                         <a
                                             href={
@@ -245,6 +291,15 @@ const Main = () => {
                                         <br />
                                         systemctl start net_port
                                         <br />
+                                    </>
+                                </TableCell>
+                            </TableRow>
+                            <TableRow>
+                                <TableCell align="left">
+                                    <>
+                                        При запуске в ОС Windows, можно
+                                        запускать клиент как сервис с помощью,
+                                        например{" "}
                                     </>
                                 </TableCell>
                             </TableRow>
