@@ -277,7 +277,7 @@ connection_input_handler (void* parameter)
 
     thread_data->is_input_connected = true;
 
-    logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data.input_port);
+    logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data->input_port);
 
     while (!done_output_connection) {
         fd_set read_set;
@@ -590,8 +590,14 @@ serverInputThread (void* parameter)
 
                 logMsg(LOG_INFO, "Connection accepted on input_port %d\n", server->input_port);
 
-                if(connections_data->current_free_socket_input >= COUNT_SOCKET_THREAD) {
-                    logMsg(LOG_INFO, "Count input connection is full (%d) - close it\n", connections_data->current_free_socket_input);
+                if(server->current_free_socket_input >= COUNT_SOCKET_THREAD) {
+                    logMsg(LOG_INFO, "Count input connection is full (%d) - close it\n", server->current_free_socket_input);
+                    close(socket_local);
+                    continue;
+                }
+
+                if(!connections_data->local_sockets[server->current_free_socket_input].is_output_connected) {
+                    logMsg(LOG_INFO, "Not output socket - close input");
                     close(socket_local);
                     continue;
                 }
@@ -599,17 +605,18 @@ serverInputThread (void* parameter)
                 if(connections_data != NULL) {
 
                     // локальный входящий сокет для нового потока
-                    connections_data->local_sockets[connections_data->current_free_socket_input].input_local = socket_local;
-                    // следующий свободный входящий сокет
-                    connections_data->data.current_free_socket_input++;
+                    connections_data->local_sockets[server->current_free_socket_input].input_local = socket_local;
                 
                     logMsg(LOG_DEBUG, "Start thread input socket create\n");
 
-                    Thread thread = Thread_create(connection_input_handler, (void *) &connections_data->local_sockets[connections_data->current_free_socket_input], true);
+                    Thread thread = Thread_create(connection_input_handler, (void *) &connections_data->local_sockets[server->current_free_socket_input], true);
 
                     if (thread != NULL) {
                         Thread_start(thread);
                         logMsg(LOG_DEBUG, "Handler assigned\n");
+
+                        // следующий свободный входящий сокет
+                        connections_data->data.current_free_socket_input++;
                     } else {
                         logMsg(LOG_DEBUG, "Thread not create\n");
                     }
@@ -644,67 +651,64 @@ serverOutputThread (void* parameter)
 
     server->is_output_running = true;
     server->is_output_starting = false;
-    server->is_output_connected = false;
 
     SOCKET socket_local;
 
     while (server->stop_output_running == false) {
-        if(!server->is_output_connected) {
+        fd_set read_set;
+        FD_ZERO(&read_set);
+        FD_SET(server->output, &read_set);
 
-            fd_set read_set;
-            FD_ZERO(&read_set);
-            FD_SET(server->output, &read_set);
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
 
-            struct timeval timeout;
-            timeout.tv_sec = 1;
-            timeout.tv_usec = 0;
+        int select_res = select(server->output + 1, &read_set, NULL, NULL, &timeout);
+        if(select_res == -1) {
+            break;
+        } else if(select_res == 0) {
+            continue;
+        }
 
-            int select_res = select(server->output + 1, &read_set, NULL, NULL, &timeout);
-            if(select_res == -1) {
-                break;
-            } else if(select_res == 0) {
-                continue;
-            }
+        if(FD_ISSET(server->output, &read_set)) {
+            if (0 <= (socket_local = accept(server->output, (struct sockaddr *) NULL, NULL)))
+            {
+                int flags = fcntl(socket_local, F_GETFL, 0);
+                if(fcntl(socket_local, F_SETFL, flags|O_NONBLOCK) < 0) {
+                    logMsg(LOG_DEBUG, "accept fcntl ERROR\n");
+                    close(socket_local);
+                    continue;
+                }
 
-            if(FD_ISSET(server->output, &read_set)) {
-                if (0 <= (socket_local = accept(server->output, (struct sockaddr *) NULL, NULL)))
-                {
-                    int flags = fcntl(socket_local, F_GETFL, 0);
-                    if(fcntl(socket_local, F_SETFL, flags|O_NONBLOCK) < 0) {
-                        logMsg(LOG_DEBUG, "accept fcntl ERROR\n");
-                        close(socket_local);
-                        continue;
-                    }
+                logMsg(LOG_INFO, "Connection accepted on output_port %d\n", server->output_port);
 
-                    logMsg(LOG_INFO, "Connection accepted on output_port %d\n", server->output_port);
+                if(server->current_free_socket_output >= COUNT_SOCKET_THREAD) {
+                    logMsg(LOG_INFO, "Count output connection is full (%d) - close it\n", server->current_free_socket_output);
+                    close(socket_local);
+                    continue;
+                }
 
-                    if(connections_data->current_free_socket_output >= COUNT_SOCKET_THREAD) {
-                        logMsg(LOG_INFO, "Count output connection is full (%d) - close it\n", connections_data->current_free_socket_output);
-                        close(socket_local);
-                        continue;
-                    }
+                if(connections_data != NULL) {
 
-                    if(connections_data != NULL) {
+                    // локальный исходящий сокет для нового потока
+                    connections_data->local_sockets[server->current_free_socket_output].output_local = socket_local;
 
-                        // локальный исходящий сокет для нового потока
-                        connections_data->local_sockets[connections_data->current_free_socket_output].output_local = socket_local;
+                    logMsg(LOG_DEBUG, "Start output thread create\n");
+
+                    Thread thread = Thread_create(connection_output_handler, (void *) &connections_data->local_sockets[server->current_free_socket_output], true);
+
+                    if (thread != NULL) {
+                        Thread_start(thread);
+                        logMsg(LOG_DEBUG, "Handler assigned\n");
+
                         // следующий свободный исходящий сокет
                         connections_data->data.current_free_socket_output++;
-
-                        logMsg(LOG_DEBUG, "Start output thread create\n");
-
-                        Thread thread = Thread_create(connection_output_handler, (void *) &connections_data->local_sockets[connections_data->current_free_socket_output], true);
-
-                        if (thread != NULL) {
-                            Thread_start(thread);
-                            logMsg(LOG_DEBUG, "Handler assigned\n");
-                        } else {
-                            logMsg(LOG_DEBUG, "Thread not create\n");
-                        }
                     } else {
-                        logMsg(LOG_DEBUG, "Malloc ERROR\n");
-                        close(socket_local);
+                        logMsg(LOG_DEBUG, "Thread not create\n");
                     }
+                } else {
+                    logMsg(LOG_DEBUG, "Malloc ERROR\n");
+                    close(socket_local);
                 }
             }
         }
