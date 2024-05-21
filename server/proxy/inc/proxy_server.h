@@ -39,36 +39,71 @@ typedef struct proxy_servers_settings_s
 
 } proxy_servers_settings_t;
 
+// настройки одного канала сервера
 typedef struct proxy_server_s
 {
     uint16_t id;
-    uint16_t port;
 
-    Thread listeningThread;
+    bool enable;
 
+    uint16_t input_port;
     SOCKET input;
-    SOCKET output;
-
     struct sockaddr_in input_addr;
+    Thread listeningInputThread;
+
+    bool is_input_enabled;
+    bool is_input_starting;
+    bool is_input_running;
+    bool is_input_connected;
+    bool stop_input_running;
+    bool close_input_socket;
+
+    uint16_t output_port;
+    SOCKET output;
     struct sockaddr_in output_addr;
+    Thread listeningOutputThread;
 
-    bool is_local_not_crypt;
-
-    bool isEnabled;
-    bool isStarting;
-    bool isRunning;
-    bool stopRunning;
+    bool is_output_enabled;
+    bool is_output_starting;
+    bool is_output_running;
+    bool is_output_connected;
+    bool stop_output_running;
+    bool close_output_socket;
 
 } proxy_server_t;
 
+// количество одновременных подключений на одном сокете
+#define COUNT_SOCKET_THREAD   5
+
+// локальные сокеты и их буфера
+typedef struct proxy_server_local_socket_data_s
+{
+    SOCKET input_local;
+    SOCKET output_local;
+
+    uint8_t input_buf[8192];
+    uint8_t output_buf[8192];
+
+    // есть подключение из вне пользователя
+    bool is_input_connected;
+    // есть подключение внутреннего устройства
+    bool is_output_connected;
+
+} proxy_server_local_socket_data_t;
+
 typedef struct proxy_server_thread_data_s
 {
-    SOCKET local;
+    proxy_server_local_socket_data_t local_sockets[COUNT_SOCKET_THREAD];
+    int current_free_socket;
 
-    uint8_t receive_epdu[8192];
-    uint8_t receive_apdu[8192];
-    uint8_t sendBuff[8192];
+    // TODO удалить эти данные - это однопоточное решение
+    SOCKET input_local;
+    SOCKET output_local;
 
+    uint8_t input_buf[81920];
+    uint8_t output_buf[81920];
+
+    // настроечные данные одного ожидающего сервера
     proxy_server_t data;
 
 } proxy_server_thread_data_t;
@@ -78,14 +113,14 @@ typedef struct proxy_server_thread_data_s
  *
  * \return -1 ошибка
  */
-int SwitcherServersInit();
+int servers_init(uint32_t user_id);
 
 /**
  * \brief Запуск прослушивателей портов
  *
  * \return -1 ошибка
  */
-int SwitcherServersStart();
+int switcher_servers_start();
 
 /**
  * \brief Остановка прослушивателей портов
@@ -93,7 +128,7 @@ int SwitcherServersStart();
  * \return -1 ошибка
  */
 int
-SwitcherServersStop();
+switcher_servers_stop();
 
 /**
  * \brief Количество криптоканалов

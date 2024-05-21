@@ -1,0 +1,81 @@
+{
+    "name": "net_port",
+    "description": "netport",
+    "version": "0.0.1",
+    "homepage": "",
+    "private": true,
+    "main": "src",
+    "keywords": [
+        "feathers"
+    ],
+    "author": {
+        "name": "Dmitriy Chistyakov",
+        "email": "dimoniche@github.com"
+    },
+    "contributors": [],
+    "bugs": {},
+    "directories": {
+        "lib": "src",
+        "test": "test/",
+        "config": "config/"
+    },
+    "engines": {
+        "node": "^14.0.0",
+        "npm": ">= 3.0.0"
+    },
+    "scripts": {
+        "test": "npm run lint && npm run jest",
+        "lint": "eslint src/. test/. --config .eslintrc.json --fix",
+        "dev": "nodemon src/",
+        "start": "node src/",
+        "jest": "jest  --forceExit"
+    },
+    "standard": {
+        "env": [
+            "jest"
+        ],
+        "ignore": []
+    },
+    "dependencies": {
+        "@feathersjs/authentication": "^5.0.24",
+        "@feathersjs/authentication-local": "^5.0.24",
+        "@feathersjs/authentication-oauth": "^5.0.24",
+        "@feathersjs/configuration": "^5.0.24",
+        "@feathersjs/errors": "^5.0.24",
+        "@feathersjs/express": "^5.0.24",
+        "@feathersjs/feathers": "^5.0.24",
+        "@feathersjs/transport-commons": "^5.0.24",
+        "child_process": "^1.0.2",
+        "compression": "^1.7.4",
+        "cors": "^2.8.5",
+        "fastify": "^2.12.0",
+        "fastify-ws": "^1.0.3",
+        "feathers-hooks-common": "^6.1.0",
+        "feathers-knex": "^7.1.1",
+        "feathers-permissions": "^2.1.4",
+        "feathers-swagger": "^1.2.1",
+        "fs": "^0.0.1-security",
+        "helmet": "^4.4.1",
+        "knex": "^0.95.2",
+        "lodash": "^4.17.21",
+        "moment": "^2.29.4",
+        "multer": "^1.4.4",
+        "pg": "^8.5.1",
+        "serve-favicon": "^2.5.0",
+        "util": "^0.12.5",
+        "winston": "^3.3.3",
+        "xlsx": "^0.18.5"
+    },
+    "devDependencies": {
+        "@eslint/eslintrc": "^3.0.2",
+        "@eslint/js": "^9.1.1",
+        "axios": "^0.21.1",
+        "eslint": "^8.57.0",
+        "eslint-config-airbnb-base": "^15.0.0",
+        "eslint-config-google": "^0.14.0",
+        "eslint-plugin-import": "^2.29.1",
+        "globals": "^15.0.0",
+        "jest": "^26.6.3",
+        "nodemon": "^2.0.7"
+    }
+}

@@ -25,10 +25,8 @@ generate_product_version(
 set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 
 set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_C_COMPILER arm-linux-gnueabihf-gcc)
-set(CMAKE_CXX_COMPILER arm-linux-gnueabihf-g++)
 
-set(PostgreSQL_LIBRARY /usr/lib/arm-linux-gnueabihf/libpq.so)
+set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
 set(PostgreSQL_INCLUDE_DIRS "\\usr\\include\\postgresql")
 
 link_directories(${PostgreSQL_LIBRARY_DIRS})
@@ -41,12 +39,15 @@ check_library_exists(rt clock_gettime "time.h" CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
 include(TestBigEndian)
 test_big_endian(PLATFORM_IS_BIGENDIAN)
 
+add_subdirectory(common)
+
 include_directories(
         .
         ${PostgreSQL_INCLUDE_DIRS}
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
+        ${CMAKE_CURRENT_LIST_DIR}/db/inc
         ${PROJECT_BINARY_DIR}
 )
 
@@ -55,9 +56,10 @@ add_executable(${EXEC_NAME}
         proxy/server/proxy_server.c
         resources/signal_handler.c
         resources/time_counter.c
+        db/db_func.c
 )
 
 target_link_libraries(${EXEC_NAME}
-        proxy_common
+        server_proxy_common
         -lrt
 )

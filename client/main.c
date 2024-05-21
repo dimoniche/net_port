@@ -7,28 +7,54 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <libgen.h>
 
 #include "logMsg.h"
-#include "db.h"
-#include "db_proc.h"
 #include "signal_handler.h"
 #include "settings.h"
 #include "time_utils.h"
-#include "proxy_server.h"
+#include "proxy_client.h"
 #include "hal_time.h"
 #include "time_counter.h"
 
 static uint64_t last_monotonic_time;
 
+static char *progname;
+
+static void print_usage(void)
+{
+    fprintf(stderr, "%s - net_port service proxy utilities.\n", progname);
+    fprintf(stderr, "Version %s.\n", VERSION);
+    fprintf(stderr, "\nUsage: %s [options]\n", progname);
+    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "         -h,--help         - show this help\n");
+    fprintf(stderr, "         --host_in         - net_port service address\n");
+    fprintf(stderr, "         -p_in             - net_port service port\n");
+    fprintf(stderr, "         --host_out        - user device service address \n");
+    fprintf(stderr, "         -p_out            - user device service port\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "\nExamples:\n");
+    fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22\n", progname);
+    fprintf(stderr, "\n");
+}
+
 int main(int argc, char** argv) {
-    logMsg(LOG_DEBUG, "Start...");
+
     logMsgInit();
-    logMsgOpen("../logs/module_net_port_server.log");
-    logMsg(LOG_DEBUG, "Start logger...");
+    logMsgOpen("logs/module_net_port.log");
+    logMsg(LOG_DEBUG, "Start logger (on folder logs/module_net_port.log) ...");
 
     signal_init();
 
-    TDBConnectionData DB_conn_data = {(char*)"127.1", (char*)"5432"};
+    proxy_server_t* settings = get_client_settings();
+
+    sprintf(settings->input_address,"82.146.44.140");
+    sprintf(settings->output_address,"127.0.0.1");
+    settings->output_port = 22;
+
+    bool show_help = true;
+
+    progname = basename(argv[0]);
 
     for (int i = 1; i < argc; i++) {
         char* s;
@@ -48,23 +74,51 @@ int main(int argc, char** argv) {
                 exit(-1);
             }
         }
-        if (strstr(argv[i], HOST_KEY) != NULL)
+        if (strstr(argv[i], HOST_KEY_IN) != NULL)
         {
             if (argv[i+1] != NULL)
-                DB_conn_data.ip = argv[i+1];
+            {
+                sscanf(argv[i+1], "%s", settings->input_address);
+                show_help = false;
+            }
         }
-        if (strstr(argv[i], PORT_KEY) != NULL)
+        if (strstr(argv[i], HOST_KEY_OUT) != NULL)
         {
             if (argv[i+1] != NULL)
-                DB_conn_data.port = argv[i+1];
+            {
+                sscanf(argv[i+1], "%s", settings->output_address);
+                show_help = false;
+            }  
+        }
+        if (strstr(argv[i], PORT_KEY_IN) != NULL)
+        {
+            if (argv[i+1] != NULL)
+            {
+                sscanf(argv[i+1], "%d", &settings->input_port);
+                show_help = false;
+            }
+        }
+        if (strstr(argv[i], PORT_KEY_OUT) != NULL)
+        {
+            if (argv[i+1] != NULL)
+            {
+                sscanf(argv[i+1], "%d", &settings->output_port);
+                show_help = false;
+            }  
+        }
+        if (strstr(argv[i], HELP_KEY_FULL) != NULL
+        || strstr(argv[i], HELP_KEY) != NULL)
+        {
+            show_help = true;
         }
     }
 
-    dbInit(DB_conn_data.ip, DB_conn_data.port);
+    if(show_help) {
+        print_usage();
+        return 0;
+    }
 
-    // запускаем все потоки после инициализации криптоинтерфейса
-    SwitcherServersInit();
-    SwitcherServersStart();
+    switcher_servers_start();
 
     while (1) {
         if(Hal_getMonotonicTimeInMs() - last_monotonic_time > 1000UL)
