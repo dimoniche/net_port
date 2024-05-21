@@ -54,9 +54,7 @@ typedef struct proxy_server_s
     bool is_input_enabled;
     bool is_input_starting;
     bool is_input_running;
-    bool is_input_connected;
     bool stop_input_running;
-    bool close_input_socket;
 
     uint16_t output_port;
     SOCKET output;
@@ -66,9 +64,12 @@ typedef struct proxy_server_s
     bool is_output_enabled;
     bool is_output_starting;
     bool is_output_running;
-    bool is_output_connected;
     bool stop_output_running;
-    bool close_output_socket;
+
+    // текущий пустой входящий сокет
+    int current_free_socket_input;
+    // текущий пустой исходящий сокет
+    int current_free_socket_output;
 
 } proxy_server_t;
 
@@ -88,20 +89,18 @@ typedef struct proxy_server_local_socket_data_s
     bool is_input_connected;
     // есть подключение внутреннего устройства
     bool is_output_connected;
+    // необходимость закрытия исходящего к клиенту сокета
+    bool close_output_socket;
+
+    // настроечные данные сервера
+    proxy_server_t * data;
 
 } proxy_server_local_socket_data_t;
 
 typedef struct proxy_server_thread_data_s
 {
+    // данные сокетов
     proxy_server_local_socket_data_t local_sockets[COUNT_SOCKET_THREAD];
-    int current_free_socket;
-
-    // TODO удалить эти данные - это однопоточное решение
-    SOCKET input_local;
-    SOCKET output_local;
-
-    uint8_t input_buf[81920];
-    uint8_t output_buf[81920];
 
     // настроечные данные одного ожидающего сервера
     proxy_server_t data;
@@ -129,19 +128,5 @@ int switcher_servers_start();
  */
 int
 switcher_servers_stop();
-
-/**
- * \brief Количество криптоканалов
- *
- * \return количество каналов
- */
-int getCountCryptServers();
-
-/**
- * \brief Количество открытых криптографических сессий
- *
- * \return количество каналов
- */
-uint32_t getCount_Open_Crypt_Session();
 
 #endif //CRYPT_SWITCHER_SWITCHER_H

@@ -66,8 +66,6 @@ server_input_init(proxy_server_t * server)
     server->stop_input_running = false;
     server->is_input_running = false;
     server->is_input_starting = false;
-    server->close_input_socket = false;
-    server->is_input_connected = false;
 
     return init_input_socket(server);
 }
@@ -78,8 +76,6 @@ server_output_init(proxy_server_t * server)
     server->stop_output_running = false;
     server->is_output_running = false;
     server->is_output_starting = false;
-    server->close_output_socket = false;
-    server->is_output_connected = false;
 
     return init_output_socket(server);
 }
@@ -107,6 +103,18 @@ switcher_servers_start()
 
         if(!server->enable) continue;
         
+        server->current_free_socket_input = 0;
+        server->current_free_socket_output = 0;
+
+        // инициализируем настройки сервера в каждый поток
+        for(int i = 0; i < COUNT_SOCKET_THREAD; i++) {
+            connections_data->local_sockets[i].data = &connections_data->data;
+
+            connections_data->local_sockets[i].is_input_connected = false;
+            connections_data->local_sockets[i].is_output_connected = false;
+            connections_data->local_sockets[i].close_output_socket = false;
+        }
+
         if(server->is_input_enabled)
         {
             server_input_start(connections_data);
@@ -156,10 +164,6 @@ switcher_servers_stop()
 
     input_server_wait_stop(&servers[i]);
   }*/
-
-  // ждем пока не закроются все криптосессии
-  while (getCount_Open_Crypt_Session() > 0)
-    Thread_sleep(1);
 
   logMsg(LOG_INFO, "%d servers stopped\n", count);
 
@@ -266,12 +270,12 @@ void*
 connection_input_handler (void* parameter)
 {
     uint64_t last_exchange_time = get_time_counter();
-    proxy_server_thread_data_t * thread_data = parameter;
+    proxy_server_local_socket_data_t * thread_data = parameter;
     int len_epdu;
     int done_output_connection = 0;
     void * seance_data = NULL;
 
-    thread_data->data.is_input_connected = true;
+    thread_data->is_input_connected = true;
 
     logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data.input_port);
 
@@ -281,14 +285,7 @@ connection_input_handler (void* parameter)
         FD_SET(thread_data->input_local, &read_set);
 
         if(get_time_counter() - last_exchange_time > 120) {
-            logMsg(LOG_DEBUG,"Start timeout disconnect on input_port %d\n", thread_data->data.input_port);
-            done_output_connection = 1;
-            break;
-        }
-
-        if(thread_data->data.close_input_socket)
-        {
-            logMsg(LOG_DEBUG,"Start disconnect on input_port %d\n", thread_data->data.input_port);
+            logMsg(LOG_DEBUG,"Start timeout disconnect on input_port %d\n", thread_data->data->input_port);
             done_output_connection = 1;
             break;
         }
@@ -310,7 +307,7 @@ connection_input_handler (void* parameter)
             len_epdu = recv(thread_data->input_local, (char *) thread_data->input_buf, sizeof(thread_data->input_buf),
                             0);
 
-            logMsg(LOG_INFO, "Receive data from input port %d: lenght %d\n",thread_data->data.input_port, len_epdu);
+            logMsg(LOG_INFO, "Receive data from input port %d: lenght %d\n",thread_data->data->input_port, len_epdu);
 
             if (len_epdu <= 0) {
                 if(len_epdu == 0) {
@@ -327,7 +324,7 @@ connection_input_handler (void* parameter)
 
             last_exchange_time = get_time_counter();
 
-            while(thread_data->data.close_output_socket) {
+            while(thread_data->close_output_socket) {
                 Thread_sleep(10);
 
                 if(get_time_counter() - last_exchange_time > 120) {
@@ -338,7 +335,7 @@ connection_input_handler (void* parameter)
                 }
             }
 
-            while(!thread_data->data.is_output_connected) {
+            while(!thread_data->is_output_connected) {
                 Thread_sleep(10);
 
                 if(get_time_counter() - last_exchange_time > 120) {
@@ -354,7 +351,7 @@ connection_input_handler (void* parameter)
                                 (const char *)&thread_data->input_buf[sent],
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                logMsg(LOG_INFO, "Send data to port %d result %d\n", thread_data->data.output_port, result);
+                logMsg(LOG_INFO, "Send output data to port %d result %d\n", thread_data->data->output_port, result);
 
                 if (result != -1)
                 {
@@ -369,7 +366,7 @@ connection_input_handler (void* parameter)
                 else
                 {
                     int err = WSAGetLastError();
-                    logMsg(LOG_INFO, "Send data to output_port %d WSAGetLastError %d\n", thread_data->data.output_port, err);
+                    logMsg(LOG_INFO, "Send data to output_port %d WSAGetLastError %d\n", thread_data->data->output_port, err);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -381,17 +378,16 @@ connection_input_handler (void* parameter)
                         select_res = select((SOCKET)(thread_data->output_local + 1), NULL, &fds, NULL, &tv);
 
                         if(select_res == -1) {
-                            logMsg(LOG_ERR, "Send:: select error:: %d", WSAGetLastError());
+                            logMsg(LOG_ERR, "Send to output:: select error:: %d", WSAGetLastError());
                             break;
                         }
 
-                        logMsg(LOG_INFO, "Send:: wait");
-                        if(!thread_data->data.is_output_connected) break;
-                        if(thread_data->data.close_input_socket) break;
+                        logMsg(LOG_INFO, "Send to output:: wait");
+                        if(!thread_data->is_output_connected) break;
                     }
                     else
                     {
-                        logMsg(LOG_INFO, "Send:: send error:: %d", WSAGetLastError());
+                        logMsg(LOG_INFO, "Send to output:: send error:: %d", WSAGetLastError());
                         break;
                     }
                 }
@@ -399,7 +395,7 @@ connection_input_handler (void* parameter)
 
             if(!success)
             {
-                logMsg(LOG_ERR, "send error\n");
+                logMsg(LOG_ERR, "send output error\n");
             }
         }
 
@@ -408,11 +404,13 @@ connection_input_handler (void* parameter)
 
     // сообщим о закрытии клиенту
     close(thread_data->input_local);
-    thread_data->data.close_output_socket = true;
+    thread_data->close_output_socket = true;
 
-    thread_data->data.is_input_connected = false;
+    thread_data->is_input_connected = false;
 
-    logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data.input_port);
+    logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);
+
+    thread_data->data->current_free_socket_input--;
 
     return 0;
 }
@@ -420,22 +418,22 @@ connection_input_handler (void* parameter)
 void*
 connection_output_handler (void* parameter)
 {
-    proxy_server_thread_data_t * thread_data = parameter;
+    proxy_server_local_socket_data_t * thread_data = parameter;
     int len_epdu;
     int done_output_connection = 0;
     void * seance_data = NULL;
 
-    thread_data->data.is_output_connected = true;
-    logMsg(LOG_INFO, "Start new connection_output_handler on output_port %d\n", thread_data->data.output_port);
+    thread_data->is_output_connected = true;
+    logMsg(LOG_INFO, "Start new connection_output_handler on output_port %d\n", thread_data->data->output_port);
 
     while (!done_output_connection) {
         fd_set read_set;
         FD_ZERO(&read_set);
         FD_SET(thread_data->output_local, &read_set);
 
-        if(thread_data->data.close_output_socket)
+        if(thread_data->close_output_socket)
         {
-            logMsg(LOG_DEBUG,"Start disconnect on output_port %d\n", thread_data->data.output_port);
+            logMsg(LOG_DEBUG,"Start disconnect on output_port %d\n", thread_data->data->output_port);
             done_output_connection = 1;
             break;
         }
@@ -457,7 +455,7 @@ connection_output_handler (void* parameter)
             len_epdu = recv(thread_data->output_local, (char *) thread_data->output_buf, sizeof(thread_data->output_buf),
                             0);
 
-            logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",thread_data->data.output_port, len_epdu);
+            logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",thread_data->data->output_port, len_epdu);
 
             if (len_epdu <= 0) {
                 if(len_epdu == 0) {
@@ -472,10 +470,10 @@ connection_output_handler (void* parameter)
             int sent = 0;
             int success = 0;
 
-            while(!thread_data->data.is_input_connected) {
+            while(!thread_data->is_input_connected) {
                 Thread_sleep(10);
 
-                if(thread_data->data.close_output_socket) {
+                if(thread_data->close_output_socket) {
                     done_output_connection = 1;
                     break;
                 }
@@ -486,7 +484,7 @@ connection_output_handler (void* parameter)
                                 (const char *)&thread_data->output_buf[sent],
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
-                logMsg(LOG_INFO, "Send data to port %d result %d\n", thread_data->data.input_port, result);
+                logMsg(LOG_INFO, "Send data to port %d result %d\n", thread_data->data->input_port, result);
 
                 if (result != -1)
                 {
@@ -501,7 +499,7 @@ connection_output_handler (void* parameter)
                 else
                 {
                     int err = WSAGetLastError();
-                    logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", thread_data->data.input_port, err);
+                    logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", thread_data->data->input_port, err);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -518,8 +516,8 @@ connection_output_handler (void* parameter)
                         }
 
                         logMsg(LOG_INFO, "Send:: wait\n");
-                        if(!thread_data->data.is_input_connected) break;
-                        if(thread_data->data.close_output_socket) break;
+                        if(!thread_data->is_input_connected) break;
+                        if(thread_data->close_output_socket) break;
                     }
                     else
                     {
@@ -541,10 +539,12 @@ connection_output_handler (void* parameter)
     // сообщим о закрытии клиенту
     close(thread_data->output_local);
 
-    thread_data->data.is_output_connected = false;
-    thread_data->data.close_output_socket = false;
+    thread_data->is_output_connected = false;
+    thread_data->close_output_socket = false;
 
-    logMsg(LOG_INFO,"Disconnect on output_port %d\n", thread_data->data.output_port);
+    logMsg(LOG_INFO,"Disconnect on output_port %d\n", thread_data->data->output_port);
+
+    thread_data->data->current_free_socket_output--;
 
     return 0;
 }
@@ -559,7 +559,6 @@ serverInputThread (void* parameter)
 
     server->is_input_running = true;
     server->is_input_starting = false;
-    server->is_input_connected = false;
 
     SOCKET socket_local;
 
@@ -591,19 +590,22 @@ serverInputThread (void* parameter)
 
                 logMsg(LOG_INFO, "Connection accepted on input_port %d\n", server->input_port);
 
-                if(server->is_input_connected) {
-                    logMsg(LOG_INFO, "Input connection is present - close it\n");
+                if(connections_data->current_free_socket_input >= COUNT_SOCKET_THREAD) {
+                    logMsg(LOG_INFO, "Count input connection is full (%d) - close it\n", connections_data->current_free_socket_input);
                     close(socket_local);
                     continue;
                 }
 
                 if(connections_data != NULL) {
 
-                    connections_data->input_local = socket_local;
+                    // локальный входящий сокет для нового потока
+                    connections_data->local_sockets[connections_data->current_free_socket_input].input_local = socket_local;
+                    // следующий свободный входящий сокет
+                    connections_data->data.current_free_socket_input++;
                 
-                    logMsg(LOG_DEBUG, "Start thread create\n");
+                    logMsg(LOG_DEBUG, "Start thread input socket create\n");
 
-                    Thread thread = Thread_create(connection_input_handler, (void *) connections_data, true);
+                    Thread thread = Thread_create(connection_input_handler, (void *) &connections_data->local_sockets[connections_data->current_free_socket_input], true);
 
                     if (thread != NULL) {
                         Thread_start(thread);
@@ -676,12 +678,22 @@ serverOutputThread (void* parameter)
 
                     logMsg(LOG_INFO, "Connection accepted on output_port %d\n", server->output_port);
 
+                    if(connections_data->current_free_socket_output >= COUNT_SOCKET_THREAD) {
+                        logMsg(LOG_INFO, "Count output connection is full (%d) - close it\n", connections_data->current_free_socket_output);
+                        close(socket_local);
+                        continue;
+                    }
+
                     if(connections_data != NULL) {
-                        connections_data->output_local = socket_local;
 
-                        logMsg(LOG_DEBUG, "Start thread create\n");
+                        // локальный исходящий сокет для нового потока
+                        connections_data->local_sockets[connections_data->current_free_socket_output].output_local = socket_local;
+                        // следующий свободный исходящий сокет
+                        connections_data->data.current_free_socket_output++;
 
-                        Thread thread = Thread_create(connection_output_handler, (void *) connections_data, true);
+                        logMsg(LOG_DEBUG, "Start output thread create\n");
+
+                        Thread thread = Thread_create(connection_output_handler, (void *) &connections_data->local_sockets[connections_data->current_free_socket_output], true);
 
                         if (thread != NULL) {
                             Thread_start(thread);
@@ -773,15 +785,4 @@ bool
 server_output_is_running(proxy_server_t * server)
 {
     return server->is_output_running;
-}
-
-int
-getCountCryptServers()
-{
-   return servers_count;
-}
-
-uint32_t getCount_Open_Crypt_Session()
-{
-  return count_open_crypt_session;
 }
