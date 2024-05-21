@@ -49,12 +49,32 @@ typedef struct proxy_server_s
     struct sockaddr_in output_addr;
     SOCKET output;
 
+    // текущее входящее подключение
+    int current_free_socket_input;
+    // текущее исходящее подключение
+    int current_free_socket_output;
+
 } proxy_server_t;
+
+// количество одновременных подключений на одном сокете
+#define COUNT_CONNECTED_SOCKET_THREAD   5
+
+// данные одного подключения (входящее/исходящее)
+typedef struct proxy_server_connected_socket_data_s {
+
+    uint8_t receive_input[8192];
+    uint8_t receive_output[8192];
+
+    proxy_server_t * data;
+
+} proxy_server_connected_socket_data_t;
 
 typedef struct proxy_server_thread_data_s
 {
-    uint8_t receive_input[81920];
-    uint8_t receive_output[81920];
+    proxy_server_connected_socket_data_t connected_socket[COUNT_CONNECTED_SOCKET_THREAD];
+
+    uint8_t receive_input[8192];
+    uint8_t receive_output[8192];
 
     proxy_server_t data;
 
