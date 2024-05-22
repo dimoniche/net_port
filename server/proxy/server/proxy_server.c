@@ -104,9 +104,6 @@ switcher_servers_start()
         }
 
         if(!server->enable) continue;
-        
-        server->current_free_socket_input = 0;
-        server->current_free_socket_output = 0;
 
         // инициализируем настройки сервера в каждый поток
         for(int i = 0; i < COUNT_SOCKET_THREAD; i++) {
@@ -543,8 +540,6 @@ connection_output_handler (void* parameter)
     thread_data->close_output_socket = false;
 
     logMsg(LOG_INFO,"Disconnect on output_port %d\n", thread_data->data->output_port);
-
-    thread_data->data->current_free_socket_output--;
 
     return 0;
 }
