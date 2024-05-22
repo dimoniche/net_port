@@ -66,11 +66,6 @@ typedef struct proxy_server_s
     bool is_output_running;
     bool stop_output_running;
 
-    // текущий пустой входящий сокет
-    int current_free_socket_input;
-    // текущий пустой исходящий сокет
-    int current_free_socket_output;
-
 } proxy_server_t;
 
 // количество одновременных подключений на одном сокете

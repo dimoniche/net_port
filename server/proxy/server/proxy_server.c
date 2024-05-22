@@ -26,6 +26,8 @@ bool server_input_is_running(proxy_server_t * server);
 bool server_output_is_running(proxy_server_t * server);
 void input_server_stop(proxy_server_t * server);
 void input_server_wait_stop(proxy_server_t * server);
+int get_free_input_socket(proxy_server_thread_data_t * data);
+int get_free_output_socket(proxy_server_thread_data_t * data);
 
 int
 servers_init(uint32_t user_id)
@@ -410,8 +412,6 @@ connection_input_handler (void* parameter)
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);
 
-    thread_data->data->current_free_socket_input--;
-
     return 0;
 }
 
@@ -590,13 +590,15 @@ serverInputThread (void* parameter)
 
                 logMsg(LOG_INFO, "Connection accepted on input_port %d\n", server->input_port);
 
-                if(server->current_free_socket_input >= COUNT_SOCKET_THREAD) {
-                    logMsg(LOG_INFO, "Count input connection is full (%d) - close it\n", server->current_free_socket_input);
+                int current_free_socket_input = get_free_input_socket(connections_data);
+
+                if(current_free_socket_input == -1) {
+                    logMsg(LOG_INFO, "Count input connection is full) - close it\n");
                     close(socket_local);
                     continue;
                 }
 
-                if(!connections_data->local_sockets[server->current_free_socket_input].is_output_connected) {
+                if(!connections_data->local_sockets[current_free_socket_input].is_output_connected) {
                     logMsg(LOG_INFO, "Not output socket - close input");
                     close(socket_local);
                     continue;
@@ -605,18 +607,15 @@ serverInputThread (void* parameter)
                 if(connections_data != NULL) {
 
                     // локальный входящий сокет для нового потока
-                    connections_data->local_sockets[server->current_free_socket_input].input_local = socket_local;
+                    connections_data->local_sockets[current_free_socket_input].input_local = socket_local;
                 
                     logMsg(LOG_DEBUG, "Start thread input socket create\n");
 
-                    Thread thread = Thread_create(connection_input_handler, (void *) &connections_data->local_sockets[server->current_free_socket_input], true);
+                    Thread thread = Thread_create(connection_input_handler, (void *) &connections_data->local_sockets[current_free_socket_input], true);
 
                     if (thread != NULL) {
                         Thread_start(thread);
                         logMsg(LOG_DEBUG, "Handler assigned\n");
-
-                        // следующий свободный входящий сокет
-                        connections_data->data.current_free_socket_input++;
                     } else {
                         logMsg(LOG_DEBUG, "Thread not create\n");
                     }
@@ -682,8 +681,10 @@ serverOutputThread (void* parameter)
 
                 logMsg(LOG_INFO, "Connection accepted on output_port %d\n", server->output_port);
 
-                if(server->current_free_socket_output >= COUNT_SOCKET_THREAD) {
-                    logMsg(LOG_INFO, "Count output connection is full (%d) - close it\n", server->current_free_socket_output);
+                int current_free_socket_output = get_free_output_socket(connections_data);
+
+                if(current_free_socket_output == -1) {
+                    logMsg(LOG_INFO, "Count output connection is full - close it\n");
                     close(socket_local);
                     continue;
                 }
@@ -691,18 +692,15 @@ serverOutputThread (void* parameter)
                 if(connections_data != NULL) {
 
                     // локальный исходящий сокет для нового потока
-                    connections_data->local_sockets[server->current_free_socket_output].output_local = socket_local;
+                    connections_data->local_sockets[current_free_socket_output].output_local = socket_local;
 
                     logMsg(LOG_DEBUG, "Start output thread create\n");
 
-                    Thread thread = Thread_create(connection_output_handler, (void *) &connections_data->local_sockets[server->current_free_socket_output], true);
+                    Thread thread = Thread_create(connection_output_handler, (void *) &connections_data->local_sockets[current_free_socket_output], true);
 
                     if (thread != NULL) {
                         Thread_start(thread);
                         logMsg(LOG_DEBUG, "Handler assigned\n");
-
-                        // следующий свободный исходящий сокет
-                        connections_data->data.current_free_socket_output++;
                     } else {
                         logMsg(LOG_DEBUG, "Thread not create\n");
                     }
@@ -789,4 +787,26 @@ bool
 server_output_is_running(proxy_server_t * server)
 {
     return server->is_output_running;
+}
+
+int get_free_input_socket(proxy_server_thread_data_t * data)
+{
+    for(int i = 0; i < COUNT_SOCKET_THREAD; i++) {
+        if(!data->local_sockets[i].is_input_connected) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+int get_free_output_socket(proxy_server_thread_data_t * data)
+{
+    for(int i = 0; i < COUNT_SOCKET_THREAD; i++) {
+        if(!data->local_sockets[i].is_output_connected) {
+            return i;
+        }
+    }
+
+    return -1;
 }
