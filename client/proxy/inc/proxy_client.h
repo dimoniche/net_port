@@ -55,8 +55,8 @@ typedef struct proxy_server_s
 // данные одного подключения (входящее/исходящее)
 typedef struct proxy_server_connected_socket_data_s {
 
-    uint8_t receive_input[4096];
-    uint8_t receive_output[4096];
+    uint8_t receive_input[16384];
+    uint8_t receive_output[16384];
 
     proxy_server_t * data;
 
@@ -64,8 +64,8 @@ typedef struct proxy_server_connected_socket_data_s {
 
 typedef struct proxy_server_thread_data_s
 {
-    uint8_t receive_input[4096];
-    uint8_t receive_output[4096];
+    uint8_t receive_input[16384];
+    uint8_t receive_output[16384];
 
     proxy_server_t data;
 
