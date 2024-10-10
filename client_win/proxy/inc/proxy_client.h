@@ -23,6 +23,8 @@
 //#define Sleep(x) usleep(x*1000)
 #define WSAGetLastError() errno
 
+#define RESTART_SOCKET_TIMEOUT      1200
+
 typedef struct proxy_server_s
 {
     uint16_t id;

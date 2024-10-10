@@ -23,6 +23,8 @@
 #define Sleep(x) usleep(x*1000)
 #define WSAGetLastError() errno
 
+#define RESTART_SOCKET_TIMEOUT      1200
+
 typedef struct proxy_server_s
 {
     uint16_t id;
@@ -48,22 +50,13 @@ typedef struct proxy_server_s
     uint16_t output_port;
     struct sockaddr_in output_addr;
     SOCKET output;
-
-    // текущее входящее подключение
-    int current_free_socket_input;
-    // текущее исходящее подключение
-    int current_free_socket_output;
-
 } proxy_server_t;
-
-// количество одновременных подключений на одном сокете
-#define COUNT_CONNECTED_SOCKET_THREAD   5
 
 // данные одного подключения (входящее/исходящее)
 typedef struct proxy_server_connected_socket_data_s {
 
-    uint8_t receive_input[8192];
-    uint8_t receive_output[8192];
+    uint8_t receive_input[4096];
+    uint8_t receive_output[4096];
 
     proxy_server_t * data;
 
@@ -71,10 +64,8 @@ typedef struct proxy_server_connected_socket_data_s {
 
 typedef struct proxy_server_thread_data_s
 {
-    proxy_server_connected_socket_data_t connected_socket[COUNT_CONNECTED_SOCKET_THREAD];
-
-    uint8_t receive_input[8192];
-    uint8_t receive_output[8192];
+    uint8_t receive_input[4096];
+    uint8_t receive_output[4096];
 
     proxy_server_t data;
 

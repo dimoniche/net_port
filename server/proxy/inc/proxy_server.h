@@ -33,6 +33,8 @@
 
 #define HTTP_SERVER_ENABLE
 
+#define RESTART_CONNECTION_TIMEOUT      3600
+
 typedef struct proxy_servers_settings_s
 {
   char local_address[32];
@@ -69,7 +71,7 @@ typedef struct proxy_server_s
 } proxy_server_t;
 
 // количество одновременных подключений на одном сокете
-#define COUNT_SOCKET_THREAD   5
+#define COUNT_SOCKET_THREAD   25
 
 // локальные сокеты и их буфера
 typedef struct proxy_server_local_socket_data_s
@@ -77,8 +79,8 @@ typedef struct proxy_server_local_socket_data_s
     SOCKET input_local;
     SOCKET output_local;
 
-    uint8_t input_buf[8192];
-    uint8_t output_buf[8192];
+    uint8_t input_buf[4096];
+    uint8_t output_buf[4096];
 
     // есть подключение из вне пользователя
     bool is_input_connected;

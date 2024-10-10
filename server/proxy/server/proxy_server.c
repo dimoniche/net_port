@@ -283,7 +283,7 @@ connection_input_handler (void* parameter)
         FD_ZERO(&read_set);
         FD_SET(thread_data->input_local, &read_set);
 
-        if(get_time_counter() - last_exchange_time > 120) {
+        if(get_time_counter() - last_exchange_time > RESTART_CONNECTION_TIMEOUT) {
             logMsg(LOG_DEBUG,"Start timeout disconnect on input_port %d\n", thread_data->data->input_port);
             done_output_connection = 1;
             break;
