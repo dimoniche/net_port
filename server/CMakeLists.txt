@@ -7,8 +7,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 0)
-set(VERSION_PATCH 0)
-set(BUILD_REVISION 1)
+set(VERSION_PATCH 2)
+set(BUILD_REVISION 0)
 set(SOFT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 set(MODULE_NAME module_net_port_server)
 
@@ -28,7 +28,6 @@ set(CMAKE_SYSTEM_NAME Linux)
 
 set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
 set(PostgreSQL_INCLUDE_DIRS "\\usr\\include\\postgresql")
-
 link_directories(${PostgreSQL_LIBRARY_DIRS})
 
 # feature checks

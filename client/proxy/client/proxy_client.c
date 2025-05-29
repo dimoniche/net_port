@@ -126,7 +126,7 @@ server_input_thread (void* parameter)
         FD_ZERO(&read_set);
         FD_SET(threads_data.data.input, &read_set);
 
-        if(get_time_counter() - last_exchange_time > 120) {
+        if(get_time_counter() - last_exchange_time > RESTART_SOCKET_TIMEOUT) {
             // останавливаем внутренний порт
             threads_data.data.stop_running_output = true;
             close(threads_data.data.input);
