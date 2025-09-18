@@ -53,19 +53,19 @@ init_input_sockets(proxy_server_connection_t *conn)
 {
     int ret = 1;
 
-    if (0 > (conn->input = socket(AF_INET, SOCK_STREAM, 0)))
+    if ((conn->input = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         logMsg(LOG_ERR, "socket() input error for connection %d\n", conn->id);
         return -2;
     }
 
-    if (0 > setsockopt(conn->input, SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret))) {
+    if (setsockopt(conn->input, SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret)) < 0) {
         logMsg(LOG_ERR, "setsockopt() input error for connection %d\n", conn->id);
         return -2;
     }
 
     int optval = 1;
-    if(0 > setsockopt(conn->input, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval))) {
+    if(setsockopt(conn->input, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)) < 0) {
         logMsg(LOG_ERR, "setsockopt() input error for connection %d\n", conn->id);
         return -2;
     }
@@ -84,13 +84,13 @@ init_output_sockets(proxy_server_connection_t *conn)
 {
     int ret = 1;
 
-    if (0 > (conn->output = socket(AF_INET, SOCK_STREAM, 0)))
+    if ((conn->output = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
         logMsg(LOG_ERR, "socket() output error for connection %d\n", conn->id);
         return -2;
     }
 
-    if (0 > setsockopt(conn->output, SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret))) {
+    if (setsockopt(conn->output, SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret)) < 0) {
         logMsg(LOG_ERR, "setsockopt() output error for connection %d\n", conn->id);
         return -2;
     }
@@ -109,6 +109,7 @@ server_input_thread (void* parameter)
 {
     int conn_index = *(int*)parameter;
     proxy_server_connection_t *conn = &threads_data.connections[conn_index];
+    free(parameter);
     
     restart_input_thread:;
 
@@ -119,8 +120,8 @@ server_input_thread (void* parameter)
 
     init_input_sockets(conn);
 
-    if (0 > connect(conn->input, (struct sockaddr *) &conn->input_addr,
-                    sizeof(conn->input_addr)))
+    if (connect(conn->input, (struct sockaddr *) &conn->input_addr,
+                sizeof(conn->input_addr)) < 0)
     {
         logMsg(LOG_ERR, "Input server connect error for connection %d\n", conn->id);
     } else {
@@ -180,7 +181,7 @@ server_input_thread (void* parameter)
                 if(len_apdu == 0) {
                     logMsg(LOG_INFO, "Input recv() connection closed for connection %d\n", conn->id);
                 } else {
-                  logMsg(LOG_ERR, "Input recv() error:: %d for connection %d\n", WSAGetLastError(), conn->id);
+                  logMsg(LOG_ERR, "Input recv() error:: %d for connection %d\n", errno, conn->id);
                 }
 
                 // останавливаем внутренний порт
@@ -230,8 +231,8 @@ server_input_thread (void* parameter)
                 }
                 else
                 {
-                    int err = WSAGetLastError();
-                    logMsg(LOG_INFO, "Send data to output_port %d WSAGetLastError %d for connection %d\n", threads_data.output_port, err, conn->id);
+                    int err = errno;
+                    logMsg(LOG_INFO, "Send data to output_port %d errno %d for connection %d\n", threads_data.output_port, err, conn->id);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -239,11 +240,11 @@ server_input_thread (void* parameter)
 
                         tv.tv_sec = 1;
                         FD_ZERO(&fds);
-                        FD_SET(0, &fds);
-                        select_res = select((SOCKET)(conn->output + 1), NULL, &fds, NULL, &tv);
+                        FD_SET(conn->output, &fds);
+                        select_res = select(conn->output + 1, NULL, &fds, NULL, &tv);
 
                         if(select_res == -1) {
-                            logMsg(LOG_ERR, "Send:: select error:: %d for connection %d\n", WSAGetLastError(), conn->id);
+                            logMsg(LOG_ERR, "Send:: select error:: %d for connection %d\n", errno, conn->id);
                             break;
                         }
 
@@ -252,7 +253,7 @@ server_input_thread (void* parameter)
                     }
                     else
                     {
-                        logMsg(LOG_INFO, "Send:: send error:: %d for connection %d\n", WSAGetLastError(), conn->id);
+                        logMsg(LOG_INFO, "Send:: send error:: %d for connection %d\n", errno, conn->id);
                         break;
                     }
                 }
@@ -278,6 +279,7 @@ server_output_thread (void* parameter)
 {
     int conn_index = *(int*)parameter;
     proxy_server_connection_t *conn = &threads_data.connections[conn_index];
+    free(parameter);
     
     int len_apdu;
     uint64_t last_exchange_time = get_time_counter();
@@ -286,8 +288,8 @@ server_output_thread (void* parameter)
 
     init_output_sockets(conn);
 
-    if (0 > connect(conn->output, (struct sockaddr *) &conn->output_addr,
-                    sizeof(conn->output_addr)))
+    if (connect(conn->output, (struct sockaddr *) &conn->output_addr,
+                sizeof(conn->output_addr)) < 0)
     {
         logMsg(LOG_ERR, "Output server connect error for connection %d\n", conn->id);
     } else {
@@ -337,7 +339,7 @@ server_output_thread (void* parameter)
                 if(len_apdu == 0) {
                     logMsg(LOG_INFO, "Output recv() connection closed for connection %d\n", conn->id);
                 } else {
-                  logMsg(LOG_ERR, "Output recv() error:: %d for connection %d\n", WSAGetLastError(), conn->id);
+                  logMsg(LOG_ERR, "Output recv() error:: %d for connection %d\n", errno, conn->id);
                 }
                 break;
             }
@@ -372,8 +374,8 @@ server_output_thread (void* parameter)
                 }
                 else
                 {
-                    int err = WSAGetLastError();
-                    logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d for connection %d\n", threads_data.input_port, err, conn->id);
+                    int err = errno;
+                    logMsg(LOG_INFO, "Send data to input_port %d errno %d for connection %d\n", threads_data.input_port, err, conn->id);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -381,11 +383,11 @@ server_output_thread (void* parameter)
 
                         tv.tv_sec = 1;
                         FD_ZERO(&fds);
-                        FD_SET(0, &fds);
-                        select_res = select((SOCKET)(conn->input + 1), NULL, &fds, NULL, &tv);
+                        FD_SET(conn->input, &fds);
+                        select_res = select(conn->input + 1, NULL, &fds, NULL, &tv);
 
                         if(select_res == -1) {
-                            logMsg(LOG_ERR, "Send:: select error:: %d for connection %d\n", WSAGetLastError(), conn->id);
+                            logMsg(LOG_ERR, "Send:: select error:: %d for connection %d\n", errno, conn->id);
                             break;
                         }
 
@@ -394,7 +396,7 @@ server_output_thread (void* parameter)
                     }
                     else
                     {
-                        logMsg(LOG_INFO, "Send:: send error:: %d for connection %d\n", WSAGetLastError(), conn->id);
+                        logMsg(LOG_INFO, "Send:: send error:: %d for connection %d\n", errno, conn->id);
                         break;
                     }
                 }
