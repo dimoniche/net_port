@@ -2,6 +2,7 @@
 /.idea
 /cmake-build*
 build
+.cache
 node_modules
 combined.log
 error.log
