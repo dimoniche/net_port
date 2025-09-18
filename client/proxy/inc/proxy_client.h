@@ -10,7 +10,6 @@
 
 #include "hal_thread.h"
 
-#include <stdlib.h>
 #include <memory.h>
 #include <unistd.h>
 #include <errno.h>

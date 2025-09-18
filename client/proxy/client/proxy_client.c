@@ -143,12 +143,27 @@ server_input_thread (void* parameter)
         FD_SET(conn->input, &read_set);
 
         if(get_time_counter() - conn->last_exchange_time > threads_data.timeout_seconds) {
-            // останавливаем внутренний порт
+            // Плавное закрытие соединения по таймауту
+            logMsg(LOG_INFO, "Inactivity timeout approaching for connection %d, initiating graceful shutdown", conn->id);
+            
+            // Останавливаем output поток
             conn->stop_running_output = true;
+            
+            // Даем время для graceful shutdown
+            int shutdown_timeout = 5; // 5 секунд на корректное завершение
+            uint64_t shutdown_start = get_time_counter();
+            
+            while(conn->is_running_output &&
+                  (get_time_counter() - shutdown_start < shutdown_timeout)) {
+                Thread_sleep(10);
+            }
+            
+            // Закрываем сокет
             close(conn->input);
 
             logMsg(LOG_INFO, "Timeout Input thread for connection %d", conn->id);
 
+            // Ожидаем полной остановки output потока
             while(conn->is_running_output) {
                 Thread_sleep(10);
             }
@@ -310,8 +325,15 @@ server_output_thread (void* parameter)
         FD_ZERO(&read_set);
         FD_SET(conn->output, &read_set);
 
-        // Проверка таймаута бездействия
+        // Проверка таймаута бездействия с graceful shutdown
         if(get_time_counter() - last_exchange_time > threads_data.timeout_seconds) {
+            logMsg(LOG_INFO, "Inactivity timeout detected for connection %d, initiating graceful shutdown\n", conn->id);
+            
+            // Пытаемся корректно закрыть соединение
+            if (conn->output >= 0) {
+                shutdown(conn->output, SHUT_RDWR);
+            }
+            
             logMsg(LOG_INFO, "Timeout Output thread for connection %d - no data exchange\n", conn->id);
             break;
         }
