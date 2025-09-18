@@ -80,50 +80,70 @@ int main(int argc, char** argv) {
         }
         if (strstr(argv[i], HOST_KEY_IN) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%s", settings->input_address);
+                strncpy(settings->input_address, argv[i+1], sizeof(settings->input_address) - 1);
+                settings->input_address[sizeof(settings->input_address) - 1] = '\0';
                 show_help = false;
+                i++; // Skip next argument
             }
         }
         if (strstr(argv[i], HOST_KEY_OUT) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%s", settings->output_address);
+                strncpy(settings->output_address, argv[i+1], sizeof(settings->output_address) - 1);
+                settings->output_address[sizeof(settings->output_address) - 1] = '\0';
                 show_help = false;
-            }  
+                i++; // Skip next argument
+            }
         }
         if (strstr(argv[i], PORT_KEY_IN) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%hu", &settings->input_port);
+                if (sscanf(argv[i+1], "%hu", &settings->input_port) != 1) {
+                    logMsg(LOG_ERR, "Invalid input port: %s\n", argv[i+1]);
+                    return -1;
+                }
                 show_help = false;
+                i++; // Skip next argument
             }
         }
         if (strstr(argv[i], PORT_KEY_OUT) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%hu", &settings->output_port);
+                if (sscanf(argv[i+1], "%hu", &settings->output_port) != 1) {
+                    logMsg(LOG_ERR, "Invalid output port: %s\n", argv[i+1]);
+                    return -1;
+                }
                 show_help = false;
+                i++; // Skip next argument
             }
         }
         if (strstr(argv[i], CONNECTIONS_KEY) != NULL || strstr(argv[i], CONNECTIONS_KEY_SHORT) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%d", &settings->connections_count);
+                if (sscanf(argv[i+1], "%d", &settings->connections_count) != 1 || settings->connections_count <= 0) {
+                    logMsg(LOG_ERR, "Invalid connections count: %s\n", argv[i+1]);
+                    return -1;
+                }
                 show_help = false;
+                i++; // Skip next argument
             }
         }
         if (strstr(argv[i], TIMEOUT_KEY) != NULL || strstr(argv[i], TIMEOUT_KEY_SHORT) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%d", &settings->timeout_seconds);
+                if (sscanf(argv[i+1], "%d", &settings->timeout_seconds) != 1 || settings->timeout_seconds <= 0) {
+                    logMsg(LOG_ERR, "Invalid timeout: %s\n", argv[i+1]);
+                    return -1;
+                }
                 show_help = false;
+                i++; // Skip next argument
             }
         }
         if (strstr(argv[i], HELP_KEY_FULL) != NULL
