@@ -32,9 +32,11 @@ static void print_usage(void)
     fprintf(stderr, "         -p_in             - net_port service port\n");
     fprintf(stderr, "         --host_out        - user device service address \n");
     fprintf(stderr, "         -p_out            - user device service port\n");
+    fprintf(stderr, "         --connections, -c - number of connections (default: 1)\n");
+    fprintf(stderr, "         --timeout, -t     - timeout in seconds for output threads (default: 1200)\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "\nExamples:\n");
-    fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22\n", progname);
+    fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --connections 5 --timeout 60\n", progname);
     fprintf(stderr, "\n");
 }
 
@@ -46,11 +48,13 @@ int main(int argc, char** argv) {
 
     signal_init();
 
-    proxy_server_t* settings = get_client_settings();
+    proxy_server_thread_data_t* settings = get_client_settings();
 
     sprintf(settings->input_address,"82.146.44.140");
     sprintf(settings->output_address,"127.0.0.1");
     settings->output_port = 22;
+    settings->connections_count = 1;
+    settings->timeout_seconds = RESTART_SOCKET_TIMEOUT;
 
     bool show_help = true;
 
@@ -94,7 +98,7 @@ int main(int argc, char** argv) {
         {
             if (argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%d", &settings->input_port);
+                sscanf(argv[i+1], "%hu", &settings->input_port);
                 show_help = false;
             }
         }
@@ -102,9 +106,25 @@ int main(int argc, char** argv) {
         {
             if (argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%d", &settings->output_port);
+                sscanf(argv[i+1], "%hu", &settings->output_port);
                 show_help = false;
-            }  
+            }
+        }
+        if (strstr(argv[i], CONNECTIONS_KEY) != NULL || strstr(argv[i], CONNECTIONS_KEY_SHORT) != NULL)
+        {
+            if (argv[i+1] != NULL)
+            {
+                sscanf(argv[i+1], "%d", &settings->connections_count);
+                show_help = false;
+            }
+        }
+        if (strstr(argv[i], TIMEOUT_KEY) != NULL || strstr(argv[i], TIMEOUT_KEY_SHORT) != NULL)
+        {
+            if (argv[i+1] != NULL)
+            {
+                sscanf(argv[i+1], "%d", &settings->timeout_seconds);
+                show_help = false;
+            }
         }
         if (strstr(argv[i], HELP_KEY_FULL) != NULL
         || strstr(argv[i], HELP_KEY) != NULL)

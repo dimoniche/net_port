@@ -1,7 +1,7 @@
 .idea
 /.idea
 /cmake-build*
-/build
+build
 node_modules
 combined.log
 error.log
