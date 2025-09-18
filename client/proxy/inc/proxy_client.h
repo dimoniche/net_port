@@ -62,6 +62,8 @@ typedef struct proxy_server_thread_data_s
     uint16_t input_port;
     char output_address[32];
     uint16_t output_port;
+    
+    bool graceful_shutdown; // Флаг для graceful shutdown
 } proxy_server_thread_data_t;
 
 proxy_server_thread_data_t* get_client_settings();
@@ -72,5 +74,7 @@ proxy_server_thread_data_t* get_client_settings();
  * \return -1 ошибка
  */
 int switcher_servers_start();
+void switcher_servers_stop();
+void switcher_servers_wait_stop();
 
 #endif //NET_PORT_CLIENT_H

@@ -1,8 +1,8 @@
 #include <signal.h>
-#include <stdlib.h>
 
 #include "signal_handler.h"
 #include "logMsg.h"
+#include "proxy_client.h"
 
 void signal_init(void)
 {
@@ -12,25 +12,23 @@ void signal_init(void)
     signal(SIGALRM, sigHandler);
 }
 
-void exit_nicely()
-{
-    exit(1);
-}
-
 void sigHandler(int sigNum)
 {
+    proxy_server_thread_data_t* settings = get_client_settings();
+    
     if (sigNum == SIGINT) {
-        logMsg(LOG_ERR, "SIGINT stopped...");
-        exit_nicely();
+        logMsg(LOG_INFO, "SIGINT received, initiating graceful shutdown...");
+        settings->graceful_shutdown = true;
     }
     else if (sigNum == SIGTERM) {
-        logMsg(LOG_ERR, "SIGTERM stopped...");
-        exit_nicely();
+        logMsg(LOG_INFO, "SIGTERM received, initiating graceful shutdown...");
+        settings->graceful_shutdown = true;
     }
     else if (sigNum == SIGALRM) {
+        // Handle SIGALRM if needed
     }
     else if (sigNum == SIGPIPE) {
-        logMsg(LOG_ERR, "SIGPIPE...");
+        logMsg(LOG_INFO, "SIGPIPE received...");
     }
 }
 

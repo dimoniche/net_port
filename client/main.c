@@ -55,6 +55,7 @@ int main(int argc, char** argv) {
     settings->output_port = 22;
     settings->connections_count = 1;
     settings->timeout_seconds = RESTART_SOCKET_TIMEOUT;
+    settings->graceful_shutdown = false; // Инициализация флага graceful shutdown
 
     bool show_help = true;
 
@@ -161,6 +162,14 @@ int main(int argc, char** argv) {
     switcher_servers_start();
 
     while (1) {
+        proxy_server_thread_data_t* settings = get_client_settings();
+        
+        // Проверяем флаг graceful shutdown
+        if (settings->graceful_shutdown) {
+            logMsg(LOG_INFO, "Graceful shutdown initiated, stopping servers...");
+            break;
+        }
+        
         if(Hal_getMonotonicTimeInMs() - last_monotonic_time > 1000UL)
         {
             //fflush(stdout);
@@ -175,6 +184,12 @@ int main(int argc, char** argv) {
 
         msleep(10);
     }
+    
+    // Выполняем graceful shutdown
+    switcher_servers_stop();
+    switcher_servers_wait_stop();
+    
+    logMsg(LOG_INFO, "Application shutdown completed gracefully");
 
     return 0;
 }

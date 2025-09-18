@@ -505,3 +505,51 @@ server_input_is_running(proxy_server_connection_t *conn)
 {
     return conn->is_running_input;
 }
+
+void
+switcher_servers_stop()
+{
+    proxy_server_thread_data_t* settings = get_client_settings();
+    
+    logMsg(LOG_INFO, "Initiating graceful shutdown of all connections...");
+    
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+        
+        // Останавливаем input поток
+        if (conn->is_running_input) {
+            conn->stop_running_input = true;
+        }
+        
+        // Останавливаем output поток
+        if (conn->is_running_output) {
+            conn->stop_running_output = true;
+        }
+    }
+}
+
+void
+switcher_servers_wait_stop()
+{
+    proxy_server_thread_data_t* settings = get_client_settings();
+    
+    logMsg(LOG_INFO, "Waiting for all connections to stop gracefully...");
+    
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+        
+        // Ожидаем остановки input потока
+        while (conn->is_running_input) {
+            Thread_sleep(10);
+        }
+        
+        // Ожидаем остановки output потока
+        while (conn->is_running_output) {
+            Thread_sleep(10);
+        }
+        
+        logMsg(LOG_INFO, "Connection %d stopped gracefully", conn->id);
+    }
+    
+    logMsg(LOG_INFO, "All connections stopped gracefully");
+}
