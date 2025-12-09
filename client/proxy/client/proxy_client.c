@@ -109,16 +109,25 @@ server_input_thread (void* parameter)
 {
     int conn_index = *(int*)parameter;
     proxy_server_connection_t *conn = &threads_data.connections[conn_index];
-    free(parameter);
+    free(parameter); // Освобождаем параметр потока сразу после использования
     
-    restart_input_thread:;
+    restart_input_thread:
+    // Reset socket descriptor before reconnecting
+    conn->input = -1;
+    Thread_sleep(100); // Small delay before reconnect attempt
 
     int len_apdu;
     conn->last_exchange_time = get_time_counter();
 
     logMsg(LOG_INFO, "Restart input server for connection %d\n", conn->id);
 
-    init_input_sockets(conn);
+    // Reinitialize socket structures
+    memset(&conn->input_addr, 0, sizeof(conn->input_addr));
+    if (init_input_sockets(conn) != 0) {
+        logMsg(LOG_ERR, "Failed to reinitialize input sockets for connection %d\n", conn->id);
+        Thread_sleep(1000);
+        goto restart_input_thread;
+    }
 
     if (connect(conn->input, (struct sockaddr *) &conn->input_addr,
                 sizeof(conn->input_addr)) < 0)
@@ -159,16 +168,26 @@ server_input_thread (void* parameter)
             }
             
             // Закрываем сокет
-            close(conn->input);
+            if (conn->input >= 0) {
+                close(conn->input);
+                conn->input = -1;
+            }
 
             logMsg(LOG_INFO, "Timeout Input thread for connection %d", conn->id);
 
             // Ожидаем полной остановки output потока
-            while(conn->is_running_output) {
+            uint64_t wait_start = get_time_counter();
+            while(conn->is_running_output &&
+                  (get_time_counter() - wait_start < 30)) { // 30 секунд максимум
                 Thread_sleep(10);
             }
 
             logMsg(LOG_INFO, "Restart by timeout Input thread for connection %d\n", conn->id);
+            // Reset output socket before restarting
+            if (conn->output >= 0) {
+                close(conn->output);
+                conn->output = -1;
+            }
             goto restart_input_thread;
         }
 
@@ -201,9 +220,14 @@ server_input_thread (void* parameter)
 
                 // останавливаем внутренний порт
                 conn->stop_running_output = true;
-                close(conn->input);
+                if (conn->input >= 0) {
+                    close(conn->input);
+                    conn->input = -1;
+                }
 
-                while(conn->is_running_output) {
+                uint64_t wait_start = get_time_counter();
+                while(conn->is_running_output &&
+                      (get_time_counter() - wait_start < 30)) { // 30 секунд максимум
                     Thread_sleep(10);
                 }
 
@@ -294,7 +318,7 @@ server_output_thread (void* parameter)
 {
     int conn_index = *(int*)parameter;
     proxy_server_connection_t *conn = &threads_data.connections[conn_index];
-    free(parameter);
+    free(parameter); // Освобождаем параметр потока сразу после использования
     
     int len_apdu;
     uint64_t last_exchange_time = get_time_counter();
@@ -450,9 +474,20 @@ server_input_start(int conn_index)
 
         // Создаем копию индекса для передачи в поток
         int *param = malloc(sizeof(int));
+        if (!param) {
+            logMsg(LOG_ERR, "Failed to allocate memory for thread parameter (connection %d)\n", conn_index);
+            conn->is_starting_input = false;
+            return;
+        }
         *param = conn_index;
         
-        conn->input_thread = Thread_create(server_input_thread, (void *) param, false);
+        conn->input_thread = Thread_create(server_input_thread, (void *) param, true); // Создаем отсоединенный поток
+        if (!conn->input_thread) {
+            logMsg(LOG_ERR, "Failed to create input thread for connection %d\n", conn_index);
+            free(param);
+            conn->is_starting_input = false;
+            return;
+        }
 
         Thread_start(conn->input_thread);
 
@@ -473,9 +508,20 @@ server_output_start(int conn_index)
 
         // Создаем копию индекса для передачи в поток
         int *param = malloc(sizeof(int));
+        if (!param) {
+            logMsg(LOG_ERR, "Failed to allocate memory for thread parameter (connection %d)\n", conn_index);
+            conn->is_starting_output = false;
+            return;
+        }
         *param = conn_index;
         
-        conn->output_thread = Thread_create(server_output_thread, (void *) param, false);
+        conn->output_thread = Thread_create(server_output_thread, (void *) param, true); // Создаем отсоединенный поток
+        if (!conn->output_thread) {
+            logMsg(LOG_ERR, "Failed to create output thread for connection %d\n", conn_index);
+            free(param);
+            conn->is_starting_output = false;
+            return;
+        }
 
         Thread_start(conn->output_thread);
 
@@ -525,6 +571,36 @@ switcher_servers_stop()
         if (conn->is_running_output) {
             conn->stop_running_output = true;
         }
+    }
+
+    // Освобождаем память соединений
+    if (settings->connections) {
+        // Сначала дожидаемся завершения и уничтожаем все потоки
+        for (int i = 0; i < settings->connections_count; i++) {
+            proxy_server_connection_t *conn = &settings->connections[i];
+            
+            if (conn->input_thread) {
+                // Дожидаемся завершения потока
+                while (conn->is_running_input) {
+                    Thread_sleep(10);
+                }
+                Thread_destroy(conn->input_thread);
+                conn->input_thread = NULL;
+            }
+            
+            if (conn->output_thread) {
+                // Дожидаемся завершения потока
+                while (conn->is_running_output) {
+                    Thread_sleep(10);
+                }
+                Thread_destroy(conn->output_thread);
+                conn->output_thread = NULL;
+            }
+        }
+        
+        free(settings->connections);
+        settings->connections = NULL;
+        settings->connections_count = 0;
     }
 }
 
