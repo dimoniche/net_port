@@ -235,7 +235,10 @@ server_input_thread (void* parameter)
                 goto restart_input_thread;
             }
 
-            server_output_start(conn_index);
+            // Проверяем и запускаем output поток если он не активен
+            if (!conn->is_running_output && !conn->is_starting_output) {
+                server_output_start(conn_index);
+            }
 
             int remaining = len_apdu;
             int sent = 0;
@@ -325,19 +328,27 @@ server_output_thread (void* parameter)
 
     logMsg(LOG_INFO, "Start output server for connection %d\n", conn->id);
 
-    init_output_sockets(conn);
+    if (init_output_sockets(conn) != 0) {
+        logMsg(LOG_ERR, "Output socket initialization failed for connection %d\n", conn->id);
+        conn->is_running_output = false;
+        return 0;
+    }
 
     if (connect(conn->output, (struct sockaddr *) &conn->output_addr,
                 sizeof(conn->output_addr)) < 0)
     {
-        logMsg(LOG_ERR, "Output server connect error for connection %d\n", conn->id);
-    } else {
-        logMsg(LOG_INFO, "Connect output server for connection %d\n", conn->id);
+        logMsg(LOG_ERR, "Output server connect error for connection %d: %s\n", conn->id, strerror(errno));
+        close(conn->output);
+        conn->output = -1;
+        conn->is_running_output = false;
+        return 0;
+    }
 
-        int flags = fcntl(conn->output , F_GETFL, 0);
-        if(fcntl(conn->output, F_SETFL, flags|O_NONBLOCK) < 0) {
-            logMsg(LOG_ERR, "connect fcntl error for connection %d\n", conn->id);
-        }
+    logMsg(LOG_INFO, "Connect output server for connection %d\n", conn->id);
+
+    int flags = fcntl(conn->output , F_GETFL, 0);
+    if(fcntl(conn->output, F_SETFL, flags|O_NONBLOCK) < 0) {
+        logMsg(LOG_ERR, "connect fcntl error for connection %d: %s\n", conn->id, strerror(errno));
     }
 
     conn->is_running_output = true;
@@ -501,7 +512,7 @@ server_output_start(int conn_index)
 {
     proxy_server_connection_t *conn = &threads_data.connections[conn_index];
     
-    if (conn->is_running_output == false) {
+    if (conn->is_running_output == false && conn->is_starting_output == false) {
 
         conn->is_starting_output = true;
         conn->stop_running_output = false;
@@ -515,7 +526,7 @@ server_output_start(int conn_index)
         }
         *param = conn_index;
         
-        conn->output_thread = Thread_create(server_output_thread, (void *) param, true); // Создаем отсоединенный поток
+        conn->output_thread = Thread_create(server_output_thread, (void *) param, true);
         if (!conn->output_thread) {
             logMsg(LOG_ERR, "Failed to create output thread for connection %d\n", conn_index);
             free(param);
@@ -525,8 +536,18 @@ server_output_start(int conn_index)
 
         Thread_start(conn->output_thread);
 
-        while (conn->is_starting_output)
+        // Ожидаем подтверждения запуска потока
+        uint64_t wait_start = get_time_counter();
+        while (conn->is_starting_output) {
             Thread_sleep(1);
+            
+            // Таймаут на запуск потока - 5 секунд
+            if (get_time_counter() - wait_start > 5) {
+                logMsg(LOG_ERR, "Timeout waiting for output thread start (connection %d)\n", conn_index);
+                conn->is_starting_output = false;
+                break;
+            }
+        }
     }
 }
 
