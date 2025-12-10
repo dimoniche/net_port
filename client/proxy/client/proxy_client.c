@@ -1,5 +1,7 @@
 #include "proxy_client.h"
 
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 #include <fcntl.h>
 #include <sys/time.h>
 #include <stdlib.h>
@@ -649,4 +651,37 @@ switcher_servers_wait_stop()
     }
     
     logMsg(LOG_INFO, "All connections stopped gracefully");
+}
+
+// Инициализация OpenSSL
+void init_openssl() {
+    SSL_load_error_strings();
+    OpenSSL_add_ssl_algorithms();
+}
+
+// Очистка ресурсов OpenSSL
+void cleanup_openssl() {
+    EVP_cleanup();
+}
+
+// Создание SSL контекста для клиента
+SSL_CTX *create_client_ssl_context(const char *ca_file) {
+    const SSL_METHOD *method = TLS_client_method();
+    SSL_CTX *ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        logMsg(LOG_ERR, "Unable to create SSL context\n");
+        return NULL;
+    }
+
+    // Настройка контекста
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+    
+    if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) {
+        logMsg(LOG_ERR, "Failed to load CA certificate\n");
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+
+    return ctx;
 }

@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "hal_thread.h"
 
@@ -44,6 +46,7 @@ typedef struct proxy_server_connection_s
     bool stop_running_output;
 
     SOCKET output;
+    SSL *ssl_output; // SSL только для исходящего соединения
     struct sockaddr_in output_addr;
 
     uint8_t receive_input[16384];
@@ -64,6 +67,10 @@ typedef struct proxy_server_thread_data_s
     uint16_t output_port;
     
     bool graceful_shutdown; // Флаг для graceful shutdown
+
+    SSL_CTX *ssl_ctx; // Контекст SSL для клиентских соединений
+    bool enable_ssl; // Флаг включения SSL шифрования
+    char ca_file[256]; // Путь к файлу CA сертификата
 } proxy_server_thread_data_t;
 
 proxy_server_thread_data_t* get_client_settings();
@@ -76,5 +83,10 @@ proxy_server_thread_data_t* get_client_settings();
 int switcher_servers_start();
 void switcher_servers_stop();
 void switcher_servers_wait_stop();
+
+// Функции для работы с OpenSSL
+void init_openssl();
+void cleanup_openssl();
+SSL_CTX *create_client_ssl_context(const char *ca_file);
 
 #endif //NET_PORT_CLIENT_H

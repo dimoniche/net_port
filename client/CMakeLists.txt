@@ -59,4 +59,6 @@ add_executable(${EXEC_NAME}
 target_link_libraries(${EXEC_NAME}
         client_proxy_common
         -lrt
+        -lssl
+        -lcrypto
 )
