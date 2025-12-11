@@ -10,7 +10,6 @@
 
 #include "logMsg.h"
 #include "db.h"
-#include "db_proc.h"
 #include "signal_handler.h"
 #include "settings.h"
 #include "time_utils.h"
@@ -30,6 +29,33 @@ int main(int argc, char** argv) {
 
     uint32_t user_id = 0;
 
+    char *cert_file = NULL;
+    char *key_file = NULL;
+
+    if (argc == 1 || (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))) {
+        printf("Net Port Server v%s\n\n", VERSION);
+        printf("Usage: %s [OPTIONS]\n\n", argv[0]);
+        printf("Options:\n");
+        printf("  %s<level>        Set verbose level (1-%d, higher=more output)\n", VERBOSE_KEY, LOG_LAST_PRIORITY);
+        printf("  %s <host>         Database host IP address\n", HOST_KEY);
+        printf("  %s <port>         Database port number\n", PORT_KEY);
+        printf("  %s <id>           User ID for logging\n", USER_ID);
+        printf("  --cert <file>     Path to SSL certificate file\n");
+        printf("  --key <file>      Path to SSL private key file\n");
+        printf("  --threads <num>   Number of socket threads (1-1000)\n");
+        printf("  -h, --help        Show this help message\n");
+        printf("  -v, --version     Show version information\n");
+        printf("\nExample:\n");
+        printf("  %s %s5 %s 192.168.1.100 %s 5432 %s 100\n",
+               argv[0], VERBOSE_KEY, HOST_KEY, PORT_KEY, USER_ID);
+        exit(0);
+    }
+
+    if (argc == 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
+        printf("Net Port Server v%s\n", VERSION);
+        exit(0);
+    }
+
     for (int i = 1; i < argc; i++) {
         char* s;
         int verbose_level;
@@ -48,24 +74,50 @@ int main(int argc, char** argv) {
                 exit(-1);
             }
         }
-        if (strstr(argv[i], HOST_KEY) != NULL)
+        else if (strstr(argv[i], HOST_KEY) != NULL)
         {
             if (argv[i+1] != NULL)
                 DB_conn_data.ip = argv[i+1];
         }
-        if (strstr(argv[i], PORT_KEY) != NULL)
+        else if (strstr(argv[i], PORT_KEY) != NULL)
         {
             if (argv[i+1] != NULL)
                 DB_conn_data.port = argv[i+1];
         }
-        if (strstr(argv[i], USER_ID) != NULL)
+        else if (strstr(argv[i], USER_ID) != NULL)
         {
             if (argv[i+1] != NULL)
             {
                 sscanf(argv[i+1], "%d", &user_id);
             }
-
             i++;
+        }
+        else if (strstr(argv[i], "--cert") != NULL)
+        {
+            if (argv[i+1] != NULL)
+                cert_file = argv[i+1];
+            i++;
+        }
+        else if (strstr(argv[i], "--key") != NULL)
+        {
+            if (argv[i+1] != NULL)
+                key_file = argv[i+1];
+            i++;
+        }
+        else if (strstr(argv[i], "--threads") != NULL || strstr(argv[i], "-t") != NULL)
+        {
+            if (argv[i+1] != NULL) {
+                int thread_count;
+                sscanf(argv[i+1], "%d", &thread_count);
+                if (thread_count > 0 && thread_count <= 1000) {
+                    COUNT_SOCKET_THREAD = thread_count;
+                    logMsg(LOG_INFO, "Set socket threads count to %d", thread_count);
+                } else {
+                    logMsg(LOG_EMERG, "Invalid thread count %d (1-1000 allowed)", thread_count);
+                    exit(-1);
+                }
+                i++;
+            }
         }
     }
 
@@ -76,7 +128,7 @@ int main(int argc, char** argv) {
 
     db_init(DB_conn_data.ip, DB_conn_data.port);
 
-    servers_init(user_id);
+    servers_init(user_id, cert_file, key_file);
     switcher_servers_start();
 
     while (1) {

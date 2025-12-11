@@ -7,15 +7,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "hal_thread.h"
 
-#ifdef _WIN32
-#include <io.h>
-#include <WinSock.h>
-#else
 #define SOCKET int
-#include <stdlib.h>
 #include <memory.h>
 #include <unistd.h>
 #include <errno.h>
@@ -26,7 +23,6 @@
 
 #define Sleep(x) usleep(x*1000)
 #define WSAGetLastError() errno
-#endif
 
 #define INPUT_SOCKET    0
 #define OUTPUT_SOCKET   1
@@ -68,10 +64,15 @@ typedef struct proxy_server_s
     bool is_output_running;
     bool stop_output_running;
 
+    bool enable_ssl; // Флаг включения SSL
+    SSL_CTX *ssl_ctx; // SSL контекст для сервера
+    char cert_file[256]; // Путь к сертификату сервера
+    char key_file[256]; // Путь к приватному ключу сервера
+
 } proxy_server_t;
 
 // количество одновременных подключений на одном сокете
-#define COUNT_SOCKET_THREAD   25
+extern int COUNT_SOCKET_THREAD;
 
 // локальные сокеты и их буфера
 typedef struct proxy_server_local_socket_data_s
@@ -89,6 +90,8 @@ typedef struct proxy_server_local_socket_data_s
     // необходимость закрытия исходящего к клиенту сокета
     bool close_output_socket;
 
+    SSL *ssl_input; // SSL объект для входящего соединения
+
     // настроечные данные сервера
     proxy_server_t * data;
 
@@ -97,7 +100,7 @@ typedef struct proxy_server_local_socket_data_s
 typedef struct proxy_server_thread_data_s
 {
     // данные сокетов
-    proxy_server_local_socket_data_t local_sockets[COUNT_SOCKET_THREAD];
+    proxy_server_local_socket_data_t *local_sockets;
 
     // настроечные данные одного ожидающего сервера
     proxy_server_t data;
@@ -109,7 +112,7 @@ typedef struct proxy_server_thread_data_s
  *
  * \return -1 ошибка
  */
-int servers_init(uint32_t user_id);
+int servers_init(uint32_t user_id, const char* cert_file, const char* key_file);
 
 /**
  * \brief Запуск прослушивателей портов
@@ -123,6 +126,13 @@ int switcher_servers_start();
  *
  * \return -1 ошибка
  */
+ 
+// Функции для работы с OpenSSL
+void init_ssl_context(proxy_server_t *server);
+void init_openssl();
+void cleanup_openssl();
+SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file);
+
 int
 switcher_servers_stop();
 

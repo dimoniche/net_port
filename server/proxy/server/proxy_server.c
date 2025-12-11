@@ -2,6 +2,8 @@
 
 #include <fcntl.h>
 #include <sys/time.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "db.h"
 #include "logMsg.h"
@@ -10,9 +12,11 @@
 #include "db_func.h"
 #include "time_counter.h"
 
+// Глобальное определение переменной количества потоков
+int COUNT_SOCKET_THREAD = 25;
+
 static proxy_server_t* servers;
 static uint16_t servers_count;
-
 static int32_t count_open_crypt_session = 0;
 static proxy_servers_settings_t proxy_settings;
 
@@ -30,7 +34,7 @@ int get_free_input_socket(proxy_server_thread_data_t * data);
 int get_free_output_socket(proxy_server_thread_data_t * data);
 
 int
-servers_init(uint32_t user_id)
+servers_init(uint32_t user_id, const char* cert_file, const char* key_file)
 {
     int32_t res = get_user_server_ports(user_id, &servers, &servers_count);
 
@@ -46,6 +50,15 @@ servers_init(uint32_t user_id)
     for(int i = 0; i < servers_count; i++) {
 
         if(!servers[i].enable) continue;
+
+        // Сохраняем пути к сертификатам для каждого сервера
+        strncpy(servers[i].cert_file, cert_file, sizeof(servers[i].cert_file) - 1);
+        servers[i].cert_file[sizeof(servers[i].cert_file) - 1] = '\0';
+        strncpy(servers[i].key_file, key_file, sizeof(servers[i].key_file) - 1);
+        servers[i].key_file[sizeof(servers[i].key_file) - 1] = '\0';
+
+        // Инициализация SSL если нужно
+        init_ssl_context(&servers[i]);
         
         if(server_input_init(&servers[i]) < 0) {
             servers[i].is_input_enabled = false;
@@ -142,6 +155,14 @@ switcher_servers_start()
     logMsg(LOG_DEBUG, "%d servers started!\n", count);
 
     return 0;
+}
+
+// Очистка SSL контекста при остановке сервера
+void cleanup_ssl_context(proxy_server_t *server) {
+    if (server->ssl_ctx) {
+        SSL_CTX_free(server->ssl_ctx);
+        server->ssl_ctx = NULL;
+    }
 }
 
 int
@@ -278,6 +299,23 @@ connection_input_handler (void* parameter)
 
     logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data->input_port);
 
+    // Инициализация SSL если нужно
+    if (thread_data->data->enable_ssl) {
+        thread_data->ssl_input = SSL_new(thread_data->data->ssl_ctx);
+        SSL_set_fd(thread_data->ssl_input, thread_data->input_local);
+
+        if (SSL_accept(thread_data->ssl_input) != 1) {
+            logMsg(LOG_ERR, "SSL handshake failed on input_port %d\n", thread_data->data->input_port);
+            ERR_print_errors_fp(stderr);
+            SSL_free(thread_data->ssl_input);
+            thread_data->ssl_input = NULL;
+            close(thread_data->input_local);
+            thread_data->is_input_connected = false;
+            return 0;
+        }
+        logMsg(LOG_INFO, "SSL connection established on input_port %d\n", thread_data->data->input_port);
+    }
+
     while (!done_output_connection) {
         fd_set read_set;
         FD_ZERO(&read_set);
@@ -303,8 +341,11 @@ connection_input_handler (void* parameter)
         }
 
         if(FD_ISSET(thread_data->input_local, &read_set)) {
-            len_epdu = recv(thread_data->input_local, (char *) thread_data->input_buf, sizeof(thread_data->input_buf),
-                            0);
+            if (thread_data->data->enable_ssl) {
+                len_epdu = SSL_read(thread_data->ssl_input, (char *) thread_data->input_buf, sizeof(thread_data->input_buf));
+            } else {
+                len_epdu = recv(thread_data->input_local, (char *) thread_data->input_buf, sizeof(thread_data->input_buf), 0);
+            }
 
             logMsg(LOG_INFO, "Receive data from input port %d: lenght %d\n",thread_data->data->input_port, len_epdu);
 
@@ -599,6 +640,22 @@ serverInputThread (void* parameter)
                     continue;
                 }
 
+                // Установка SSL соединения если нужно
+                if (server->enable_ssl) {
+                    SSL *ssl = SSL_new(server->ssl_ctx);
+                    SSL_set_fd(ssl, socket_local);
+
+                    if (SSL_accept(ssl) != 1) {
+                        logMsg(LOG_ERR, "SSL handshake failed on input_port %d\n", server->input_port);
+                        ERR_print_errors_fp(stderr);
+                        SSL_free(ssl);
+                        close(socket_local);
+                        continue;
+                    }
+                    connections_data->local_sockets[current_free_socket_input].ssl_input = ssl;
+                    logMsg(LOG_INFO, "SSL connection accepted on input_port %d\n", server->input_port);
+                }
+
                 if(connections_data != NULL) {
 
                     // локальный входящий сокет для нового потока
@@ -804,4 +861,52 @@ int get_free_output_socket(proxy_server_thread_data_t * data)
     }
 
     return -1;
+}
+
+// Инициализация SSL контекста при старте
+void init_ssl_context(proxy_server_t *server) {
+    if (server->enable_ssl) {
+        server->ssl_ctx = create_server_ssl_context(server->cert_file, server->key_file);
+        if (!server->ssl_ctx) {
+            logMsg(LOG_ERR, "Failed to initialize SSL context\n");
+            exit(EXIT_FAILURE);
+        }
+        logMsg(LOG_INFO, "SSL context initialized\n");
+    }
+}
+
+// Инициализация OpenSSL
+void init_openssl() {
+    SSL_load_error_strings();
+    OpenSSL_add_ssl_algorithms();
+}
+
+// Очистка ресурсов OpenSSL
+void cleanup_openssl() {
+    EVP_cleanup();
+}
+
+// Создание SSL контекста для сервера
+SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file) {
+    const SSL_METHOD *method = TLS_server_method();
+    SSL_CTX *ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        logMsg(LOG_ERR, "Unable to create SSL context\n");
+        return NULL;
+    }
+
+    // Настройка контекста
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+    if (SSL_CTX_use_certificate_file(ctx, cert_file, SSL_FILETYPE_PEM) <= 0) {
+        logMsg(LOG_ERR, "Failed to load server certificate\n");
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+    if (SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) <= 0) {
+        logMsg(LOG_ERR, "Failed to load server private key\n");
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+
+    return ctx;
 }
