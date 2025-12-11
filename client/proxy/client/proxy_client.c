@@ -27,9 +27,24 @@ proxy_server_thread_data_t* get_client_settings()
     return &threads_data;
 }
 
+// Инициализация SSL контекста при старте
+void init_ssl_context() {
+    if (threads_data.enable_ssl) {
+        threads_data.ssl_ctx = create_client_ssl_context(threads_data.ca_file);
+        if (!threads_data.ssl_ctx) {
+            logMsg(LOG_ERR, "Failed to initialize SSL context\n");
+            exit(EXIT_FAILURE);
+        }
+        logMsg(LOG_INFO, "SSL context initialized\n");
+    }
+}
+
 int
 switcher_servers_start()
 {
+    // Инициализация SSL контекста если нужно
+    init_ssl_context();
+
     // Инициализация массива подключений
     threads_data.connections = (proxy_server_connection_t *)malloc(threads_data.connections_count * sizeof(proxy_server_connection_t));
     if (!threads_data.connections) {
@@ -138,6 +153,22 @@ server_input_thread (void* parameter)
     } else {
         logMsg(LOG_INFO, "Connect input server for connection %d\n", conn->id);
 
+        // Инициализация SSL соединения если включено
+        if (threads_data.enable_ssl) {
+            conn->ssl_input = SSL_new(threads_data.ssl_ctx);
+            SSL_set_fd(conn->ssl_input, conn->input);
+
+            if (SSL_connect(conn->ssl_input) != 1) {
+                logMsg(LOG_ERR, "SSL connection failed for connection %d\n", conn->id);
+                ERR_print_errors_fp(stderr);
+                close(conn->input);
+                conn->input = -1;
+                goto restart_input_thread;
+            }
+
+            logMsg(LOG_INFO, "SSL connection established for connection %d\n", conn->id);
+        }
+
         int flags = fcntl(conn->input , F_GETFL, 0);
         if(fcntl(conn->input, F_SETFL, flags|O_NONBLOCK) < 0) {
             logMsg(LOG_ERR, "connect fcntl error for connection %d\n", conn->id);
@@ -209,7 +240,11 @@ server_input_thread (void* parameter)
 
             if(conn->stop_running_input) break;
 
-            len_apdu = recv(conn->input, (char *) conn->receive_input, sizeof(conn->receive_input), 0);
+            if (threads_data.enable_ssl) {
+                len_apdu = SSL_read(conn->ssl_input, (char *) conn->receive_input, sizeof(conn->receive_input));
+            } else {
+                len_apdu = recv(conn->input, (char *) conn->receive_input, sizeof(conn->receive_input), 0);
+            }
 
             logMsg(LOG_INFO, "Receive data from input port %d: length %d for connection %d\n", threads_data.input_port, len_apdu, conn->id);
 
@@ -258,9 +293,16 @@ server_input_thread (void* parameter)
             }
 
             do {
-                int result = send(conn->output,
+                int result;
+                if (threads_data.enable_ssl) {
+                    result = SSL_write(conn->ssl_input,
+                                    (const char *)&conn->receive_input[sent],
+                                    len_apdu - sent);
+                } else {
+                    result = send(conn->output,
                                 (const char *)&conn->receive_input[sent],
                                 len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                }
 
                 logMsg(LOG_INFO, "Send data to output_port %d result %d for connection %d\n", threads_data.output_port, result, conn->id);
 
@@ -307,6 +349,11 @@ server_input_thread (void* parameter)
         Thread_sleep(10);
     }
 
+    if (threads_data.enable_ssl && conn->ssl_input) {
+        SSL_shutdown(conn->ssl_input);
+        SSL_free(conn->ssl_input);
+        conn->ssl_input = NULL;
+    }
     close(conn->input);
 
     logMsg(LOG_INFO,"Exit input server id = %d on port = %d ...\n", conn->id, threads_data.input_port);
@@ -624,6 +671,12 @@ switcher_servers_stop()
         free(settings->connections);
         settings->connections = NULL;
         settings->connections_count = 0;
+    }
+
+    // Очистка SSL контекста
+    if (settings->ssl_ctx) {
+        SSL_CTX_free(settings->ssl_ctx);
+        settings->ssl_ctx = NULL;
     }
 }
 

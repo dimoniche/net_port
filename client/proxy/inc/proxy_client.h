@@ -39,6 +39,7 @@ typedef struct proxy_server_connection_s
     bool stop_running_input;
 
     SOCKET input;
+    SSL *ssl_input;
     struct sockaddr_in input_addr;
 
     bool is_starting_output;
@@ -46,7 +47,6 @@ typedef struct proxy_server_connection_s
     bool stop_running_output;
 
     SOCKET output;
-    SSL *ssl_output; // SSL только для исходящего соединения
     struct sockaddr_in output_addr;
 
     uint8_t receive_input[16384];
