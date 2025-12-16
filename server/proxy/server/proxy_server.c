@@ -47,19 +47,31 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file)
     memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
     strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
 
-    for(int i = 0; i < servers_count; i++) {
+    // Инициализация OpenSSL перед созданием SSL контекстов
+    init_openssl();
+
+    for(int i = 0; i < servers_count; i++)
+    {
 
         if(!servers[i].enable) continue;
 
         // Сохраняем пути к сертификатам для каждого сервера
-        strncpy(servers[i].cert_file, cert_file, sizeof(servers[i].cert_file) - 1);
-        servers[i].cert_file[sizeof(servers[i].cert_file) - 1] = '\0';
-        strncpy(servers[i].key_file, key_file, sizeof(servers[i].key_file) - 1);
-        servers[i].key_file[sizeof(servers[i].key_file) - 1] = '\0';
+        if (cert_file) {
+            strncpy(servers[i].cert_file, cert_file, sizeof(servers[i].cert_file) - 1);
+            servers[i].cert_file[sizeof(servers[i].cert_file) - 1] = '\0';
+        } else {
+            servers[i].cert_file[0] = '\0';
+        }
+        
+        if (key_file) {
+            strncpy(servers[i].key_file, key_file, sizeof(servers[i].key_file) - 1);
+            servers[i].key_file[sizeof(servers[i].key_file) - 1] = '\0';
+        } else {
+            servers[i].key_file[0] = '\0';
+        }
 
         // Инициализация SSL если нужно
         init_ssl_context(&servers[i]);
-        
         if(server_input_init(&servers[i]) < 0) {
             servers[i].is_input_enabled = false;
         } else {
@@ -109,7 +121,21 @@ switcher_servers_start()
         if(connections_data != NULL) {
             logMsg(LOG_DEBUG, "Malloc connections data\n");
             memset(connections_data, 0, sizeof(proxy_server_thread_data_t));
+            
+            // Выделяем память для массива local_sockets
+            connections_data->local_sockets = (proxy_server_local_socket_data_t *) malloc(COUNT_SOCKET_THREAD * sizeof(proxy_server_local_socket_data_t));
+            if(connections_data->local_sockets == NULL) {
+                logMsg(LOG_ERR, "Failed to allocate memory for local_sockets\n");
+                free(connections_data);
+                continue;
+            }
+            memset(connections_data->local_sockets, 0, COUNT_SOCKET_THREAD * sizeof(proxy_server_local_socket_data_t));
+            
+            // Копируем данные сервера, кроме SSL контекста
             memcpy(&connections_data->data, &servers[i], sizeof(proxy_server_t));
+            
+            // Восстанавливаем указатель на оригинальный SSL контекст
+            connections_data->data.ssl_ctx = servers[i].ssl_ctx;
 
             server = &connections_data->data;
         } else {
@@ -135,6 +161,8 @@ switcher_servers_start()
                 logMsg(LOG_ERR, "Starting input server failed!\n");
 
                 server->is_input_enabled = false;
+                if(connections_data->local_sockets) free(connections_data->local_sockets);
+                free(connections_data);
                 continue;
             }
         }
@@ -146,6 +174,8 @@ switcher_servers_start()
                 logMsg(LOG_ERR, "Starting output server failed!\n");
 
                 server->is_output_enabled = false;
+                if(connections_data->local_sockets) free(connections_data->local_sockets);
+                free(connections_data);
                 continue;
             }
         }
@@ -184,6 +214,15 @@ switcher_servers_stop()
 
     input_server_wait_stop(&servers[i]);
   }*/
+
+  // Очистка SSL контекстов для всех серверов
+  for(int i = 0; i < servers_count; i++)
+  {
+      cleanup_ssl_context(&servers[i]);
+  }
+
+  // Очистка OpenSSL
+  cleanup_openssl();
 
   logMsg(LOG_INFO, "%d servers stopped\n", count);
 
@@ -299,22 +338,6 @@ connection_input_handler (void* parameter)
 
     logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data->input_port);
 
-    // Инициализация SSL если нужно
-    if (thread_data->data->enable_ssl) {
-        thread_data->ssl_input = SSL_new(thread_data->data->ssl_ctx);
-        SSL_set_fd(thread_data->ssl_input, thread_data->input_local);
-
-        if (SSL_accept(thread_data->ssl_input) != 1) {
-            logMsg(LOG_ERR, "SSL handshake failed on input_port %d\n", thread_data->data->input_port);
-            ERR_print_errors_fp(stderr);
-            SSL_free(thread_data->ssl_input);
-            thread_data->ssl_input = NULL;
-            close(thread_data->input_local);
-            thread_data->is_input_connected = false;
-            return 0;
-        }
-        logMsg(LOG_INFO, "SSL connection established on input_port %d\n", thread_data->data->input_port);
-    }
 
     while (!done_output_connection) {
         fd_set read_set;
@@ -341,11 +364,7 @@ connection_input_handler (void* parameter)
         }
 
         if(FD_ISSET(thread_data->input_local, &read_set)) {
-            if (thread_data->data->enable_ssl) {
-                len_epdu = SSL_read(thread_data->ssl_input, (char *) thread_data->input_buf, sizeof(thread_data->input_buf));
-            } else {
-                len_epdu = recv(thread_data->input_local, (char *) thread_data->input_buf, sizeof(thread_data->input_buf), 0);
-            }
+            len_epdu = recv(thread_data->input_local, (char *) thread_data->input_buf, sizeof(thread_data->input_buf), 0);
 
             logMsg(LOG_INFO, "Receive data from input port %d: lenght %d\n",thread_data->data->input_port, len_epdu);
 
@@ -387,9 +406,14 @@ connection_input_handler (void* parameter)
             }
 
             do {
-                int result = send(thread_data->output_local,
+                int result;
+                if (thread_data->data->enable_ssl) {
+                    result = SSL_write(thread_data->ssl_output, (const char *)&thread_data->input_buf[sent], len_epdu - sent);
+                } else {
+                    result = send(thread_data->output_local,
                                 (const char *)&thread_data->input_buf[sent],
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                }
 
                 logMsg(LOG_INFO, "Send output data to port %d result %d\n", thread_data->data->output_port, result);
 
@@ -446,6 +470,7 @@ connection_input_handler (void* parameter)
     close(thread_data->input_local);
     thread_data->close_output_socket = true;
 
+
     thread_data->is_input_connected = false;
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);
@@ -463,6 +488,50 @@ connection_output_handler (void* parameter)
 
     thread_data->is_output_connected = true;
     logMsg(LOG_INFO, "Start new connection_output_handler on output_port %d\n", thread_data->data->output_port);
+    
+    // Инициализация SSL если нужно
+    if (thread_data->data->enable_ssl) {
+        thread_data->ssl_output = SSL_new(thread_data->data->ssl_ctx);
+        if (!thread_data->ssl_output) {
+            logMsg(LOG_ERR, "Failed to create SSL object on output_port %d\n", thread_data->data->output_port);
+            ERR_print_errors_fp(stderr);
+            close(thread_data->output_local);
+            thread_data->is_output_connected = false;
+            return 0;
+        }
+        
+        SSL_set_fd(thread_data->ssl_output, thread_data->output_local);
+
+        if (SSL_accept(thread_data->ssl_output) != 1) {
+            logMsg(LOG_ERR, "SSL handshake failed on output_port %d\n", thread_data->data->output_port);
+            
+            // Логируем детальные ошибки SSL
+            unsigned long err;
+            while ((err = ERR_get_error()) != 0) {
+                char err_str[256];
+                ERR_error_string_n(err, err_str, sizeof(err_str));
+                logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+            }
+            
+            // Логируем информацию о сертификате
+            X509* cert = SSL_get_peer_certificate(thread_data->ssl_output);
+            if (cert) {
+                char* cert_str = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+                logMsg(LOG_ERR, "Peer certificate subject: %s\n", cert_str);
+                OPENSSL_free(cert_str);
+                X509_free(cert);
+            } else {
+                logMsg(LOG_ERR, "No peer certificate\n");
+            }
+            
+            SSL_free(thread_data->ssl_output);
+            thread_data->ssl_output = NULL;
+            close(thread_data->output_local);
+            thread_data->is_output_connected = false;
+            return 0;
+        }
+        logMsg(LOG_INFO, "SSL connection established on output_port %d\n", thread_data->data->output_port);
+    }
 
     while (!done_output_connection) {
         fd_set read_set;
@@ -490,8 +559,12 @@ connection_output_handler (void* parameter)
         }
 
         if(FD_ISSET(thread_data->output_local, &read_set)) {
-            len_epdu = recv(thread_data->output_local, (char *) thread_data->output_buf, sizeof(thread_data->output_buf),
-                            0);
+            if (thread_data->data->enable_ssl) {
+                len_epdu = SSL_read(thread_data->ssl_output, (char *) thread_data->output_buf, sizeof(thread_data->output_buf));
+            } else {
+                len_epdu = recv(thread_data->output_local, (char *) thread_data->output_buf, sizeof(thread_data->output_buf),
+                                0);
+            }
 
             logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",thread_data->data->output_port, len_epdu);
 
@@ -575,6 +648,13 @@ connection_output_handler (void* parameter)
     }
 
     // сообщим о закрытии клиенту
+    
+    // Освобождаем SSL объект если он был создан
+    if (thread_data->ssl_output) {
+        SSL_free(thread_data->ssl_output);
+        thread_data->ssl_output = NULL;
+    }
+    
     close(thread_data->output_local);
 
     thread_data->is_output_connected = false;
@@ -640,36 +720,22 @@ serverInputThread (void* parameter)
                     continue;
                 }
 
-                // Установка SSL соединения если нужно
-                if (server->enable_ssl) {
-                    SSL *ssl = SSL_new(server->ssl_ctx);
-                    SSL_set_fd(ssl, socket_local);
-
-                    if (SSL_accept(ssl) != 1) {
-                        logMsg(LOG_ERR, "SSL handshake failed on input_port %d\n", server->input_port);
-                        ERR_print_errors_fp(stderr);
-                        SSL_free(ssl);
-                        close(socket_local);
-                        continue;
-                    }
-                    connections_data->local_sockets[current_free_socket_input].ssl_input = ssl;
-                    logMsg(LOG_INFO, "SSL connection accepted on input_port %d\n", server->input_port);
-                }
-
+    
                 if(connections_data != NULL) {
-
+    
                     // локальный входящий сокет для нового потока
                     connections_data->local_sockets[current_free_socket_input].input_local = socket_local;
-                
+                 
                     logMsg(LOG_DEBUG, "Start thread input socket create\n");
-
+    
                     Thread thread = Thread_create(connection_input_handler, (void *) &connections_data->local_sockets[current_free_socket_input], true);
-
+    
                     if (thread != NULL) {
                         Thread_start(thread);
                         logMsg(LOG_DEBUG, "Handler assigned\n");
                     } else {
                         logMsg(LOG_DEBUG, "Thread not create\n");
+                        close(socket_local);
                     }
                 } else {
                     logMsg(LOG_DEBUG, "Malloc ERROR\n");
@@ -686,8 +752,6 @@ serverInputThread (void* parameter)
     logMsg(LOG_INFO,"Exit server id = %d on input_port = %d ...\n", server->id, server->input_port);
 
     server->is_input_running = false;
-
-    free(parameter);
 
     return 0;
 }
@@ -866,6 +930,14 @@ int get_free_output_socket(proxy_server_thread_data_t * data)
 // Инициализация SSL контекста при старте
 void init_ssl_context(proxy_server_t *server) {
     if (server->enable_ssl) {
+        // Проверяем, что пути к сертификату и ключу указаны
+        if (!server->cert_file[0] || !server->key_file[0]) {
+            logMsg(LOG_ERR, "SSL enabled but certificate or key file not specified\n");
+            server->enable_ssl = false;
+            return;
+        }
+        
+        logMsg(LOG_INFO, "Initializing SSL context with cert file: %s, key file: %s\n", server->cert_file, server->key_file);
         server->ssl_ctx = create_server_ssl_context(server->cert_file, server->key_file);
         if (!server->ssl_ctx) {
             logMsg(LOG_ERR, "Failed to initialize SSL context\n");
@@ -877,33 +949,68 @@ void init_ssl_context(proxy_server_t *server) {
 
 // Инициализация OpenSSL
 void init_openssl() {
+    // Инициализируем библиотеку OpenSSL
+    if (!SSL_library_init()) {
+        logMsg(LOG_ERR, "Failed to initialize OpenSSL library\n");
+        exit(EXIT_FAILURE);
+    }
+    
     SSL_load_error_strings();
     OpenSSL_add_ssl_algorithms();
 }
 
 // Очистка ресурсов OpenSSL
 void cleanup_openssl() {
+    // Очищаем ошибки OpenSSL
+    ERR_free_strings();
+    
+    // В современных версиях OpenSSL EVP_cleanup() не обязательна,
+    // но оставляем для совместимости
     EVP_cleanup();
 }
 
 // Создание SSL контекста для сервера
 SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file) {
+    if (!cert_file || !key_file || !cert_file[0] || !key_file[0]) {
+        logMsg(LOG_ERR, "Certificate or key file path is empty\n");
+        return NULL;
+    }
+    
     const SSL_METHOD *method = TLS_server_method();
     SSL_CTX *ctx = SSL_CTX_new(method);
     if (!ctx) {
         logMsg(LOG_ERR, "Unable to create SSL context\n");
+        ERR_print_errors_fp(stderr);
         return NULL;
     }
+    
+    // Логируем создание SSL контекста
+    logMsg(LOG_INFO, "Server SSL context created\n");
 
     // Настройка контекста
     SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+    
+    // Отключаем требование сертификата от клиента
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+    
     if (SSL_CTX_use_certificate_file(ctx, cert_file, SSL_FILETYPE_PEM) <= 0) {
-        logMsg(LOG_ERR, "Failed to load server certificate\n");
+        logMsg(LOG_ERR, "Failed to load server certificate from %s\n", cert_file);
+        ERR_print_errors_fp(stderr);
         SSL_CTX_free(ctx);
         return NULL;
     }
+    
     if (SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) <= 0) {
-        logMsg(LOG_ERR, "Failed to load server private key\n");
+        logMsg(LOG_ERR, "Failed to load server private key from %s\n", key_file);
+        ERR_print_errors_fp(stderr);
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+    
+    // Проверяем, что приватный ключ соответствует сертификату
+    if (!SSL_CTX_check_private_key(ctx)) {
+        logMsg(LOG_ERR, "Private key does not match the certificate\n");
+        ERR_print_errors_fp(stderr);
         SSL_CTX_free(ctx);
         return NULL;
     }

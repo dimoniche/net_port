@@ -7,9 +7,11 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "logMsg.h"
 #include "db.h"
+#include "db_proc.h"
 #include "signal_handler.h"
 #include "settings.h"
 #include "time_utils.h"
@@ -142,6 +144,15 @@ int main(int argc, char** argv) {
             increment_time_counter();
 
             last_monotonic_time = Hal_getMonotonicTimeInMs();
+        }
+
+        // Проверяем, не запрошено ли завершение работы
+        if (is_stop_requested()) {
+            logMsg(LOG_INFO, "Stopping server...");
+            switcher_servers_stop();
+            logMsg(LOG_INFO, "Server stopped successfully");
+            exit_nicely(get_db_connection());
+            return 0;
         }
 
         msleep(10);

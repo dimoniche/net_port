@@ -90,7 +90,7 @@ typedef struct proxy_server_local_socket_data_s
     // необходимость закрытия исходящего к клиенту сокета
     bool close_output_socket;
 
-    SSL *ssl_input; // SSL объект для входящего соединения
+    SSL *ssl_output; // SSL объект для исходящего соединения
 
     // настроечные данные сервера
     proxy_server_t * data;

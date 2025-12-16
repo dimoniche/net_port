@@ -30,6 +30,14 @@ proxy_server_thread_data_t* get_client_settings()
 // Инициализация SSL контекста при старте
 void init_ssl_context() {
     if (threads_data.enable_ssl) {
+        // Проверяем, что путь к CA сертификату указан
+        if (!threads_data.ca_file[0]) {
+            logMsg(LOG_ERR, "SSL enabled but CA file not specified\n");
+            threads_data.enable_ssl = false;
+            return;
+        }
+        
+        logMsg(LOG_INFO, "Initializing SSL context with CA file: %s\n", threads_data.ca_file);
         threads_data.ssl_ctx = create_client_ssl_context(threads_data.ca_file);
         if (!threads_data.ssl_ctx) {
             logMsg(LOG_ERR, "Failed to initialize SSL context\n");
@@ -156,11 +164,39 @@ server_input_thread (void* parameter)
         // Инициализация SSL соединения если включено
         if (threads_data.enable_ssl) {
             conn->ssl_input = SSL_new(threads_data.ssl_ctx);
+            if (!conn->ssl_input) {
+                logMsg(LOG_ERR, "Failed to create SSL object for connection %d\n", conn->id);
+                ERR_print_errors_fp(stderr);
+                close(conn->input);
+                conn->input = -1;
+                goto restart_input_thread;
+            }
             SSL_set_fd(conn->ssl_input, conn->input);
 
             if (SSL_connect(conn->ssl_input) != 1) {
                 logMsg(LOG_ERR, "SSL connection failed for connection %d\n", conn->id);
-                ERR_print_errors_fp(stderr);
+                
+                // Логируем детальные ошибки SSL
+                unsigned long err;
+                while ((err = ERR_get_error()) != 0) {
+                    char err_str[256];
+                    ERR_error_string_n(err, err_str, sizeof(err_str));
+                    logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                }
+                
+                // Логируем информацию о сертификате
+                X509* cert = SSL_get_peer_certificate(conn->ssl_input);
+                if (cert) {
+                    char* cert_str = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+                    logMsg(LOG_ERR, "Peer certificate subject: %s\n", cert_str);
+                    OPENSSL_free(cert_str);
+                    X509_free(cert);
+                } else {
+                    logMsg(LOG_ERR, "No peer certificate\n");
+                }
+                
+                SSL_free(conn->ssl_input);
+                conn->ssl_input = NULL;
                 close(conn->input);
                 conn->input = -1;
                 goto restart_input_thread;
@@ -719,10 +755,35 @@ void cleanup_openssl() {
 
 // Создание SSL контекста для клиента
 SSL_CTX *create_client_ssl_context(const char *ca_file) {
+    if (!ca_file || !ca_file[0]) {
+        logMsg(LOG_ERR, "CA file path is empty\n");
+        return NULL;
+    }
+    
     const SSL_METHOD *method = TLS_client_method();
     SSL_CTX *ctx = SSL_CTX_new(method);
     if (!ctx) {
         logMsg(LOG_ERR, "Unable to create SSL context\n");
+        return NULL;
+    }
+    
+    // Логируем создание SSL контекста
+    logMsg(LOG_INFO, "Client SSL context created\n");
+    
+    // Настраиваем клиента на отправку сертификата серверу
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+    
+    // Загружаем CA-сертификат для проверки сертификата сервера
+    if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) {
+        logMsg(LOG_ERR, "Failed to load CA certificate from %s\n", ca_file);
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+    
+    // Устанавливаем сертификат клиента
+    if (SSL_CTX_use_certificate_file(ctx, ca_file, SSL_FILETYPE_PEM) <= 0) {
+        logMsg(LOG_ERR, "Failed to load client certificate from %s\n", ca_file);
+        SSL_CTX_free(ctx);
         return NULL;
     }
 

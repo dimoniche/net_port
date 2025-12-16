@@ -7,5 +7,6 @@
 
 void signal_init(void);
 void sigHandler(int sigNum);
+bool is_stop_requested();
 
 #endif //CRYPT_SWITCHER_SIGNAL_HANDLER_H
