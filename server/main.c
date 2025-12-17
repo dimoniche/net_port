@@ -8,6 +8,8 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
 
 #include "logMsg.h"
 #include "db.h"
@@ -33,6 +35,10 @@ int main(int argc, char** argv) {
 
     char *cert_file = NULL;
     char *key_file = NULL;
+    bool no_db_mode = false;
+    uint16_t cli_input_port = 0;
+    uint16_t cli_output_port = 0;
+    bool cli_enable_ssl = false;
 
     if (argc == 1 || (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))) {
         printf("Net Port Server v%s\n\n", VERSION);
@@ -47,6 +53,10 @@ int main(int argc, char** argv) {
         printf("  --threads <num>   Number of socket threads (1-1000)\n");
         printf("  -h, --help        Show this help message\n");
         printf("  -v, --version     Show version information\n");
+        printf("  --no-db           Run without DB; set ports via --input-port and --output-port\n");
+        printf("  --input-port <n>  Input port to listen on (used with --no-db)\n");
+        printf("  --output-port <n> Output port to listen on (used with --no-db)\n");
+        printf("  --enable-ssl      Enable SSL for the CLI-provided server (used with --no-db)\n");
         printf("\nExample:\n");
         printf("  %s %s5 %s 192.168.1.100 %s 5432 %s 100\n",
                argv[0], VERBOSE_KEY, HOST_KEY, PORT_KEY, USER_ID);
@@ -121,6 +131,30 @@ int main(int argc, char** argv) {
                 i++;
             }
         }
+        else if (strstr(argv[i], "--no-db") != NULL)
+        {
+            no_db_mode = true;
+        }
+        else if (strstr(argv[i], "--input-port") != NULL)
+        {
+            if (argv[i+1] != NULL) {
+                int p = 0; sscanf(argv[i+1], "%d", &p);
+                if (p > 0 && p <= 65535) cli_input_port = (uint16_t)p;
+            }
+            i++;
+        }
+        else if (strstr(argv[i], "--output-port") != NULL)
+        {
+            if (argv[i+1] != NULL) {
+                int p = 0; sscanf(argv[i+1], "%d", &p);
+                if (p > 0 && p <= 65535) cli_output_port = (uint16_t)p;
+            }
+            i++;
+        }
+        else if (strstr(argv[i], "--enable-ssl") != NULL)
+        {
+            cli_enable_ssl = true;
+        }
     }
 
     char log[128];
@@ -128,9 +162,17 @@ int main(int argc, char** argv) {
     logMsgOpen(log);
     logMsg(LOG_DEBUG, "Start logger...");
 
-    db_init(DB_conn_data.ip, DB_conn_data.port);
-
-    servers_init(user_id, cert_file, key_file);
+    if (!no_db_mode) {
+        db_init(DB_conn_data.ip, DB_conn_data.port);
+        servers_init(user_id, cert_file, key_file);
+    } else {
+        // Validate CLI provided ports
+        if (cli_input_port == 0 || cli_output_port == 0) {
+            logMsg(LOG_EMERG, "--no-db mode requires --input-port and --output-port to be set\n");
+            exit(-1);
+        }
+        servers_init_no_db(cert_file, key_file, cli_input_port, cli_output_port, cli_enable_ssl);
+    }
     switcher_servers_start();
 
     while (1) {
@@ -151,7 +193,11 @@ int main(int argc, char** argv) {
             logMsg(LOG_INFO, "Stopping server...");
             switcher_servers_stop();
             logMsg(LOG_INFO, "Server stopped successfully");
-            exit_nicely(get_db_connection());
+            if (!no_db_mode) {
+                exit_nicely(get_db_connection());
+            } else {
+                exit(0);
+            }
             return 0;
         }
 

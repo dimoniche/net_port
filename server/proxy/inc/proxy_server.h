@@ -121,6 +121,9 @@ int servers_init(uint32_t user_id, const char* cert_file, const char* key_file);
  */
 int switcher_servers_start();
 
+// Инициализация серверов без использования БД (один сервер из аргументов)
+int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_ssl);
+
 /**
  * \brief Остановка прослушивателей портов
  *
@@ -132,6 +135,8 @@ void init_ssl_context(proxy_server_t *server);
 void init_openssl();
 void cleanup_openssl();
 SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file);
+// Освобождение SSL контекста для сервера
+void cleanup_ssl_context(proxy_server_t *server);
 
 int
 switcher_servers_stop();

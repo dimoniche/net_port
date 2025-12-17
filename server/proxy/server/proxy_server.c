@@ -87,6 +87,65 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file)
     return res;
 }
 
+// Инициализация одного сервера без использования БД (используется для режимов --no-db)
+int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_ssl) {
+    // Освободим предыдущие контексты при повторном вызове
+    if (servers) {
+        for (int i = 0; i < servers_count; i++) {
+            cleanup_ssl_context(&servers[i]);
+        }
+        free(servers);
+        servers = NULL;
+        servers_count = 0;
+    }
+
+    servers_count = 1;
+    servers = (proxy_server_t*) malloc(sizeof(proxy_server_t) * servers_count);
+    if (!servers) {
+        logMsg(LOG_ERR, "Failed to allocate memory for servers (no-db mode)\n");
+        return -1;
+    }
+
+    memset(servers, 0, sizeof(proxy_server_t) * servers_count);
+
+    servers[0].id = 0;
+    servers[0].enable = true;
+    servers[0].input_port = input_port;
+    servers[0].output_port = output_port;
+    servers[0].is_input_enabled = true;
+    servers[0].is_output_enabled = true;
+    servers[0].enable_ssl = enable_ssl;
+
+    if (cert_file) {
+        strncpy(servers[0].cert_file, cert_file, sizeof(servers[0].cert_file)-1);
+        servers[0].cert_file[sizeof(servers[0].cert_file)-1] = '\0';
+    }
+    if (key_file) {
+        strncpy(servers[0].key_file, key_file, sizeof(servers[0].key_file)-1);
+        servers[0].key_file[sizeof(servers[0].key_file)-1] = '\0';
+    }
+
+    // Инициализируем SSL контекст если требуется
+    init_ssl_context(&servers[0]);
+
+    // Инициализация сокетов
+    if (server_input_init(&servers[0]) < 0) {
+        servers[0].is_input_enabled = false;
+    } else {
+        servers[0].is_input_enabled = true;
+    }
+    if (server_output_init(&servers[0]) < 0) {
+        servers[0].is_output_enabled = false;
+    } else {
+        servers[0].is_output_enabled = true;
+    }
+
+    logMsg(LOG_INFO, "Initialized single server without DB: input_port=%d output_port=%d enable_ssl=%d\n",
+           input_port, output_port, enable_ssl);
+
+    return 0;
+}
+
 int
 server_input_init(proxy_server_t * server)
 {
