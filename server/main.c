@@ -70,13 +70,12 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; i++) {
         char* s;
-        int verbose_level;
-        logMsg(LOG_DEBUG, "%s", argv[i]);
+        logMsg(LOG_DEBUG, "Processing arg %d: '%s'", i, argv[i]);
 
         if (strstr(argv[i], VERBOSE_KEY) != NULL) {
+            int verbose_level;
             s = argv[i] + sizeof(VERBOSE_KEY) - 1;
             sscanf(s, "%d", &verbose_level);
-            logMsg(LOG_DEBUG, "verbose level %d", verbose_level);
             if ((verbose_level > 0) && (verbose_level <= LOG_LAST_PRIORITY)) {
                 logMsgSetPriority(verbose_level);
                 logMsg(LOG_INFO, "Set verbose level %d", verbose_level);
@@ -91,30 +90,37 @@ int main(int argc, char** argv) {
             if (argv[i+1] != NULL)
                 DB_conn_data.ip = argv[i+1];
         }
-        else if (strstr(argv[i], PORT_KEY) != NULL)
+        else if (strcmp(argv[i], PORT_KEY) == 0)
         {
-            if (argv[i+1] != NULL)
+            if (argv[i+1] != NULL) {
                 DB_conn_data.port = argv[i+1];
+                i++;
+            }
         }
         else if (strstr(argv[i], USER_ID) != NULL)
         {
             if (argv[i+1] != NULL)
             {
                 sscanf(argv[i+1], "%d", &user_id);
+                i++;
+                logMsg(LOG_INFO, "Set user file: %d", user_id);
             }
-            i++;
         }
         else if (strstr(argv[i], "--cert") != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (argv[i+1] != NULL) {
                 cert_file = argv[i+1];
-            i++;
+                i++;
+                logMsg(LOG_INFO, "Set cerificate file: %s", cert_file);
+            }
         }
         else if (strstr(argv[i], "--key") != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (argv[i+1] != NULL) {
                 key_file = argv[i+1];
-            i++;
+                i++;
+                logMsg(LOG_INFO, "Set key file: %s", key_file);
+            }
         }
         else if (strstr(argv[i], "--threads") != NULL || strstr(argv[i], "-t") != NULL)
         {
@@ -131,29 +137,51 @@ int main(int argc, char** argv) {
                 i++;
             }
         }
-        else if (strstr(argv[i], "--no-db") != NULL)
+        else if (strcmp(argv[i], "--no-db") == 0)
         {
             no_db_mode = true;
+            logMsg(LOG_INFO, "Set no database mode");
         }
-        else if (strstr(argv[i], "--input-port") != NULL)
+        else if (strcmp(argv[i], "--input-port") == 0)
         {
             if (argv[i+1] != NULL) {
-                int p = 0; sscanf(argv[i+1], "%d", &p);
-                if (p > 0 && p <= 65535) cli_input_port = (uint16_t)p;
+                int p = 0;
+                sscanf(argv[i+1], "%d", &p);
+                if (p > 0 && p <= 65535) {
+                    cli_input_port = (uint16_t)p;
+                    logMsg(LOG_INFO, "Set cli_input_port to %d", cli_input_port);
+                } else {
+                    logMsg(LOG_EMERG, "Invalid input port value: %d", p);
+                    exit(-1);
+                }
+                i++;
+            } else {
+                logMsg(LOG_EMERG, "Missing value for --input-port");
+                exit(-1);
             }
-            i++;
         }
-        else if (strstr(argv[i], "--output-port") != NULL)
+        else if (strcmp(argv[i], "--output-port") == 0)
         {
             if (argv[i+1] != NULL) {
-                int p = 0; sscanf(argv[i+1], "%d", &p);
-                if (p > 0 && p <= 65535) cli_output_port = (uint16_t)p;
+                int p = 0;
+                sscanf(argv[i+1], "%d", &p);
+                if (p > 0 && p <= 65535) {
+                    cli_output_port = (uint16_t)p;
+                    logMsg(LOG_INFO, "Set cli_output_port to %d", cli_output_port);
+                } else {
+                    logMsg(LOG_EMERG, "Invalid output port value: %d", p);
+                    exit(-1);
+                }
+                i++;
+            } else {
+                logMsg(LOG_EMERG, "Missing value for --output-port");
+                exit(-1);
             }
-            i++;
         }
         else if (strstr(argv[i], "--enable-ssl") != NULL)
         {
             cli_enable_ssl = true;
+            logMsg(LOG_INFO, "Set enable SSL mode");
         }
     }
 
@@ -166,7 +194,6 @@ int main(int argc, char** argv) {
         db_init(DB_conn_data.ip, DB_conn_data.port);
         servers_init(user_id, cert_file, key_file);
     } else {
-        // Validate CLI provided ports
         if (cli_input_port == 0 || cli_output_port == 0) {
             logMsg(LOG_EMERG, "--no-db mode requires --input-port and --output-port to be set\n");
             exit(-1);

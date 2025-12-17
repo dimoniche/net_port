@@ -561,17 +561,36 @@ connection_output_handler (void* parameter)
         
         SSL_set_fd(thread_data->ssl_output, thread_data->output_local);
 
-        if (SSL_accept(thread_data->ssl_output) != 1) {
+        /*
+         * Ensure the socket is blocking during the TLS handshake.
+         * The accept() earlier sets the accepted socket to non-blocking which
+         * can cause SSL_accept() to return with WANT_READ/WANT_WRITE and be
+         * treated as a fatal error here. Temporarily clear O_NONBLOCK, perform
+         * the handshake, then restore the original flags (including non-blocking).
+         */
+        int sock_flags = fcntl(thread_data->output_local, F_GETFL, 0);
+        if (sock_flags >= 0) {
+            fcntl(thread_data->output_local, F_SETFL, sock_flags & ~O_NONBLOCK);
+        }
+
+        int ssl_ret = SSL_accept(thread_data->ssl_output);
+
+        /* restore original flags (re-enable non-blocking if it was set) */
+        if (sock_flags >= 0) {
+            fcntl(thread_data->output_local, F_SETFL, sock_flags);
+        }
+
+        if (ssl_ret != 1) {
             logMsg(LOG_ERR, "SSL handshake failed on output_port %d\n", thread_data->data->output_port);
-            
-            // Логируем детальные ошибки SSL
+
+            /* Log detailed OpenSSL errors */
             unsigned long err;
             while ((err = ERR_get_error()) != 0) {
                 char err_str[256];
                 ERR_error_string_n(err, err_str, sizeof(err_str));
                 logMsg(LOG_ERR, "SSL error: %s\n", err_str);
             }
-            
+
             SSL_free(thread_data->ssl_output);
             thread_data->ssl_output = NULL;
             close(thread_data->output_local);
@@ -609,20 +628,41 @@ connection_output_handler (void* parameter)
         if(FD_ISSET(thread_data->output_local, &read_set)) {
             if (thread_data->data->enable_ssl) {
                 len_epdu = SSL_read(thread_data->ssl_output, (char *) thread_data->output_buf, sizeof(thread_data->output_buf));
+
+                if (len_epdu <= 0) {
+                    int ssl_err = SSL_get_error(thread_data->ssl_output, len_epdu);
+                    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+                        /* Non-blocking socket wants more data; skip this cycle */
+                        Thread_sleep(1);
+                        continue;
+                    } else if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                        logMsg(LOG_INFO, "Output SSL connection closed\n");
+                        break;
+                    } else {
+                        logMsg(LOG_ERR, "Output SSL error %d\n", ssl_err);
+                        unsigned long e;
+                        while ((e = ERR_get_error()) != 0) {
+                            char err_str[256];
+                            ERR_error_string_n(e, err_str, sizeof(err_str));
+                            logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                        }
+                        break;
+                    }
+                }
             } else {
                 len_epdu = recv(thread_data->output_local, (char *) thread_data->output_buf, sizeof(thread_data->output_buf),
                                 0);
-            }
 
-            logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",thread_data->data->output_port, len_epdu);
+                logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",thread_data->data->output_port, len_epdu);
 
-            if (len_epdu <= 0) {
-                if(len_epdu == 0) {
-                    logMsg(LOG_INFO, "Output recv() connection closed\n");
-                } else {
-                  logMsg(LOG_ERR, "Output recv() error:: %d\n", WSAGetLastError());
+                if (len_epdu <= 0) {
+                    if(len_epdu == 0) {
+                        logMsg(LOG_INFO, "Output recv() connection closed\n");
+                    } else {
+                      logMsg(LOG_ERR, "Output recv() error:: %d\n", WSAGetLastError());
+                    }
+                    break;
                 }
-                break;
             }
 
             int remaining = len_epdu;

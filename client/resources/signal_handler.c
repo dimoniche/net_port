@@ -19,10 +19,12 @@ void sigHandler(int sigNum)
     if (sigNum == SIGINT) {
         logMsg(LOG_INFO, "SIGINT received, initiating graceful shutdown...");
         settings->graceful_shutdown = true;
+        global_graceful_shutdown = 1;
     }
     else if (sigNum == SIGTERM) {
         logMsg(LOG_INFO, "SIGTERM received, initiating graceful shutdown...");
         settings->graceful_shutdown = true;
+        global_graceful_shutdown = 1;
     }
     else if (sigNum == SIGALRM) {
         // Handle SIGALRM if needed

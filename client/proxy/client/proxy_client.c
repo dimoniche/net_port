@@ -12,6 +12,9 @@
 
 static proxy_server_thread_data_t threads_data;
 
+/* Signal-safe global shutdown flag */
+volatile sig_atomic_t global_graceful_shutdown = 0;
+
 int init_input_sockets(proxy_server_connection_t *conn);
 int init_output_sockets(proxy_server_connection_t *conn);
 
@@ -141,6 +144,15 @@ server_input_thread (void* parameter)
     conn->input = -1;
     Thread_sleep(100); // Small delay before reconnect attempt
 
+    /* If a stop was requested while we were sleeping or earlier, exit promptly */
+    if (conn->stop_running_input) {
+        logMsg(LOG_INFO, "Input thread stop requested at restart for connection %d\n", conn->id);
+        conn->is_starting_input = false;
+        conn->is_running_input = false;
+        if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+        return 0;
+    }
+
     int len_apdu;
     conn->last_exchange_time = get_time_counter();
 
@@ -154,21 +166,91 @@ server_input_thread (void* parameter)
         goto restart_input_thread;
     }
 
-    if (connect(conn->input, (struct sockaddr *) &conn->input_addr,
-                sizeof(conn->input_addr)) < 0)
     {
-        logMsg(LOG_ERR, "Input server connect error for connection %d\n", conn->id);
-    } else {
+        int backoff = 1;
+        int connected = 0;
+
+        while (!conn->stop_running_input) {
+            if (connect(conn->input, (struct sockaddr *) &conn->input_addr,
+                        sizeof(conn->input_addr)) == 0) {
+                connected = 1;
+                break;
+            }
+
+            logMsg(LOG_ERR, "Input server connect error for connection %d, retrying in %d seconds\n", conn->id, backoff);
+
+            // Close and recreate socket before retry
+            if (conn->input >= 0) {
+                close(conn->input);
+                conn->input = -1;
+            }
+
+            /* Sleep in small increments so we can react quickly to stop requests */
+            {
+                int sleep_ms = backoff * 1000;
+                int slept = 0;
+                while (slept < sleep_ms && !conn->stop_running_input) {
+                    int step = (sleep_ms - slept) > 200 ? 200 : (sleep_ms - slept);
+                    Thread_sleep(step);
+                    slept += step;
+                }
+            }
+
+            if (backoff < 30) backoff *= 2;
+
+            if (init_input_sockets(conn) != 0) {
+                Thread_sleep(1000);
+                continue;
+            }
+        }
+
+        if (!connected) {
+            if (conn->stop_running_input) {
+                logMsg(LOG_INFO, "Input thread stop requested before connect for connection %d\n", conn->id);
+                if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                conn->is_starting_input = false;
+                conn->is_running_input = false;
+                return 0;
+            } else {
+                goto restart_input_thread;
+            }
+        }
+
         logMsg(LOG_INFO, "Connect input server for connection %d\n", conn->id);
 
         // Инициализация SSL соединения если включено
         if (threads_data.enable_ssl) {
+            /* If stop requested, exit before creating SSL object */
+            if (conn->stop_running_input || global_graceful_shutdown) {
+                logMsg(LOG_INFO, "Input thread stop requested before SSL init for connection %d\n", conn->id);
+                if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                conn->is_starting_input = false;
+                conn->is_running_input = false;
+                return 0;
+            }
+
             conn->ssl_input = SSL_new(threads_data.ssl_ctx);
             if (!conn->ssl_input) {
                 logMsg(LOG_ERR, "Failed to create SSL object for connection %d\n", conn->id);
                 ERR_print_errors_fp(stderr);
                 close(conn->input);
                 conn->input = -1;
+                /* wait a bit (interruptible) before restarting to avoid tight loop */
+                {
+                    int sleep_ms = 200;
+                    int slept = 0;
+                    while (slept < sleep_ms && !conn->stop_running_input) {
+                        int step = (sleep_ms - slept) > 50 ? 50 : (sleep_ms - slept);
+                        Thread_sleep(step);
+                        slept += step;
+                    }
+                }
+                if (conn->stop_running_input) {
+                    conn->is_starting_input = false;
+                    conn->is_running_input = false;
+                    if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                    return 0;
+                }
                 goto restart_input_thread;
             }
             SSL_set_fd(conn->ssl_input, conn->input);
@@ -199,6 +281,22 @@ server_input_thread (void* parameter)
                 conn->ssl_input = NULL;
                 close(conn->input);
                 conn->input = -1;
+                /* brief interruptible pause before restart to avoid tight loop */
+                {
+                    int sleep_ms = 200;
+                    int slept = 0;
+                    while (slept < sleep_ms && !conn->stop_running_input && !global_graceful_shutdown) {
+                        int step = (sleep_ms - slept) > 50 ? 50 : (sleep_ms - slept);
+                        Thread_sleep(step);
+                        slept += step;
+                    }
+                }
+                if (conn->stop_running_input || global_graceful_shutdown) {
+                    conn->is_starting_input = false;
+                    conn->is_running_input = false;
+                    if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                    return 0;
+                }
                 goto restart_input_thread;
             }
 
@@ -278,34 +376,66 @@ server_input_thread (void* parameter)
 
             if (threads_data.enable_ssl) {
                 len_apdu = SSL_read(conn->ssl_input, (char *) conn->receive_input, sizeof(conn->receive_input));
+
+                if (len_apdu <= 0) {
+                    int ssl_err = SSL_get_error(conn->ssl_input, len_apdu);
+                    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+                        /* Non-blocking socket wants more data; treat as no data this cycle */
+                        Thread_sleep(1);
+                        continue;
+                    } else if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                        logMsg(LOG_INFO, "Input SSL connection closed for connection %d\n", conn->id);
+                    } else {
+                        logMsg(LOG_ERR, "Input SSL error %d for connection %d\n", ssl_err, conn->id);
+                        unsigned long e;
+                        while ((e = ERR_get_error()) != 0) {
+                            char err_str[256];
+                            ERR_error_string_n(e, err_str, sizeof(err_str));
+                            logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                        }
+                    }
+
+                    /* Stop and restart input thread on SSL close/error */
+                    conn->stop_running_output = true;
+                    if (conn->input >= 0) {
+                        close(conn->input);
+                        conn->input = -1;
+                    }
+
+                    uint64_t wait_start = get_time_counter();
+                    while(conn->is_running_output && (get_time_counter() - wait_start < 30)) {
+                        Thread_sleep(10);
+                    }
+
+                    logMsg(LOG_INFO, "Restart Input thread for connection %d\n", conn->id);
+                    goto restart_input_thread;
+                }
             } else {
                 len_apdu = recv(conn->input, (char *) conn->receive_input, sizeof(conn->receive_input), 0);
-            }
 
-            logMsg(LOG_INFO, "Receive data from input port %d: length %d for connection %d\n", threads_data.input_port, len_apdu, conn->id);
+                logMsg(LOG_INFO, "Receive data from input port %d: length %d for connection %d\n", threads_data.input_port, len_apdu, conn->id);
 
-            if (len_apdu <= 0) {
-                if(len_apdu == 0) {
-                    logMsg(LOG_INFO, "Input recv() connection closed for connection %d\n", conn->id);
-                } else {
-                  logMsg(LOG_ERR, "Input recv() error:: %d for connection %d\n", errno, conn->id);
+                if (len_apdu <= 0) {
+                    if(len_apdu == 0) {
+                        logMsg(LOG_INFO, "Input recv() connection closed for connection %d\n", conn->id);
+                    } else {
+                        logMsg(LOG_ERR, "Input recv() error:: %d for connection %d\n", errno, conn->id);
+                    }
+
+                    conn->stop_running_output = true;
+                    if (conn->input >= 0) {
+                        close(conn->input);
+                        conn->input = -1;
+                    }
+
+                    uint64_t wait_start = get_time_counter();
+                    while(conn->is_running_output && (get_time_counter() - wait_start < 30)) {
+                        Thread_sleep(10);
+                    }
+
+                    logMsg(LOG_INFO, "Restart Input thread for connection %d\n", conn->id);
+                    goto restart_input_thread;
                 }
-
-                // останавливаем внутренний порт
-                conn->stop_running_output = true;
-                if (conn->input >= 0) {
-                    close(conn->input);
-                    conn->input = -1;
-                }
-
-                uint64_t wait_start = get_time_counter();
-                while(conn->is_running_output &&
-                      (get_time_counter() - wait_start < 30)) { // 30 секунд максимум
-                    Thread_sleep(10);
-                }
-
-                logMsg(LOG_INFO, "Restart Input thread for connection %d\n", conn->id);
-                goto restart_input_thread;
             }
 
             // Проверяем и запускаем output поток если он не активен
@@ -330,15 +460,11 @@ server_input_thread (void* parameter)
 
             do {
                 int result;
-                if (threads_data.enable_ssl) {
-                    result = SSL_write(conn->ssl_input,
-                                    (const char *)&conn->receive_input[sent],
-                                    len_apdu - sent);
-                } else {
-                    result = send(conn->output,
-                                (const char *)&conn->receive_input[sent],
-                                len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
-                }
+
+                /* Forward to local host_out (plain TCP) */
+                result = send(conn->output,
+                            (const char *)&conn->receive_input[sent],
+                            len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
 
                 logMsg(LOG_INFO, "Send data to output_port %d result %d for connection %d\n", threads_data.output_port, result, conn->id);
 
@@ -499,9 +625,37 @@ server_output_thread (void* parameter)
             }
 
             do {
-                int result = send(conn->input,
+                int result = -1;
+
+                if (threads_data.enable_ssl && conn->ssl_input) {
+                    result = SSL_write(conn->ssl_input,
+                                       (const char *)&conn->receive_output[sent],
+                                       len_apdu - sent);
+
+                    if (result <= 0) {
+                        int ssl_err = SSL_get_error(conn->ssl_input, result);
+                        if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+                            Thread_sleep(1);
+                            continue;
+                        } else if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                            logMsg(LOG_INFO, "Input SSL connection closed for connection %d\n", conn->id);
+                            break;
+                        } else {
+                            logMsg(LOG_ERR, "Input SSL write error %d for connection %d\n", ssl_err, conn->id);
+                            unsigned long e;
+                            while ((e = ERR_get_error()) != 0) {
+                                char err_str[256];
+                                ERR_error_string_n(e, err_str, sizeof(err_str));
+                                logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    result = send(conn->input,
                                 (const char *)&conn->receive_output[sent],
                                 len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                }
 
                 logMsg(LOG_INFO, "Send data to input_port %d result %d for connection %d\n", threads_data.input_port, result, conn->id);
 
@@ -667,16 +821,27 @@ switcher_servers_stop()
     
     for (int i = 0; i < settings->connections_count; i++) {
         proxy_server_connection_t *conn = &settings->connections[i];
-        
-        // Останавливаем input поток
-        if (conn->is_running_input) {
-            conn->stop_running_input = true;
+
+        // Устанавливаем флаги остановки для всех соединений (независимо от текущего состояния)
+        conn->stop_running_input = true;
+        conn->stop_running_output = true;
+    }
+
+    // Try to unblock threads which may be blocked in select/recv by shutting down fds
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+        if (conn->input >= 0) {
+            logMsg(LOG_DEBUG, "Shutting down input fd for connection %d\n", conn->id);
+            shutdown(conn->input, SHUT_RDWR);
         }
-        
-        // Останавливаем output поток
-        if (conn->is_running_output) {
-            conn->stop_running_output = true;
+        if (conn->output >= 0) {
+            logMsg(LOG_DEBUG, "Shutting down output fd for connection %d\n", conn->id);
+            shutdown(conn->output, SHUT_RDWR);
         }
+        /* Don't call SSL_shutdown here — allow the input thread to perform
+           SSL_shutdown()/SSL_free() itself to avoid double-freeing the
+           SSL object. We already shutdown the underlying fds above to
+           unblock select/recv. */
     }
 
     // Освобождаем память соединений
@@ -690,16 +855,18 @@ switcher_servers_stop()
                 while (conn->is_running_input) {
                     Thread_sleep(10);
                 }
-                Thread_destroy(conn->input_thread);
+                // Не вызываем Thread_destroy() для отсоединённых потоков —
+                // реализация Thread_destroy() может попытаться освободить ресурсы,
+                // уже освобождённые потоками, что приводит к corruption.
                 conn->input_thread = NULL;
             }
-            
+
             if (conn->output_thread) {
                 // Дожидаемся завершения потока
                 while (conn->is_running_output) {
                     Thread_sleep(10);
                 }
-                Thread_destroy(conn->output_thread);
+                // Не вызываем Thread_destroy() по той же причине.
                 conn->output_thread = NULL;
             }
         }

@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
                 i++; // Skip next argument
             }
         }
-        if (strstr(argv[i], CONNECTIONS_KEY) != NULL || strstr(argv[i], CONNECTIONS_KEY_SHORT) != NULL)
+        if (strcmp(argv[i], CONNECTIONS_KEY) == 0 || strcmp(argv[i], CONNECTIONS_KEY_SHORT) == 0)
         {
             if (i + 1 < argc && argv[i+1] != NULL)
             {
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
                 i++; // Skip next argument
             }
         }
-        if (strstr(argv[i], TIMEOUT_KEY) != NULL || strstr(argv[i], TIMEOUT_KEY_SHORT) != NULL)
+        if (strcmp(argv[i], TIMEOUT_KEY) == 0 || strcmp(argv[i], TIMEOUT_KEY_SHORT) == 0)
         {
             if (i + 1 < argc && argv[i+1] != NULL)
             {
@@ -151,8 +151,7 @@ int main(int argc, char** argv) {
                 i++; // Skip next argument
             }
         }
-        if (strstr(argv[i], HELP_KEY_FULL) != NULL
-        || strstr(argv[i], HELP_KEY) != NULL)
+        if (strcmp(argv[i], HELP_KEY_FULL) == 0 || strcmp(argv[i], HELP_KEY) == 0)
         {
             show_help = true;
         }
@@ -180,8 +179,8 @@ int main(int argc, char** argv) {
     while (1) {
         proxy_server_thread_data_t* settings = get_client_settings();
         
-        // Проверяем флаг graceful shutdown
-        if (settings->graceful_shutdown) {
+        // Проверяем флаг graceful shutdown (поддерживаем сигнал-безопасный флаг)
+        if (settings->graceful_shutdown || global_graceful_shutdown) {
             logMsg(LOG_INFO, "Graceful shutdown initiated, stopping servers...");
             break;
         }

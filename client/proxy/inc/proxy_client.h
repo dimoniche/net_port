@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
@@ -74,6 +75,9 @@ typedef struct proxy_server_thread_data_s
 } proxy_server_thread_data_t;
 
 proxy_server_thread_data_t* get_client_settings();
+
+/* Signal-safe global shutdown flag set from signal handler */
+extern volatile sig_atomic_t global_graceful_shutdown;
 
 /**
  * \brief
