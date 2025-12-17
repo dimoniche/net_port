@@ -513,17 +513,6 @@ connection_output_handler (void* parameter)
                 logMsg(LOG_ERR, "SSL error: %s\n", err_str);
             }
             
-            // Логируем информацию о сертификате
-            X509* cert = SSL_get_peer_certificate(thread_data->ssl_output);
-            if (cert) {
-                char* cert_str = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
-                logMsg(LOG_ERR, "Peer certificate subject: %s\n", cert_str);
-                OPENSSL_free(cert_str);
-                X509_free(cert);
-            } else {
-                logMsg(LOG_ERR, "No peer certificate\n");
-            }
-            
             SSL_free(thread_data->ssl_output);
             thread_data->ssl_output = NULL;
             close(thread_data->output_local);

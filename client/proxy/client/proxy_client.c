@@ -769,30 +769,17 @@ SSL_CTX *create_client_ssl_context(const char *ca_file) {
     
     // Логируем создание SSL контекста
     logMsg(LOG_INFO, "Client SSL context created\n");
+
+    // Настройка контекста
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
     
-    // Настраиваем клиента на отправку сертификата серверу
+    // Клиент проверяет сертификат сервера
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
     
     // Загружаем CA-сертификат для проверки сертификата сервера
     if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) {
         logMsg(LOG_ERR, "Failed to load CA certificate from %s\n", ca_file);
-        SSL_CTX_free(ctx);
-        return NULL;
-    }
-    
-    // Устанавливаем сертификат клиента
-    if (SSL_CTX_use_certificate_file(ctx, ca_file, SSL_FILETYPE_PEM) <= 0) {
-        logMsg(LOG_ERR, "Failed to load client certificate from %s\n", ca_file);
-        SSL_CTX_free(ctx);
-        return NULL;
-    }
-
-    // Настройка контекста
-    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
-    
-    if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) {
-        logMsg(LOG_ERR, "Failed to load CA certificate\n");
+        ERR_print_errors_fp(stderr);
         SSL_CTX_free(ctx);
         return NULL;
     }
