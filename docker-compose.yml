@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  net_port:
+    image: net_port:latest
+    container_name: net_port_app
+    ports:
+      - "13080:80"
+      - "13880:8080"
+      - "29000-29999:6000-6999"
+    restart: unless-stopped
