@@ -145,7 +145,7 @@ server_input_thread (void* parameter)
     Thread_sleep(100); // Small delay before reconnect attempt
 
     /* If a stop was requested while we were sleeping or earlier, exit promptly */
-    if (conn->stop_running_input) {
+    if (conn->stop_running_input || global_graceful_shutdown) {
         logMsg(LOG_INFO, "Input thread stop requested at restart for connection %d\n", conn->id);
         conn->is_starting_input = false;
         conn->is_running_input = false;
@@ -170,10 +170,13 @@ server_input_thread (void* parameter)
         int backoff = 1;
         int connected = 0;
 
+        logMsg(LOG_INFO, "Start to server connection %d\n", conn->id);
+
         while (!conn->stop_running_input) {
             if (connect(conn->input, (struct sockaddr *) &conn->input_addr,
                         sizeof(conn->input_addr)) == 0) {
                 connected = 1;
+                logMsg(LOG_INFO, "Server connected %d\n", conn->id);
                 break;
             }
 
@@ -189,11 +192,19 @@ server_input_thread (void* parameter)
             {
                 int sleep_ms = backoff * 1000;
                 int slept = 0;
-                while (slept < sleep_ms && !conn->stop_running_input) {
+                while (slept < sleep_ms && !conn->stop_running_input && !global_graceful_shutdown) {
                     int step = (sleep_ms - slept) > 200 ? 200 : (sleep_ms - slept);
                     Thread_sleep(step);
                     slept += step;
                 }
+            }
+
+            if (conn->stop_running_input || global_graceful_shutdown) {
+                logMsg(LOG_INFO, "Input thread stop requested for connection %d\n", conn->id);
+                if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                conn->is_starting_input = false;
+                conn->is_running_input = false;
+                return 0;
             }
 
             if (backoff < 30) backoff *= 2;
@@ -205,7 +216,7 @@ server_input_thread (void* parameter)
         }
 
         if (!connected) {
-            if (conn->stop_running_input) {
+            if (conn->stop_running_input || global_graceful_shutdown) {
                 logMsg(LOG_INFO, "Input thread stop requested before connect for connection %d\n", conn->id);
                 if (conn->input >= 0) { close(conn->input); conn->input = -1; }
                 conn->is_starting_input = false;
@@ -239,13 +250,13 @@ server_input_thread (void* parameter)
                 {
                     int sleep_ms = 200;
                     int slept = 0;
-                    while (slept < sleep_ms && !conn->stop_running_input) {
+                    while (slept < sleep_ms && !conn->stop_running_input && !global_graceful_shutdown) {
                         int step = (sleep_ms - slept) > 50 ? 50 : (sleep_ms - slept);
                         Thread_sleep(step);
                         slept += step;
                     }
                 }
-                if (conn->stop_running_input) {
+                if (conn->stop_running_input || global_graceful_shutdown) {
                     conn->is_starting_input = false;
                     conn->is_running_input = false;
                     if (conn->input >= 0) { close(conn->input); conn->input = -1; }
@@ -372,7 +383,7 @@ server_input_thread (void* parameter)
 
         if(FD_ISSET(conn->input, &read_set)) {
 
-            if(conn->stop_running_input) break;
+            if(conn->stop_running_input || global_graceful_shutdown) break;
 
             if (threads_data.enable_ssl) {
                 len_apdu = SSL_read(conn->ssl_input, (char *) conn->receive_input, sizeof(conn->receive_input));
@@ -739,6 +750,7 @@ server_input_start(int conn_index)
             return;
         }
 
+        logMsg(LOG_DEBUG, "Input thread for connection %d\n starting", conn_index);
         Thread_start(conn->input_thread);
 
         while (conn->is_starting_input)

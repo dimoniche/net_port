@@ -51,7 +51,7 @@ int16_t db_init(char* ip_addr, char* port)
     logMsg(LOG_DEBUG, "port: %s", port);
 
     char str[2048];
-    snprintf(str, 128, "host=%s port=%s dbname=net_port user=postgres password=ghbdtnjvktn", ip_addr, port);
+    snprintf(str, 128, "host=%s port=%s dbname=net_port user=admin password=admin123", ip_addr, port);
     conn = PQconnectdb(str);
 
     //Check to see that the backend connection was successfully made
