@@ -2,6 +2,7 @@
 
 #include <fcntl.h>
 #include <sys/time.h>
+#include <stdlib.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
@@ -529,7 +530,6 @@ connection_input_handler (void* parameter)
     close(thread_data->input_local);
     thread_data->close_output_socket = true;
 
-
     thread_data->is_input_connected = false;
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);
@@ -995,9 +995,13 @@ server_output_is_running(proxy_server_t * server)
 
 int get_free_input_socket(proxy_server_thread_data_t * data)
 {
+    // Начинаем поиск со случайного смещения
+    int start_index = rand() % COUNT_SOCKET_THREAD;
+    
     for(int i = 0; i < COUNT_SOCKET_THREAD; i++) {
-        if(!data->local_sockets[i].is_input_connected) {
-            return i;
+        int index = (start_index + i) % COUNT_SOCKET_THREAD;
+        if(!data->local_sockets[index].is_input_connected) {
+            return index;
         }
     }
 
