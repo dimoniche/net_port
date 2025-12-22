@@ -9,4 +9,5 @@ error.log
 result
 __pycache__
 .vs
+.vscode/deploy_args.json
 /client_win/out
