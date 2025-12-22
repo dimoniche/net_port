@@ -66,6 +66,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
                     output_port: server.data[0].output_port,
                     description: server.data[0].description,
                     enable: server.data[0].enable,
+                    ssl: server.data[0].enable_ssl,
                 });
 
                 setServerData(serverData);
@@ -98,6 +99,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
             output_port: formik.values.output_port,
             description: formik.values.description,
             enable: formik.values.enable,
+            enable_ssl: formik.values.ssl,
             user_id: cookies.user.id,
         };
 
@@ -138,6 +140,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
         output_port: "",
         description: "",
         enable: false,
+        ssl: false,
     };
 
     let Schema = Yup.object({
@@ -145,6 +148,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
         output_port: Yup.number().min(6000).max(7000).required(),
         description: Yup.string(),
         enable: Yup.boolean(),
+        ssl: Yup.boolean(),
     });
 
     const formik = useFormik({
@@ -244,7 +248,22 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
                             }
                         />
                     </Grid>
-                    <Grid item xs={6}></Grid>
+                    <Grid item xs={6}>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={formik.values.ssl}
+                                    onChange={serverState}
+                                    inputProps={{ "aria-label": "controlled" }}
+                                />
+                            }
+                            label={
+                                formik.values.ssl
+                                    ? "SSL включен"
+                                    : "SSL отключен"
+                            }
+                        />
+                    </Grid>
                     <Grid item xs={6}>
                         <Button
                             color="primary"
