@@ -9,9 +9,9 @@ def send_files_to_server(ip, user, password):
     ftp_client = client.open_sftp()
 
     print("Send backend")
-    ftp_client.put("web\\result\\backend.tgz", '/root/backend.tgz')
+    ftp_client.put("web/result/backend.tgz", '/root/backend.tgz')
     print("Send frontend")
-    ftp_client.put("web\\result\\frontend.tgz", '/root/frontend.tgz')
+    ftp_client.put("web/result/frontend.tgz", '/root/frontend.tgz')
 
     ftp_client.close()
 

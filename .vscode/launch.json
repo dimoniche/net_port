@@ -59,51 +59,7 @@
                 "${input:db_host}",
                 "${input:db_port}"
             ],
-            "console": "integratedTerminal",
-            "inputs": [
-                {
-                    "id": "ssh_ip",
-                    "type": "promptString",
-                    "description": "Enter SSH IP address:"
-                },
-                {
-                    "id": "ssh_user",
-                    "type": "promptString",
-                    "description": "Enter SSH username:"
-                },
-                {
-                    "id": "ssh_password",
-                    "type": "promptString",
-                    "description": "Enter SSH password:",
-                    "password": true
-                },
-                {
-                    "id": "db_name",
-                    "type": "promptString",
-                    "description": "Enter database name:"
-                },
-                {
-                    "id": "db_user",
-                    "type": "promptString",
-                    "description": "Enter database username:"
-                },
-                {
-                    "id": "db_password",
-                    "type": "promptString",
-                    "description": "Enter database password:",
-                    "password": true
-                },
-                {
-                    "id": "db_host",
-                    "type": "promptString",
-                    "description": "Enter database host:"
-                },
-                {
-                    "id": "db_port",
-                    "type": "promptString",
-                    "description": "Enter database port:"
-                }
-            ]
+            "console": "integratedTerminal"
         },
         {
             "name": "Build netport image",
@@ -111,6 +67,50 @@
             "request": "launch",
             "program": "${workspaceRoot}/web/deploy/build.py",
             "console": "integratedTerminal"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "ssh_ip",
+            "type": "promptString",
+            "description": "Enter SSH IP address:"
+        },
+        {
+            "id": "ssh_user",
+            "type": "promptString",
+            "description": "Enter SSH username:"
+        },
+        {
+            "id": "ssh_password",
+            "type": "promptString",
+            "description": "Enter SSH password:",
+            "password": true
+        },
+        {
+            "id": "db_name",
+            "type": "promptString",
+            "description": "Enter database name:"
+        },
+        {
+            "id": "db_user",
+            "type": "promptString",
+            "description": "Enter database username:"
+        },
+        {
+            "id": "db_password",
+            "type": "promptString",
+            "description": "Enter database password:",
+            "password": true
+        },
+        {
+            "id": "db_host",
+            "type": "promptString",
+            "description": "Enter database host:"
+        },
+        {
+            "id": "db_port",
+            "type": "promptString",
+            "description": "Enter database port:"
         }
     ]
 }

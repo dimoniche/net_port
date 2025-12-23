@@ -10,4 +10,10 @@ CREATE TABLE servers (
     enable_ssl BOOLEAN
 );
 
-ALTER USER postgres WITH PASSWORD 'ghbdtnjvktn';
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    login VARCHAR(255) NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    role VARCHAR(50)
+);
