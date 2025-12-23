@@ -25,7 +25,7 @@
 #define Sleep(x) usleep(x*1000)
 #define WSAGetLastError() errno
 
-#define RESTART_SOCKET_TIMEOUT      3600
+#define RESTART_SOCKET_TIMEOUT      900
 
 // данные одного подключения (входящее/исходящее)
 typedef struct proxy_server_connection_s
