@@ -2,6 +2,12 @@ CREATE DATABASE net_port;
 
 \c net_port
 
+CREATE TABLE role (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE,
+    description TEXT
+);
+
 CREATE TABLE servers (
     user_id INTEGER,
     input_port INTEGER,
@@ -15,5 +21,5 @@ CREATE TABLE users (
     login VARCHAR(255) NOT NULL,
     password VARCHAR(255) NOT NULL,
     email VARCHAR(255),
-    role VARCHAR(50)
+    role_name VARCHAR(255),
 );

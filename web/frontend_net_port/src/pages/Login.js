@@ -175,6 +175,7 @@ const Login = (props) => {
                             size="large"
                             onClick={registerUser}
                             variant="contained"
+                            disabled="true"
                         >
                             Регистрация
                         </Button>
