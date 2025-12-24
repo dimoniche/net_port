@@ -30,7 +30,7 @@ PGconn* get_db_connection(void)
     return conn;
 }
 
-int16_t db_init(char* ip_addr, char* port)
+int16_t db_init(char* ip_addr, char* port, char* username, char* password)
 {
     if (conn != NULL)
         return 0;
@@ -44,14 +44,19 @@ int16_t db_init(char* ip_addr, char* port)
     {
         if (port == NULL)
             port = (char*)"5432";
+        if (username == NULL)
+            username = (char*)"admin";
+        if (password == NULL)
+            password = (char*)"admin123";
     }
 
     logMsg(LOG_DEBUG, "Start db\n");
     logMsg(LOG_DEBUG, "host: %s", ip_addr);
     logMsg(LOG_DEBUG, "port: %s", port);
+    logMsg(LOG_DEBUG, "username: %s", username);
 
     char str[2048];
-    snprintf(str, 128, "host=%s port=%s dbname=net_port user=admin password=admin123", ip_addr, port);
+    snprintf(str, 2048, "host=%s port=%s dbname=net_port user=%s password=%s", ip_addr, port, username, password);
     conn = PQconnectdb(str);
 
     //Check to see that the backend connection was successfully made

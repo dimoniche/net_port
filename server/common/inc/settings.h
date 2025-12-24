@@ -10,6 +10,8 @@
 #define VERBOSE_KEY             "-v"
 #define HOST_KEY                "--host"
 #define PORT_KEY                "-p"
+#define USERNAME_KEY            "--username"
+#define PASSWORD_KEY            "--password"
 
 #define USER_ID                "--user"
 

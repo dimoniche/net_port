@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
 
     signal_init();
 
-    TDBConnectionData DB_conn_data = {(char*)"127.1", (char*)"5432"};
+    TDBConnectionData DB_conn_data = {(char*)"127.1", (char*)"5432", NULL, NULL};
 
     uint32_t user_id = 0;
 
@@ -47,6 +47,8 @@ int main(int argc, char** argv) {
         printf("  %s<level>        Set verbose level (1-%d, higher=more output)\n", VERBOSE_KEY, LOG_LAST_PRIORITY);
         printf("  %s <host>         Database host IP address\n", HOST_KEY);
         printf("  %s <port>         Database port number\n", PORT_KEY);
+        printf("  %s <username>     Database username\n", USERNAME_KEY);
+        printf("  %s <password>     Database password\n", PASSWORD_KEY);
         printf("  %s <id>           User ID for logging\n", USER_ID);
         printf("  --cert <file>     Path to SSL certificate file\n");
         printf("  --key <file>      Path to SSL private key file\n");
@@ -95,6 +97,24 @@ int main(int argc, char** argv) {
             if (argv[i+1] != NULL) {
                 DB_conn_data.port = argv[i+1];
                 i++;
+            }
+        }
+        else if (strstr(argv[i], USERNAME_KEY) != NULL)
+        {
+            if (argv[i+1] != NULL)
+            {
+                DB_conn_data.username = argv[i+1];
+                i++;
+                logMsg(LOG_INFO, "Set username: %s", DB_conn_data.username);
+            }
+        }
+        else if (strstr(argv[i], PASSWORD_KEY) != NULL)
+        {
+            if (argv[i+1] != NULL)
+            {
+                DB_conn_data.password = argv[i+1];
+                i++;
+                logMsg(LOG_INFO, "Set password: %s", DB_conn_data.password);
             }
         }
         else if (strstr(argv[i], USER_ID) != NULL)
@@ -191,7 +211,7 @@ int main(int argc, char** argv) {
     logMsg(LOG_DEBUG, "Start logger...");
 
     if (!no_db_mode) {
-        db_init(DB_conn_data.ip, DB_conn_data.port);
+        db_init(DB_conn_data.ip, DB_conn_data.port, DB_conn_data.username, DB_conn_data.password);
         servers_init(user_id, cert_file, key_file);
     } else {
         if (cli_input_port == 0 || cli_output_port == 0) {
