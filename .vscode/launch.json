@@ -53,11 +53,11 @@
                 "${input:ssh_ip}",
                 "${input:ssh_user}",
                 "${input:ssh_password}",
-                "${input:db_name}",
+                "net_port",
                 "${input:db_user}",
                 "${input:db_password}",
                 "${input:db_host}",
-                "${input:db_port}"
+                "5432"
             ],
             "console": "integratedTerminal"
         },
@@ -87,11 +87,6 @@
             "password": true
         },
         {
-            "id": "db_name",
-            "type": "promptString",
-            "description": "Enter database name:"
-        },
-        {
             "id": "db_user",
             "type": "promptString",
             "description": "Enter database username:"
@@ -107,10 +102,5 @@
             "type": "promptString",
             "description": "Enter database host:"
         },
-        {
-            "id": "db_port",
-            "type": "promptString",
-            "description": "Enter database port:"
-        }
     ]
 }

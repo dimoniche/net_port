@@ -102,10 +102,10 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     };
 
     useEffect(() => {
-        if (rest.ability !== undefined) {
-            updateAbility(rest.ability, cookies.user);
-        }
-    }, []);
+      if (rest.ability !== undefined) {
+        updateAbility(rest.ability, cookies.user);
+      }
+    }, [cookies.user, rest.ability]);
 
     return (
         <React.Fragment>

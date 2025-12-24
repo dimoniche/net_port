@@ -1,3 +1,4 @@
+require('dotenv').config();
 'use strict';
 
 /* eslint-disable no-console */
@@ -14,6 +15,6 @@ process.on('uncaughtException', (err) => {
   logger.error(err, 'Uncaught Exception thrown');
 });
 
-server.on('listening', 'localhost', () =>
+server.on('listening', () =>
   logger.info('Feathers application started on http://%s:%d', app.get('host'), port)
 );

@@ -10,7 +10,13 @@ types.setTypeParser(TIMESTAMP_OID, val => val);
 
 module.exports = function (app) {
   const client = 'pg';
-  const connection = 'postgresql://postgres:ghbdtnjvktnGHBDTNJVKTN@localhost:5432/net_port';
+  const connection = {
+    host: process.env.DB_HOST || 'localhost',
+    port: 5432,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: 'net_port'
+  };
   const db = knex({client, connection});
 
   app.set('db', db);
