@@ -16,6 +16,15 @@ CREATE TABLE servers (
     enable_ssl BOOLEAN
 );
 
+CREATE TABLE statistic (
+    id SERIAL PRIMARY KEY,
+    server_id INTEGER,
+    bytes_received BIGINT DEFAULT 0,
+    bytes_sent BIGINT DEFAULT 0,
+    connections_count INTEGER DEFAULT 0,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     login VARCHAR(255) NOT NULL,

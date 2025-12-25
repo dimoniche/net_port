@@ -34,6 +34,20 @@ void input_server_wait_stop(proxy_server_t * server);
 int get_free_input_socket(proxy_server_thread_data_t * data);
 int get_free_output_socket(proxy_server_thread_data_t * data);
 
+// Функция для периодического сохранения статистики
+void* statistics_saver_thread(void* arg) {
+    while(1) {
+        Thread_sleep(60000); // Сохраняем статистику каждую минуту
+        
+        for(int i = 0; i < servers_count; i++) {
+            if(servers[i].enable) {
+                save_server_statistics(&servers[i]);
+            }
+        }
+    }
+    return NULL;
+}
+
 int
 servers_init(uint32_t user_id, const char* cert_file, const char* key_file)
 {
@@ -116,6 +130,12 @@ int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t inp
     servers[0].is_input_enabled = true;
     servers[0].is_output_enabled = true;
     servers[0].enable_ssl = enable_ssl;
+
+    // Инициализируем статистику
+    servers[0].statistics.bytes_received = 0;
+    servers[0].statistics.bytes_sent = 0;
+    servers[0].statistics.connections_count = 0;
+    servers[0].statistics.last_update = time(NULL);
 
     if (cert_file) {
         strncpy(servers[0].cert_file, cert_file, sizeof(servers[0].cert_file)-1);
@@ -398,6 +418,8 @@ connection_input_handler (void* parameter)
 
     logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data->input_port);
 
+    // Обновляем статистику - увеличиваем количество соединений
+    thread_data->data->statistics.connections_count++;
 
     while (!done_output_connection) {
         fd_set read_set;
@@ -436,6 +458,9 @@ connection_input_handler (void* parameter)
                 }
                 break;
             }
+
+            // Обновляем статистику - байты получены
+            update_server_statistics(thread_data->data, len_epdu, 0);
 
             int remaining = len_epdu;
             int sent = 0;
@@ -532,6 +557,9 @@ connection_input_handler (void* parameter)
 
     thread_data->is_input_connected = false;
 
+    // Обновляем статистику - уменьшаем количество соединений
+    thread_data->data->statistics.connections_count--;
+
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);
 
     return 0;
@@ -547,7 +575,7 @@ connection_output_handler (void* parameter)
 
     thread_data->is_output_connected = true;
     logMsg(LOG_INFO, "Start new connection_output_handler on output_port %d\n", thread_data->data->output_port);
-    
+     
     // Инициализация SSL если нужно
     if (thread_data->data->enable_ssl) {
         thread_data->ssl_output = SSL_new(thread_data->data->ssl_ctx);
@@ -664,6 +692,9 @@ connection_output_handler (void* parameter)
                     break;
                 }
             }
+
+            // Обновляем статистику - байты получены
+            update_server_statistics(thread_data->data, len_epdu, 0);
 
             int remaining = len_epdu;
             int sent = 0;
@@ -808,16 +839,16 @@ serverInputThread (void* parameter)
                     continue;
                 }
 
-    
+             
                 if(connections_data != NULL) {
-    
+
                     // локальный входящий сокет для нового потока
                     connections_data->local_sockets[current_free_socket_input].input_local = socket_local;
-                 
+                  
                     logMsg(LOG_DEBUG, "Start thread input socket create\n");
-    
+     
                     Thread thread = Thread_create(connection_input_handler, (void *) &connections_data->local_sockets[current_free_socket_input], true);
-    
+     
                     if (thread != NULL) {
                         Thread_start(thread);
                         logMsg(LOG_DEBUG, "Handler assigned\n");

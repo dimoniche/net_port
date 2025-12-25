@@ -1,8 +1,8 @@
-/******************************************************************************
+/*******************************************************************************
 *
 *   Copyright (C)
 *
-******************************************************************************/
+*******************************************************************************/
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -221,6 +221,15 @@ int main(int argc, char** argv) {
         servers_init_no_db(cert_file, key_file, cli_input_port, cli_output_port, cli_enable_ssl);
     }
     switcher_servers_start();
+
+    // Запускаем поток для периодического сохранения статистики
+    Thread statistics_thread = Thread_create(statistics_saver_thread, NULL, false);
+    if (statistics_thread != NULL) {
+        Thread_start(statistics_thread);
+        logMsg(LOG_INFO, "Started statistics saver thread");
+    } else {
+        logMsg(LOG_ERR, "Failed to create statistics saver thread");
+    }
 
     while (1) {
         if(Hal_getMonotonicTimeInMs() - last_monotonic_time > 1000UL)

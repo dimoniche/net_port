@@ -6,11 +6,57 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <time.h>
 
 #include "logMsg.h"
 
 static PGconn* conn = NULL;
 static PGresult  *result;
+
+// Функция для загрузки последней статистики сервера из БД
+int load_server_statistics(proxy_server_t *server) {
+    char query[256];
+    
+    // Формируем запрос на получение последней статистики для сервера
+    snprintf(query, sizeof(query), "SELECT bytes_received, bytes_sent FROM statistic WHERE server_id = %d ORDER BY timestamp DESC LIMIT 1", server->id);
+    
+    logMsg(LOG_DEBUG, "Executing query: %s", query);
+    
+    PGresult *res = PQexec(get_db_connection(), query);
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+        logMsg(LOG_ERR, "Failed to load statistics: %s", PQerrorMessage(get_db_connection()));
+        PQclear(res);
+        return -1;
+    }
+    
+    int rows = PQntuples(res);
+    if (rows > 0) {
+        // Если есть сохраненная статистика, загружаем ее
+        const char* bytes_received_str = PQgetvalue(res, 0, 0);
+        const char* bytes_sent_str = PQgetvalue(res, 0, 1);
+        
+        server->statistics.bytes_received = strtoull(bytes_received_str, NULL, 10);
+        server->statistics.bytes_sent = strtoull(bytes_sent_str, NULL, 10);
+        server->statistics.connections_count = 0; // Начинаем с 0 активных соединений
+        server->statistics.last_update = time(NULL);
+        
+        logMsg(LOG_INFO, "Loaded statistics for server %d: received=%lu, sent=%lu",
+               server->id,
+               (unsigned long)server->statistics.bytes_received,
+               (unsigned long)server->statistics.bytes_sent);
+    } else {
+        // Если нет сохраненной статистики, инициализируем с нуля
+        server->statistics.bytes_received = 0;
+        server->statistics.bytes_sent = 0;
+        server->statistics.connections_count = 0;
+        server->statistics.last_update = time(NULL);
+        
+        logMsg(LOG_INFO, "No previous statistics found for server %d, initialized to zero", server->id);
+    }
+    
+    PQclear(res);
+    return 0;
+}
 
 int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *servers_count)
 {
@@ -102,8 +148,54 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
                 logMsg(LOG_DEBUG, "enable_ssl = %d", (*servers)[i].enable_ssl);
             }
         }
+
+        // Загружаем предыдущую статистику из базы данных
+        load_server_statistics(&(*servers)[i]);
     }
 
     PQclear(result);
+    return 0;
+}
+
+int save_server_statistics(proxy_server_t *server)
+{
+    char query[512];
+    
+    // Формируем запрос на вставку статистики
+    snprintf(query, sizeof(query), "INSERT INTO statistic (server_id, bytes_received, bytes_sent, connections_count) VALUES (%d, %lu, %lu, %d)",
+             server->id, 
+             (unsigned long)server->statistics.bytes_received,
+             (unsigned long)server->statistics.bytes_sent,
+             server->statistics.connections_count);
+    
+    logMsg(LOG_DEBUG, "Executing query: %s", query);
+    
+    PGresult *res = PQexec(get_db_connection(), query);
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_ERR, "Failed to save statistics: %s", PQerrorMessage(get_db_connection()));
+        PQclear(res);
+        return -1;
+    }
+    
+    PQclear(res);
+    return 0;
+}
+
+int update_server_statistics(proxy_server_t *server, uint64_t bytes_received, uint64_t bytes_sent)
+{
+    // Обновляем статистику в памяти
+    server->statistics.bytes_received += bytes_received;
+    server->statistics.bytes_sent += bytes_sent;
+    
+    // Обновляем время последнего обновления
+    server->statistics.last_update = time(NULL);
+    
+    // Логируем обновление статистики
+    logMsg(LOG_DEBUG, "Updated statistics for server %d: received=%lu, sent=%lu, connections=%d",
+           server->id,
+           (unsigned long)server->statistics.bytes_received,
+           (unsigned long)server->statistics.bytes_sent,
+           server->statistics.connections_count);
+    
     return 0;
 }

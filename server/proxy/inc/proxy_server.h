@@ -31,6 +31,15 @@
 
 #define RESTART_CONNECTION_TIMEOUT      3600
 
+// Структура для хранения статистики сервера
+typedef struct proxy_server_statistics_s
+{
+    uint64_t bytes_received;      // Байт получено
+    uint64_t bytes_sent;          // Байт отправлено
+    uint32_t connections_count;   // Количество активных соединений
+    time_t last_update;           // Время последнего обновления статистики
+} proxy_server_statistics_t;
+
 typedef struct proxy_servers_settings_s
 {
   char local_address[32];
@@ -68,6 +77,9 @@ typedef struct proxy_server_s
     SSL_CTX *ssl_ctx; // SSL контекст для сервера
     char cert_file[256]; // Путь к сертификату сервера
     char key_file[256]; // Путь к приватному ключу сервера
+    
+    // Статистика сервера
+    proxy_server_statistics_t statistics;
 
 } proxy_server_t;
 
@@ -129,7 +141,7 @@ int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t inp
  *
  * \return -1 ошибка
  */
- 
+  
 // Функции для работы с OpenSSL
 void init_ssl_context(proxy_server_t *server);
 void init_openssl();
@@ -137,6 +149,13 @@ void cleanup_openssl();
 SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file);
 // Освобождение SSL контекста для сервера
 void cleanup_ssl_context(proxy_server_t *server);
+
+// Функции для работы со статистикой
+int save_server_statistics(proxy_server_t *server);
+int update_server_statistics(proxy_server_t *server, uint64_t bytes_received, uint64_t bytes_sent);
+
+// Функция для периодического сохранения статистики
+void* statistics_saver_thread(void* arg);
 
 int
 switcher_servers_stop();
