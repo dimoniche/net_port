@@ -694,7 +694,7 @@ connection_output_handler (void* parameter)
             }
 
             // Обновляем статистику - байты получены
-            update_server_statistics(thread_data->data, len_epdu, 0);
+            update_server_statistics(thread_data->data, 0, len_epdu);
 
             int remaining = len_epdu;
             int sent = 0;
