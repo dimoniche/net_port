@@ -103,7 +103,7 @@ def create_tables(dbname, user, password, host='localhost', port='5432'):
         return False
 
 
-def main(dbname='net_port', user='postgres', password='ghbdtnjvktn', host='localhost', port='5432'):
+def main(dbname, user, password, host='localhost', port='5432'):
     print(f"Развертывание базы данных '{dbname}'...")
     
     # Создаем базу данных

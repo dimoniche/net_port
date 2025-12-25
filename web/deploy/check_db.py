@@ -80,7 +80,7 @@ def check_tables_exist(dbname, user, password, host='localhost', port='5432'):
         return False, False
 
 
-def main(dbname='net_port', user='postgres', password='ghbdtnjvktn', host='localhost', port='5432'):
+def main(dbname, user, password, host='localhost', port='5432'):
     print(f"Проверка существования базы данных '{dbname}'...")
     db_exists = check_database_exists(dbname, user, password, host, port)
     
