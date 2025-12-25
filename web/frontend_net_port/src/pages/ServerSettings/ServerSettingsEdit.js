@@ -14,7 +14,6 @@ import TextField from "@mui/material/TextField";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Paper from "@mui/material/Paper";
-import isEmpty from "lodash/isEmpty";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import updateAbility from "../../config/permission";
@@ -27,7 +26,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
     const history = useNavigate();
     const [cookies, , removeCookie] = useCookies();
 
-    const [isSubmitting, setSubmitting] = useState(false);
+    const [, setSubmitting] = useState(false);
     const [isChangedData, setChangedData] = useState(false);
     const [addError, setAddError] = useState(false);
     const [serverData, setServerData] = useState();
@@ -133,6 +132,11 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
     const serverState = () => {
         setChangedData(true);
         formik.setFieldValue("enable", !formik.values.enable);
+    };
+
+    const sslState = () => {
+        setChangedData(true);
+        formik.setFieldValue("ssl", !formik.values.ssl);
     };
 
     const InitValues = {
@@ -253,7 +257,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
                             control={
                                 <Checkbox
                                     checked={formik.values.ssl}
-                                    onChange={serverState}
+                                    onChange={sslState}
                                     inputProps={{ "aria-label": "controlled" }}
                                 />
                             }
