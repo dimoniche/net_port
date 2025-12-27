@@ -34,7 +34,8 @@ static void print_usage(void)
     fprintf(stderr, "         -p_out            - user device service port\n");
     fprintf(stderr, "         --connections, -c - number of connections (default: 1)\n");
     fprintf(stderr, "         --timeout, -t     - timeout in seconds for output threads (default: 1200)\n");
-    fprintf(stderr, "         -e, --ssl         - enable SSL encryption\n");
+    fprintf(stderr, "         -e, --ssl         - enable SSL encryption for input connection\n");
+    fprintf(stderr, "         -o, --ssl-output  - enable SSL encryption for output connection\n");
     fprintf(stderr, "         -a, --ca-file     - path to CA certificate file\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "\nExamples:\n");
@@ -59,6 +60,7 @@ int main(int argc, char** argv) {
     settings->timeout_seconds = RESTART_SOCKET_TIMEOUT;
     settings->graceful_shutdown = false; // Инициализация флага graceful shutdown
     settings->enable_ssl = false; // SSL по умолчанию выключен
+    settings->enable_output_ssl = false; // Output SSL по умолчанию выключен
     settings->ca_file[0] = '\0'; // Путь к CA файлу по умолчанию пустой
 
     bool show_help = true;
@@ -157,6 +159,10 @@ int main(int argc, char** argv) {
         }
         if (strcmp(argv[i], "--ssl") == 0 || strcmp(argv[i], "-e") == 0) {
             settings->enable_ssl = true;
+            show_help = false;
+        }
+        if (strcmp(argv[i], "--ssl-output") == 0 || strcmp(argv[i], "-o") == 0) {
+            settings->enable_output_ssl = true;
             show_help = false;
         }
         if (strcmp(argv[i], "--ca-file") == 0 || strcmp(argv[i], "-a") == 0) {

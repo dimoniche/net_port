@@ -48,6 +48,7 @@ typedef struct proxy_server_connection_s
     bool stop_running_output;
 
     SOCKET output;
+    SSL *ssl_output;
     struct sockaddr_in output_addr;
 
     uint8_t receive_input[16384];
@@ -70,7 +71,8 @@ typedef struct proxy_server_thread_data_s
     bool graceful_shutdown; // Флаг для graceful shutdown
 
     SSL_CTX *ssl_ctx; // Контекст SSL для клиентских соединений
-    bool enable_ssl; // Флаг включения SSL шифрования
+    bool enable_ssl; // Флаг включения SSL шифрования для input соединения
+    bool enable_output_ssl; // Флаг включения SSL шифрования для output соединения
     char ca_file[256]; // Путь к файлу CA сертификата
 } proxy_server_thread_data_t;
 
