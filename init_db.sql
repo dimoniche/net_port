@@ -13,7 +13,8 @@ CREATE TABLE servers (
     input_port INTEGER,
     output_port INTEGER,
     enable BOOLEAN,
-    enable_ssl BOOLEAN
+    enable_ssl BOOLEAN,
+    enable_input_ssl BOOLEAN
 );
 
 CREATE TABLE statistic (

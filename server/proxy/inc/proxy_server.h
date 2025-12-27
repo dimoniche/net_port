@@ -74,7 +74,8 @@ typedef struct proxy_server_s
     bool is_output_running;
     bool stop_output_running;
 
-    bool enable_output_ssl; // Флаг включения SSL
+    bool enable_output_ssl; // Флаг включения SSL на output сокете
+    bool enable_input_ssl;  // Флаг включения SSL на input сокете
     SSL_CTX *ssl_ctx; // SSL контекст для сервера
     char cert_file[256]; // Путь к сертификату сервера
     char key_file[256]; // Путь к приватному ключу сервера
@@ -107,6 +108,7 @@ typedef struct proxy_server_local_socket_data_s
     bool close_output_socket;
 
     SSL *ssl_output; // SSL объект для исходящего соединения
+    SSL *ssl_input;  // SSL объект для входящего соединения
 
     // настроечные данные сервера
     proxy_server_t * data;
@@ -138,7 +140,7 @@ int servers_init(uint32_t user_id, const char* cert_file, const char* key_file);
 int switcher_servers_start();
 
 // Инициализация серверов без использования БД (один сервер из аргументов)
-int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl);
+int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl, bool enable_input_ssl);
 
 /**
  * \brief Остановка прослушивателей портов

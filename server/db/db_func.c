@@ -65,7 +65,7 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     char str[128];
     uint16_t nFields, qntuples; // Столбцов/строк
 
-    snprintf(str, sizeof(str), "select input_port,output_port,enable,enable_ssl from servers where user_id=%d", user_id);
+    snprintf(str, sizeof(str), "select input_port,output_port,enable,enable_ssl,enable_input_ssl from servers where user_id=%d", user_id);
     logMsg(LOG_DEBUG, str);
 
     result = PQexec(get_db_connection(), str);
@@ -132,6 +132,9 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
             } else if (!strcmp(fieldName, "enable_ssl")) {
                 (*servers)[i].enable_output_ssl = (strcmp(fieldValue, "t") == 0);
                 logMsg(LOG_DEBUG, "enable_output_ssl = %d", (*servers)[i].enable_output_ssl);
+            } else if (!strcmp(fieldName, "enable_input_ssl")) {
+                (*servers)[i].enable_input_ssl = (strcmp(fieldValue, "t") == 0);
+                logMsg(LOG_DEBUG, "enable_input_ssl = %d", (*servers)[i].enable_input_ssl);
             }
         }
 

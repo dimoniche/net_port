@@ -39,6 +39,7 @@ int main(int argc, char** argv) {
     uint16_t cli_input_port = 0;
     uint16_t cli_output_port = 0;
     bool cli_enable_output_ssl = false;
+    bool cli_enable_input_ssl = false;
 
     if (argc == 1 || (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))) {
         printf("Net Port Server v%s\n\n", VERSION);
@@ -59,6 +60,7 @@ int main(int argc, char** argv) {
         printf("  --input-port <n>  Input port to listen on (used with --no-db)\n");
         printf("  --output-port <n> Output port to listen on (used with --no-db)\n");
         printf("  --enable-output-ssl Enable output SSL for the CLI-provided server (used with --no-db)\n");
+        printf("  --enable-input-ssl  Enable input SSL for the CLI-provided server (used with --no-db)\n");
         printf("\nExample:\n");
         printf("  %s %s5 %s 192.168.1.100 %s 5432 %s 100\n",
                argv[0], VERBOSE_KEY, HOST_KEY, PORT_KEY, USER_ID);
@@ -201,7 +203,12 @@ int main(int argc, char** argv) {
         else if (strstr(argv[i], "--enable-output-ssl") != NULL)
         {
             cli_enable_output_ssl = true;
-            logMsg(LOG_INFO, "Set enable SSL mode");
+            logMsg(LOG_INFO, "Set enable output SSL mode");
+        }
+        else if (strstr(argv[i], "--enable-input-ssl") != NULL)
+        {
+            cli_enable_input_ssl = true;
+            logMsg(LOG_INFO, "Set enable input SSL mode");
         }
     }
 
@@ -218,7 +225,7 @@ int main(int argc, char** argv) {
             logMsg(LOG_EMERG, "--no-db mode requires --input-port and --output-port to be set\n");
             exit(-1);
         }
-        servers_init_no_db(cert_file, key_file, cli_input_port, cli_output_port, cli_enable_output_ssl);
+        servers_init_no_db(cert_file, key_file, cli_input_port, cli_output_port, cli_enable_output_ssl, cli_enable_input_ssl);
     }
     switcher_servers_start();
 
