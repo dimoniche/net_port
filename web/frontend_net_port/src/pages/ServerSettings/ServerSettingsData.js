@@ -58,6 +58,22 @@ const ServerSettingsData = ({ data, editHandler, removeHandle }) => (
                         </TableCell>
                         <TableCell align="right">{data.output_port || '---'}</TableCell>
                     </StyledTableRow>
+                    <StyledTableRow
+                        sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                    >
+                        <TableCell component="th" scope="row">
+                            <b>SSL на внутреннем порту</b>
+                        </TableCell>
+                        <TableCell align="right">{data.enable_ssl ? 'включен' : 'отключен'}</TableCell>
+                    </StyledTableRow>
+                    <StyledTableRow
+                        sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+                    >
+                        <TableCell component="th" scope="row">
+                            <b>SSL на пользовательском порту</b>
+                        </TableCell>
+                        <TableCell align="right">{data.enable_input_ssl ? 'включен' : 'отключен'}</TableCell>
+                    </StyledTableRow>
                     <TableRow
                         sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                     >
