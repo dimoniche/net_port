@@ -11,6 +11,7 @@ import MenuItem from "@mui/material/MenuItem";
 import FormControl from "@mui/material/FormControl";
 import Select from "@mui/material/Select";
 import InputLabel from "@mui/material/InputLabel";
+import Typography from "@mui/material/Typography";
 import { Loader } from "./Loader";
 
 import {
@@ -39,6 +40,11 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
     const [chartData, setChartData] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [visibleParams, setVisibleParams] = useState({
+        bytesReceived: true,
+        bytesSent: true,
+        connections: true
+    });
 
     // Функция для получения описания сервера
     const getServerDescription = (serverId) => {
@@ -209,6 +215,45 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                     </Select>
                 </FormControl>
 
+                {/* Parameter visibility controls */}
+                <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+                    <Typography variant="subtitle2" gutterBottom style={{ marginBottom: '8px' }}>
+                        Отображаемые параметры:
+                    </Typography>
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <input
+                                type="checkbox"
+                                id="bytesReceived"
+                                checked={visibleParams.bytesReceived}
+                                onChange={() => setVisibleParams(prev => ({ ...prev, bytesReceived: !prev.bytesReceived }))}
+                                style={{ marginRight: '8px' }}
+                            />
+                            <label htmlFor="bytesReceived" style={{ cursor: 'pointer' }}>Байт получено</label>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <input
+                                type="checkbox"
+                                id="bytesSent"
+                                checked={visibleParams.bytesSent}
+                                onChange={() => setVisibleParams(prev => ({ ...prev, bytesSent: !prev.bytesSent }))}
+                                style={{ marginRight: '8px' }}
+                            />
+                            <label htmlFor="bytesSent" style={{ cursor: 'pointer' }}>Байт отправлено</label>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <input
+                                type="checkbox"
+                                id="connections"
+                                checked={visibleParams.connections}
+                                onChange={() => setVisibleParams(prev => ({ ...prev, connections: !prev.connections }))}
+                                style={{ marginRight: '8px' }}
+                            />
+                            <label htmlFor="connections" style={{ cursor: 'pointer' }}>Активные соединения</label>
+                        </div>
+                    </div>
+                </div>
+
                 {isLoading ? (
                     <Loader title="Загрузка данных..." />
                 ) : error ? (
@@ -271,29 +316,35 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                                />
                                 <Legend />
 
-                                <Line
-                                    yAxisId="left"
-                                    type="monotone"
-                                    dataKey="bytesReceived"
-                                    name="Байт получено"
-                                    stroke="#8884d8"
-                                    activeDot={{ r: 8 }}
-                                />
-                                <Line
-                                    yAxisId="left"
-                                    type="monotone"
-                                    dataKey="bytesSent"
-                                    name="Байт отправлено"
-                                    stroke="#82ca9d"
-                                    activeDot={{ r: 8 }}
-                                />
-                                <Line
-                                    yAxisId="right"
-                                    type="monotone"
-                                    dataKey="connections"
-                                    name="Активные соединения"
-                                    stroke="#ff7300"
-                                />
+                                {visibleParams.bytesReceived && (
+                                   <Line
+                                       yAxisId="left"
+                                       type="monotone"
+                                       dataKey="bytesReceived"
+                                       name="Байт получено"
+                                       stroke="#8884d8"
+                                       activeDot={{ r: 8 }}
+                                   />
+                               )}
+                               {visibleParams.bytesSent && (
+                                   <Line
+                                       yAxisId="left"
+                                       type="monotone"
+                                       dataKey="bytesSent"
+                                       name="Байт отправлено"
+                                       stroke="#82ca9d"
+                                       activeDot={{ r: 8 }}
+                                   />
+                               )}
+                               {visibleParams.connections && (
+                                   <Line
+                                       yAxisId="right"
+                                       type="monotone"
+                                       dataKey="connections"
+                                       name="Активные соединения"
+                                       stroke="#ff7300"
+                                   />
+                               )}
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
