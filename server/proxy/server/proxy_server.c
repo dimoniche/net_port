@@ -114,7 +114,7 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file)
 }
 
 // Инициализация одного сервера без использования БД (используется для режимов --no-db)
-int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_ssl) {
+int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl) {
     // Освободим предыдущие контексты при повторном вызове
     if (servers) {
         for (int i = 0; i < servers_count; i++) {
@@ -149,7 +149,7 @@ int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t inp
     servers[0].output_port = output_port;
     servers[0].is_input_enabled = true;
     servers[0].is_output_enabled = true;
-    servers[0].enable_ssl = enable_ssl;
+    servers[0].enable_output_ssl = enable_output_ssl;
 
     // Инициализируем статистику
     servers[0].statistics.bytes_received = 0;
@@ -181,8 +181,8 @@ int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t inp
         servers[0].is_output_enabled = true;
     }
 
-    logMsg(LOG_INFO, "Initialized single server without DB: input_port=%d output_port=%d enable_ssl=%d\n",
-           input_port, output_port, enable_ssl);
+    logMsg(LOG_INFO, "Initialized single server without DB: input_port=%d output_port=%d enable_output_ssl=%d\n",
+           input_port, output_port, enable_output_ssl);
 
     return 0;
 }
@@ -520,7 +520,7 @@ connection_input_handler (void* parameter)
 
             do {
                 int result;
-                if (thread_data->data->enable_ssl) {
+                if (thread_data->data->enable_output_ssl) {
                     result = SSL_write(thread_data->ssl_output, (const char *)&thread_data->input_buf[sent], len_epdu - sent);
                 } else {
                     result = send(thread_data->output_local,
@@ -610,7 +610,7 @@ connection_output_handler (void* parameter)
     logMsg(LOG_INFO, "Start new connection_output_handler on output_port %d\n", thread_data->data->output_port);
      
     // Инициализация SSL если нужно
-    if (thread_data->data->enable_ssl) {
+    if (thread_data->data->enable_output_ssl) {
         thread_data->ssl_output = SSL_new(thread_data->data->ssl_ctx);
         if (!thread_data->ssl_output) {
             logMsg(LOG_ERR, "Failed to create SSL object on output_port %d\n", thread_data->data->output_port);
@@ -687,7 +687,7 @@ connection_output_handler (void* parameter)
         }
 
         if(FD_ISSET(thread_data->output_local, &read_set)) {
-            if (thread_data->data->enable_ssl) {
+            if (thread_data->data->enable_output_ssl) {
                 len_epdu = SSL_read(thread_data->ssl_output, (char *) thread_data->output_buf, sizeof(thread_data->output_buf));
 
                 if (len_epdu <= 0) {
@@ -1085,11 +1085,11 @@ int get_free_output_socket(proxy_server_thread_data_t * data)
 
 // Инициализация SSL контекста при старте
 void init_ssl_context(proxy_server_t *server) {
-    if (server->enable_ssl) {
+    if (server->enable_output_ssl) {
         // Проверяем, что пути к сертификату и ключу указаны
         if (!server->cert_file[0] || !server->key_file[0]) {
             logMsg(LOG_ERR, "SSL enabled but certificate or key file not specified\n");
-            server->enable_ssl = false;
+            server->enable_output_ssl = false;
             return;
         }
         

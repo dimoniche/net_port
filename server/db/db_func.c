@@ -65,22 +65,6 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     char str[128];
     uint16_t nFields, qntuples; // Столбцов/строк
 
-    // Проверяем наличие поля enable_ssl в таблице servers
-    const char* checkFieldQuery = "SELECT column_name FROM information_schema.columns WHERE table_name='servers' AND column_name='enable_ssl'";
-    PGresult* checkResult = PQexec(get_db_connection(), checkFieldQuery);
-    bool hasSSLField = (PQntuples(checkResult) > 0);
-    PQclear(checkResult);
-
-    // Если поле отсутствует - добавляем его
-    if (!hasSSLField) {
-        const char* addFieldQuery = "ALTER TABLE servers ADD COLUMN enable_ssl BOOLEAN DEFAULT FALSE";
-        PGresult* addResult = PQexec(get_db_connection(), addFieldQuery);
-        if (PQresultStatus(addResult) != PGRES_COMMAND_OK) {
-            logMsg(LOG_ERR, "Failed to add enable_ssl column: %s", PQerrorMessage(get_db_connection()));
-        }
-        PQclear(addResult);
-    }
-
     snprintf(str, sizeof(str), "select input_port,output_port,enable,enable_ssl from servers where user_id=%d", user_id);
     logMsg(LOG_DEBUG, str);
 
@@ -146,8 +130,8 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
                 (*servers)[i].enable = (strcmp(fieldValue, "f") != 0);
                 logMsg(LOG_DEBUG, "enable = %d", (*servers)[i].enable);
             } else if (!strcmp(fieldName, "enable_ssl")) {
-                (*servers)[i].enable_ssl = (strcmp(fieldValue, "t") == 0);
-                logMsg(LOG_DEBUG, "enable_ssl = %d", (*servers)[i].enable_ssl);
+                (*servers)[i].enable_output_ssl = (strcmp(fieldValue, "t") == 0);
+                logMsg(LOG_DEBUG, "enable_output_ssl = %d", (*servers)[i].enable_output_ssl);
             }
         }
 
