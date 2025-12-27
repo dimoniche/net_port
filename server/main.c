@@ -222,13 +222,15 @@ int main(int argc, char** argv) {
     }
     switcher_servers_start();
 
-    // Запускаем поток для периодического сохранения статистики
-    Thread statistics_thread = Thread_create(statistics_saver_thread, NULL, false);
-    if (statistics_thread != NULL) {
-        Thread_start(statistics_thread);
-        logMsg(LOG_INFO, "Started statistics saver thread");
-    } else {
-        logMsg(LOG_ERR, "Failed to create statistics saver thread");
+    if (!no_db_mode) {
+        // Запускаем поток для периодического сохранения статистики
+        Thread statistics_thread = Thread_create(statistics_saver_thread, NULL, false);
+        if (statistics_thread != NULL) {
+            Thread_start(statistics_thread);
+            logMsg(LOG_INFO, "Started statistics saver thread");
+        } else {
+            logMsg(LOG_ERR, "Failed to create statistics saver thread");
+        }
     }
 
     while (1) {

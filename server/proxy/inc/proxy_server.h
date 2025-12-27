@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <semaphore.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
@@ -86,6 +87,9 @@ typedef struct proxy_server_s
 // количество одновременных подключений на одном сокете
 extern int COUNT_SOCKET_THREAD;
 
+// Семафор для защиты доступа к статистике серверов
+extern sem_t statistics_semaphore;
+
 // локальные сокеты и их буфера
 typedef struct proxy_server_local_socket_data_s
 {
@@ -149,10 +153,6 @@ void cleanup_openssl();
 SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file);
 // Освобождение SSL контекста для сервера
 void cleanup_ssl_context(proxy_server_t *server);
-
-// Функции для работы со статистикой
-int save_server_statistics(proxy_server_t *server);
-int update_server_statistics(proxy_server_t *server, uint64_t bytes_received, uint64_t bytes_sent);
 
 // Функция для периодического сохранения статистики
 void* statistics_saver_thread(void* arg);

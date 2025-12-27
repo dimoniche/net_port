@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <sys/time.h>
 #include <stdlib.h>
+#include <semaphore.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
@@ -20,6 +21,9 @@ static proxy_server_t* servers;
 static uint16_t servers_count;
 static int32_t count_open_crypt_session = 0;
 static proxy_servers_settings_t proxy_settings;
+
+// Семафор для защиты доступа к статистике серверов
+sem_t statistics_semaphore;
 
 int init_input_socket(proxy_server_t * server);
 int init_output_socket(proxy_server_t * server);
@@ -61,6 +65,13 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file)
 
     memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
     strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
+
+    // Инициализация семафора для защиты статистики
+    if (sem_init(&statistics_semaphore, 0, 1) != 0) {
+        logMsg(LOG_ERR, "Failed to initialize statistics semaphore\n");
+        exit_nicely(get_db_connection());
+        return -1;
+    }
 
     // Инициализация OpenSSL перед созданием SSL контекстов
     init_openssl();
@@ -122,6 +133,15 @@ int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t inp
     }
 
     memset(servers, 0, sizeof(proxy_server_t) * servers_count);
+
+    // Инициализация семафора для защиты статистики
+    if (sem_init(&statistics_semaphore, 0, 1) != 0) {
+        logMsg(LOG_ERR, "Failed to initialize statistics semaphore\n");
+        free(servers);
+        servers = NULL;
+        servers_count = 0;
+        return -1;
+    }
 
     servers[0].id = 0;
     servers[0].enable = true;
@@ -304,6 +324,9 @@ switcher_servers_stop()
   // Очистка OpenSSL
   cleanup_openssl();
 
+  // Уничтожаем семафор
+  sem_destroy(&statistics_semaphore);
+
   logMsg(LOG_INFO, "%d servers stopped\n", count);
 
   return 0;
@@ -421,6 +444,11 @@ connection_input_handler (void* parameter)
     // Обновляем статистику - увеличиваем количество соединений
     thread_data->data->statistics.connections_count++;
 
+    // Защищаем доступ к статистике семафором
+    sem_wait(&statistics_semaphore);
+    memcpy(&servers[thread_data->data->id].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+    sem_post(&statistics_semaphore);
+
     while (!done_output_connection) {
         fd_set read_set;
         FD_ZERO(&read_set);
@@ -460,7 +488,7 @@ connection_input_handler (void* parameter)
             }
 
             // Обновляем статистику - байты получены
-            update_server_statistics(thread_data->data, len_epdu, 0);
+            update_server_statistics(servers, thread_data->data, len_epdu, 0);
 
             int remaining = len_epdu;
             int sent = 0;
@@ -559,6 +587,11 @@ connection_input_handler (void* parameter)
 
     // Обновляем статистику - уменьшаем количество соединений
     thread_data->data->statistics.connections_count--;
+
+    // Защищаем доступ к статистике семафором
+    sem_wait(&statistics_semaphore);
+    memcpy(&servers[thread_data->data->id].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+    sem_post(&statistics_semaphore);
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);
 
@@ -694,7 +727,7 @@ connection_output_handler (void* parameter)
             }
 
             // Обновляем статистику - байты получены
-            update_server_statistics(thread_data->data, 0, len_epdu);
+            update_server_statistics(servers, thread_data->data, 0, len_epdu);
 
             int remaining = len_epdu;
             int sent = 0;

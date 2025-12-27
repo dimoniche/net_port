@@ -7,8 +7,10 @@
 #include <stdbool.h>
 #include <string.h>
 #include <time.h>
+#include <semaphore.h>
 
 #include "logMsg.h"
+#include "proxy_server.h"
 
 static PGconn* conn = NULL;
 static PGresult  *result;
@@ -181,21 +183,30 @@ int save_server_statistics(proxy_server_t *server)
     return 0;
 }
 
-int update_server_statistics(proxy_server_t *server, uint64_t bytes_received, uint64_t bytes_sent)
+int update_server_statistics(proxy_server_t* servers, proxy_server_t *server, uint64_t bytes_received, uint64_t bytes_sent)
 {
     // Обновляем статистику в памяти
     server->statistics.bytes_received += bytes_received;
     server->statistics.bytes_sent += bytes_sent;
-    
+
     // Обновляем время последнего обновления
     server->statistics.last_update = time(NULL);
-    
+
+    // Защищаем доступ к статистике семафором
+    sem_wait(&statistics_semaphore);
+
+    // копируем статистику
+    memcpy(&servers[server->id].statistics, &server->statistics, sizeof(proxy_server_statistics_t));
+
+    // Освобождаем семафор
+    sem_post(&statistics_semaphore);
+
     // Логируем обновление статистики
     logMsg(LOG_DEBUG, "Updated statistics for server %d: received=%lu, sent=%lu, connections=%d",
            server->id,
            (unsigned long)server->statistics.bytes_received,
            (unsigned long)server->statistics.bytes_sent,
            server->statistics.connections_count);
-    
+
     return 0;
 }
