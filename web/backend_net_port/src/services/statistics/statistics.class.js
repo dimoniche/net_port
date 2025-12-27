@@ -20,7 +20,13 @@ exports.Statistics = class Statistics {
 
     const result = await this.db.raw(query);
     // Извлекаем массив результатов из ответа базы данных
-    return result.rows || (result[0] && result[0].rows) || result;
+    const rows = result.rows || (result[0] && result[0].rows) || result;
+
+    // Convert timestamps to local timezone
+    return rows.map(row => ({
+      ...row,
+      timestamp: this.convertToLocalTimezone(row.timestamp)
+    }));
   }
 
   async get(id, param) {
@@ -60,6 +66,29 @@ exports.Statistics = class Statistics {
       .orderBy('timestamp', 'asc');
 
     // Ensure we return an array in all cases
-    return Array.isArray(result) ? result : (result.rows || []);
+    const rows = Array.isArray(result) ? result : (result.rows || []);
+
+    // Convert timestamps to local timezone
+    return rows.map(row => ({
+      ...row,
+      timestamp: this.convertToLocalTimezone(row.timestamp)
+    }));
+  }
+
+  // Helper method to convert UTC timestamp to local timezone
+  convertToLocalTimezone(utcTimestamp) {
+    if (!utcTimestamp) return utcTimestamp;
+
+    // Convert UTC timestamp to local timezone
+    const date = new Date(utcTimestamp);
+
+    // Format as ISO string in local timezone
+    // Note: toISOString() always returns UTC, so we need to adjust it
+    const tzo = -date.getTimezoneOffset();
+    const diff = tzo >= 0 ? '+' : '-';
+    const pad = (num) => String(num).padStart(2, '0');
+
+    // Add timezone offset to convert UTC to local time
+    return new Date(date.getTime() + (tzo * 60 * 1000)).toISOString();
   }
 };

@@ -141,7 +141,7 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                         const minutes = String(date.getMinutes()).padStart(2, '0');
                         const day = String(date.getDate()).padStart(2, '0');
                         const month = String(date.getMonth() + 1).padStart(2, '0');
-
+    
                         // For time ranges less than 1 day, show only time
                         // For longer ranges, show date and time
                         let timestampLabel;
@@ -150,7 +150,7 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                         } else {
                             timestampLabel = `${day}.${month} ${hours}:${minutes}`;
                         }
-
+    
                         return {
                             timestamp: timestampLabel,
                             fullTimestamp: date.toLocaleString(), // Keep full timestamp for tooltip
