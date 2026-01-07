@@ -333,7 +333,7 @@ server_input_thread (void* parameter)
         FD_ZERO(&read_set);
         FD_SET(conn->input, &read_set);
 
-        if(get_time_counter() - conn->last_exchange_time > threads_data.timeout_seconds) {
+        if(!threads_data.disable_timeout && get_time_counter() - conn->last_exchange_time > threads_data.timeout_seconds) {
             // Плавное закрытие соединения по таймауту
             logMsg(LOG_INFO, "Inactivity timeout approaching for connection %d, initiating graceful shutdown", conn->id);
             
@@ -479,8 +479,8 @@ server_input_thread (void* parameter)
                 /* Forward to local host_out */
                 if (threads_data.enable_output_ssl && conn->ssl_output) {
                     result = SSL_write(conn->ssl_output,
-                                     (const char *)&conn->receive_input[sent],
-                                     len_apdu - sent);
+                                      (const char *)&conn->receive_input[sent],
+                                      len_apdu - sent);
 
                     if (result <= 0) {
                         int ssl_err = SSL_get_error(conn->ssl_output, result);
@@ -698,7 +698,7 @@ server_output_thread (void* parameter)
         FD_SET(conn->output, &read_set);
 
         // Проверка таймаута бездействия с graceful shutdown
-        if(get_time_counter() - last_exchange_time > threads_data.timeout_seconds) {
+        if(!threads_data.disable_timeout && get_time_counter() - last_exchange_time > threads_data.timeout_seconds) {
             logMsg(LOG_INFO, "Inactivity timeout detected for connection %d, initiating graceful shutdown\n", conn->id);
             
             // Пытаемся корректно закрыть соединение
@@ -779,8 +779,8 @@ server_output_thread (void* parameter)
 
                 if (threads_data.enable_ssl && conn->ssl_input) {
                     result = SSL_write(conn->ssl_input,
-                                       (const char *)&conn->receive_output[sent],
-                                       len_apdu - sent);
+                                        (const char *)&conn->receive_output[sent],
+                                        len_apdu - sent);
 
                     if (result <= 0) {
                         int ssl_err = SSL_get_error(conn->ssl_input, result);

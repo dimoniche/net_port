@@ -69,6 +69,7 @@ typedef struct proxy_server_thread_data_s
     uint16_t output_port;
     
     bool graceful_shutdown; // Флаг для graceful shutdown
+    bool disable_timeout; // Флаг для отключения таймаута
 
     SSL_CTX *ssl_ctx; // Контекст SSL для клиентских соединений
     bool enable_ssl; // Флаг включения SSL шифрования для input соединения

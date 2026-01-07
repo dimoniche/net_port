@@ -1,8 +1,8 @@
-/******************************************************************************
-*
-*   Copyright (C)
-*
-******************************************************************************/
+/*******************************************************************************
+ *
+ *   Copyright (C)
+ *
+ *******************************************************************************/
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -34,12 +34,14 @@ static void print_usage(void)
     fprintf(stderr, "         -p_out            - user device service port\n");
     fprintf(stderr, "         --connections, -c - number of connections (default: 1)\n");
     fprintf(stderr, "         --timeout, -t     - timeout in seconds for output threads (default: 1200)\n");
+    fprintf(stderr, "         --disable-timeout - disable timeout for connections\n");
     fprintf(stderr, "         -e, --ssl         - enable SSL encryption for input connection\n");
     fprintf(stderr, "         -o, --ssl-output  - enable SSL encryption for output connection\n");
     fprintf(stderr, "         -a, --ca-file     - path to CA certificate file\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "\nExamples:\n");
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --connections 5 --timeout 60\n", progname);
+    fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --disable-timeout\n", progname);
     fprintf(stderr, "\n");
 }
 
@@ -59,6 +61,7 @@ int main(int argc, char** argv) {
     settings->connections_count = 1;
     settings->timeout_seconds = RESTART_SOCKET_TIMEOUT;
     settings->graceful_shutdown = false; // Инициализация флага graceful shutdown
+    settings->disable_timeout = false; // Инициализация флага отключения таймаута
     settings->enable_ssl = false; // SSL по умолчанию выключен
     settings->enable_output_ssl = false; // Output SSL по умолчанию выключен
     settings->ca_file[0] = '\0'; // Путь к CA файлу по умолчанию пустой
@@ -152,6 +155,10 @@ int main(int argc, char** argv) {
                 show_help = false;
                 i++; // Skip next argument
             }
+        }
+        if (strcmp(argv[i], DISABLE_TIMEOUT_KEY) == 0) {
+            settings->disable_timeout = true;
+            show_help = false;
         }
         if (strcmp(argv[i], HELP_KEY_FULL) == 0 || strcmp(argv[i], HELP_KEY) == 0)
         {
