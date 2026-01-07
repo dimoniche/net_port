@@ -444,6 +444,12 @@ connection_input_handler (void* parameter)
 
     // Инициализация SSL если нужно
     if (thread_data->data->enable_input_ssl) {
+        if (!thread_data->data->ssl_ctx) {
+            logMsg(LOG_ERR, "SSL context is not initialized on input_port %d\n", thread_data->data->input_port);
+            close(thread_data->input_local);
+            thread_data->is_input_connected = false;
+            return 0;
+        }
         thread_data->ssl_input = SSL_new(thread_data->data->ssl_ctx);
         if (!thread_data->ssl_input) {
             logMsg(LOG_ERR, "Failed to create SSL object on input_port %d\n", thread_data->data->input_port);
@@ -547,6 +553,10 @@ connection_input_handler (void* parameter)
                             ERR_error_string_n(e, err_str, sizeof(err_str));
                             logMsg(LOG_ERR, "SSL error: %s\n", err_str);
                         }
+                        if (thread_data->ssl_input) {
+                            SSL_free(thread_data->ssl_input);
+                            thread_data->ssl_input = NULL;
+                        }
                         break;
                     }
                 }
@@ -599,6 +609,10 @@ connection_input_handler (void* parameter)
             do {
                 int result;
                 if (thread_data->data->enable_output_ssl) {
+                    if (!thread_data->ssl_output) {
+                        logMsg(LOG_ERR, "SSL output object is NULL on port %d\n", thread_data->data->output_port);
+                        break;
+                    }
                     result = SSL_write(thread_data->ssl_output, (const char *)&thread_data->input_buf[sent], len_epdu - sent);
                 } else {
                     result = send(thread_data->output_local,
@@ -664,7 +678,10 @@ connection_input_handler (void* parameter)
         thread_data->ssl_input = NULL;
     }
 
-    close(thread_data->input_local);
+    if (thread_data->input_local != -1) {
+        close(thread_data->input_local);
+        thread_data->input_local = -1;
+    }
     thread_data->close_output_socket = true;
 
     thread_data->is_input_connected = false;
@@ -695,6 +712,12 @@ connection_output_handler (void* parameter)
      
     // Инициализация SSL если нужно
     if (thread_data->data->enable_output_ssl) {
+        if (!thread_data->data->ssl_ctx) {
+            logMsg(LOG_ERR, "SSL context is not initialized on output_port %d\n", thread_data->data->output_port);
+            close(thread_data->output_local);
+            thread_data->is_output_connected = false;
+            return 0;
+        }
         thread_data->ssl_output = SSL_new(thread_data->data->ssl_ctx);
         if (!thread_data->ssl_output) {
             logMsg(LOG_ERR, "Failed to create SSL object on output_port %d\n", thread_data->data->output_port);
@@ -791,6 +814,10 @@ connection_output_handler (void* parameter)
                             ERR_error_string_n(e, err_str, sizeof(err_str));
                             logMsg(LOG_ERR, "SSL error: %s\n", err_str);
                         }
+                        if (thread_data->ssl_output) {
+                            SSL_free(thread_data->ssl_output);
+                            thread_data->ssl_output = NULL;
+                        }
                         break;
                     }
                 }
@@ -829,6 +856,10 @@ connection_output_handler (void* parameter)
             do {
                 int result;
                 if (thread_data->data->enable_input_ssl) {
+                    if (!thread_data->ssl_input) {
+                        logMsg(LOG_ERR, "SSL input object is NULL on port %d\n", thread_data->data->input_port);
+                        break;
+                    }
                     result = SSL_write(thread_data->ssl_input, (const char *)&thread_data->output_buf[sent], len_epdu - sent);
                 } else {
                     result = send(thread_data->input_local,
@@ -895,8 +926,11 @@ connection_output_handler (void* parameter)
         SSL_free(thread_data->ssl_output);
         thread_data->ssl_output = NULL;
     }
-    
-    close(thread_data->output_local);
+     
+    if (thread_data->output_local != -1) {
+        close(thread_data->output_local);
+        thread_data->output_local = -1;
+    }
 
     thread_data->is_output_connected = false;
     thread_data->close_output_socket = false;
@@ -1188,7 +1222,9 @@ void init_ssl_context(proxy_server_t *server) {
         server->ssl_ctx = create_server_ssl_context(server->cert_file, server->key_file);
         if (!server->ssl_ctx) {
             logMsg(LOG_ERR, "Failed to initialize SSL context\n");
-            exit(EXIT_FAILURE);
+            server->enable_output_ssl = false;
+            server->enable_input_ssl = false;
+            return;
         }
         logMsg(LOG_INFO, "SSL context initialized\n");
     }
