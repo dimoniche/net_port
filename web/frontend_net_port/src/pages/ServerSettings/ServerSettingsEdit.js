@@ -190,7 +190,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
                     <Grid item xs={6}>
                         <TextField
                             sx={InputFieldWidth}
-                            label="Входящий порт"
+                            label="Пользовательский порт (input)"
                             variant="outlined"
                             onChange={formik.handleChange}
                             onKeyUp={() => {
@@ -210,7 +210,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
                     <Grid item xs={6}>
                         <TextField
                             sx={InputFieldWidth}
-                            label="Перенаправляемый порт"
+                            label="Внутренний порт (output)"
                             variant="outlined"
                             onChange={formik.handleChange}
                             onKeyUp={() => {

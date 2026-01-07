@@ -46,7 +46,7 @@ const ServerSettingsData = ({ data, editHandler, removeHandle }) => (
                         sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                     >
                         <TableCell component="th" scope="row">
-                            <b>Входящий порт</b>
+                            <b>Пользовательский порт (input)</b>
                         </TableCell>
                         <TableCell align="right">{data.input_port || '---'}</TableCell>
                     </StyledTableRow>
@@ -54,7 +54,7 @@ const ServerSettingsData = ({ data, editHandler, removeHandle }) => (
                         sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                     >
                         <TableCell component="th" scope="row">
-                            <b>Перенаправляемый порт</b>
+                            <b>Внутрений порт (output)</b>
                         </TableCell>
                         <TableCell align="right">{data.output_port || '---'}</TableCell>
                     </StyledTableRow>
