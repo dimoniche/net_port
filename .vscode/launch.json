@@ -57,7 +57,7 @@
                 "${input:db_user}",
                 "${input:db_password}",
                 "${input:db_host}",
-                "5432"
+                "15432"
             ],
             "console": "integratedTerminal"
         },
