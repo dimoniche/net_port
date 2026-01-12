@@ -381,6 +381,131 @@ init_input_socket(proxy_server_t * server)
     return 0;
 }
 
+// Функция для восстановления SSL-соединения
+void
+reconnect_ssl(proxy_server_local_socket_data_t * thread_data, bool is_input)
+{
+    if (is_input) {
+        if (thread_data->ssl_input) {
+            SSL_free(thread_data->ssl_input);
+            thread_data->ssl_input = NULL;
+        }
+        
+        if (thread_data->input_local != -1) {
+            close(thread_data->input_local);
+            thread_data->input_local = -1;
+        }
+        
+        logMsg(LOG_INFO, "Attempting to reconnect input SSL connection on port %d\n", thread_data->data->input_port);
+        
+        // Переподключение
+        thread_data->input_local = socket(AF_INET, SOCK_STREAM, 0);
+        if (thread_data->input_local < 0) {
+            logMsg(LOG_ERR, "Failed to create new input socket: %s\n", strerror(errno));
+            return;
+        }
+        
+        int flags = fcntl(thread_data->input_local, F_GETFL, 0);
+        if (fcntl(thread_data->input_local, F_SETFL, flags | O_NONBLOCK) < 0) {
+            logMsg(LOG_ERR, "Failed to set non-blocking mode for new input socket\n");
+            close(thread_data->input_local);
+            thread_data->input_local = -1;
+            return;
+        }
+        
+        // SSL handshake
+        thread_data->ssl_input = SSL_new(thread_data->data->ssl_ctx);
+        if (!thread_data->ssl_input) {
+            logMsg(LOG_ERR, "Failed to create new SSL object for input\n");
+            close(thread_data->input_local);
+            thread_data->input_local = -1;
+            return;
+        }
+        
+        SSL_set_fd(thread_data->ssl_input, thread_data->input_local);
+        
+        int sock_flags = fcntl(thread_data->input_local, F_GETFL, 0);
+        if (sock_flags >= 0) {
+            fcntl(thread_data->input_local, F_SETFL, sock_flags & ~O_NONBLOCK);
+        }
+        
+        int ssl_ret = SSL_accept(thread_data->ssl_input);
+        
+        if (sock_flags >= 0) {
+            fcntl(thread_data->input_local, F_SETFL, sock_flags);
+        }
+        
+        if (ssl_ret != 1) {
+            logMsg(LOG_ERR, "SSL reconnection handshake failed on input_port %d\n", thread_data->data->input_port);
+            SSL_free(thread_data->ssl_input);
+            thread_data->ssl_input = NULL;
+            close(thread_data->input_local);
+            thread_data->input_local = -1;
+        } else {
+            logMsg(LOG_INFO, "SSL reconnection successful on input_port %d\n", thread_data->data->input_port);
+        }
+    } else {
+        if (thread_data->ssl_output) {
+            SSL_free(thread_data->ssl_output);
+            thread_data->ssl_output = NULL;
+        }
+        
+        if (thread_data->output_local != -1) {
+            close(thread_data->output_local);
+            thread_data->output_local = -1;
+        }
+        
+        logMsg(LOG_INFO, "Attempting to reconnect output SSL connection on port %d\n", thread_data->data->output_port);
+        
+        // Переподключение
+        thread_data->output_local = socket(AF_INET, SOCK_STREAM, 0);
+        if (thread_data->output_local < 0) {
+            logMsg(LOG_ERR, "Failed to create new output socket: %s\n", strerror(errno));
+            return;
+        }
+        
+        int flags = fcntl(thread_data->output_local, F_GETFL, 0);
+        if (fcntl(thread_data->output_local, F_SETFL, flags | O_NONBLOCK) < 0) {
+            logMsg(LOG_ERR, "Failed to set non-blocking mode for new output socket\n");
+            close(thread_data->output_local);
+            thread_data->output_local = -1;
+            return;
+        }
+        
+        // SSL handshake
+        thread_data->ssl_output = SSL_new(thread_data->data->ssl_ctx);
+        if (!thread_data->ssl_output) {
+            logMsg(LOG_ERR, "Failed to create new SSL object for output\n");
+            close(thread_data->output_local);
+            thread_data->output_local = -1;
+            return;
+        }
+        
+        SSL_set_fd(thread_data->ssl_output, thread_data->output_local);
+        
+        int sock_flags = fcntl(thread_data->output_local, F_GETFL, 0);
+        if (sock_flags >= 0) {
+            fcntl(thread_data->output_local, F_SETFL, sock_flags & ~O_NONBLOCK);
+        }
+        
+        int ssl_ret = SSL_accept(thread_data->ssl_output);
+        
+        if (sock_flags >= 0) {
+            fcntl(thread_data->output_local, F_SETFL, sock_flags);
+        }
+        
+        if (ssl_ret != 1) {
+            logMsg(LOG_ERR, "SSL reconnection handshake failed on output_port %d\n", thread_data->data->output_port);
+            SSL_free(thread_data->ssl_output);
+            thread_data->ssl_output = NULL;
+            close(thread_data->output_local);
+            thread_data->output_local = -1;
+        } else {
+            logMsg(LOG_INFO, "SSL reconnection successful on output_port %d\n", thread_data->data->output_port);
+        }
+    }
+}
+
 int
 init_output_socket(proxy_server_t * server)
 {
@@ -557,7 +682,14 @@ connection_input_handler (void* parameter)
                             SSL_free(thread_data->ssl_input);
                             thread_data->ssl_input = NULL;
                         }
-                        break;
+                        
+                        // Попытка восстановления соединения
+                        reconnect_ssl(thread_data, true);
+                        if (thread_data->ssl_input) {
+                            continue;
+                        } else {
+                            break;
+                        }
                     }
                 }
             } else {
@@ -818,7 +950,14 @@ connection_output_handler (void* parameter)
                             SSL_free(thread_data->ssl_output);
                             thread_data->ssl_output = NULL;
                         }
-                        break;
+                        
+                        // Попытка восстановления соединения
+                        reconnect_ssl(thread_data, false);
+                        if (thread_data->ssl_output) {
+                            continue;
+                        } else {
+                            break;
+                        }
                     }
                 }
             } else {
