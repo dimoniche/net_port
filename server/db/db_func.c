@@ -65,7 +65,7 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     char str[128];
     uint16_t nFields, qntuples; // Столбцов/строк
 
-    snprintf(str, sizeof(str), "select input_port,output_port,enable,enable_ssl,enable_input_ssl from servers where user_id=%d", user_id);
+    snprintf(str, sizeof(str), "select id,input_port,output_port,enable,enable_ssl,enable_input_ssl from servers where user_id=%d order by id", user_id);
     logMsg(LOG_DEBUG, str);
 
     result = PQexec(get_db_connection(), str);
@@ -113,14 +113,16 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
 
     for (uint16_t i = 0; i < qntuples; i++) {
         (*servers)[i].id = i;
-        logMsg(LOG_DEBUG, "id__ = %d", (*servers)[i].id);
         (*servers)[i].enable = true;
 
         for (uint16_t j = 0; j < nFields; j++) {
             const char* fieldName = PQfname(result, j);
             const char* fieldValue = PQgetvalue(result, i, j);
 
-            if (!strcmp(fieldName, "input_port")) {
+            if (!strcmp(fieldName, "id")) {
+                (*servers)[i].id = strtol(fieldValue, NULL, 10);
+                logMsg(LOG_DEBUG, "id__ = %d", (*servers)[i].id);
+            } else if (!strcmp(fieldName, "input_port")) {
                 (*servers)[i].input_port = strtol(fieldValue, NULL, 10);
                 logMsg(LOG_DEBUG, "input_port__ = %d", (*servers)[i].input_port);
             } else if (!strcmp(fieldName, "output_port")) {
