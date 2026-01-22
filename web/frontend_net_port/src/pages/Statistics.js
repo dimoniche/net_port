@@ -15,6 +15,8 @@ import TableHead from "@mui/material/TableHead";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import DeleteIcon from "@mui/icons-material/Delete";
+import IconButton from "@mui/material/IconButton";
 import { Loader } from "../components/Loader";
 import ServerStatsModal from "../components/ServerStatsModal";
 
@@ -37,7 +39,6 @@ const Statistics = ({ children, ...rest }) => {
 
     const fetchData = async () => {
         setIsRefreshing(true);
-        let response_error = false;
 
         if (isEmpty(cookies.user)) {
             history("/main");
@@ -66,7 +67,6 @@ const Statistics = ({ children, ...rest }) => {
             } else {
                 setError(err);
             }
-            response_error = true;
         } finally {
             setIsRefreshing(false);
         }
@@ -74,6 +74,7 @@ const Statistics = ({ children, ...rest }) => {
 
     useEffect(() => {
         fetchData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleLogout = () => {
@@ -87,11 +88,14 @@ const Statistics = ({ children, ...rest }) => {
 
     // Функция для форматирования байтов в читаемый формат
     const formatBytes = (bytes) => {
-        if (bytes === 0) return '0 Bytes';
+        // Преобразуем в число, если пришло строковое значение
+        const bytesNum = typeof bytes === 'string' ? parseInt(bytes, 10) : bytes;
+        
+        if (bytesNum === 0) return '0 Bytes';
         const k = 1024;
         const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        const i = Math.floor(Math.log(bytesNum) / Math.log(k));
+        return parseFloat((bytesNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
     // Функция для получения описания сервера
@@ -126,6 +130,34 @@ const Statistics = ({ children, ...rest }) => {
         return `${day}.${month}.${year} ${hours}:${minutes}`;
     };
 
+    // Функция для сброса статистики по серверу
+    const handleResetServerStatistics = async (serverId) => {
+        try {
+            // Находим сервер по ID, чтобы получить user_id
+            const server = serversData.find(s => s.id === serverId);
+            
+            if (!server) {
+                console.error(`Server with id ${serverId} not found`);
+                return;
+            }
+
+            // Сбрасываем статистику по server_id
+            await api.delete(`/statistics/${serverId}/reset`);
+            
+            // Перезагружаем сервер по user_id
+            await api.post(`/servers/${server.user_id}/restart`);
+            
+            // Обновляем данные после сброса и перезагрузки
+            await fetchData();
+        } catch (err) {
+            if (err.response && err.response.status === 401) {
+                handleLogout();
+            } else {
+                setError(err);
+            }
+        }
+    };
+
     return (
         <>
             {!isEmpty(cookies.user) ? (
@@ -155,6 +187,7 @@ const Statistics = ({ children, ...rest }) => {
                                         <TableCell><b>Байт отправлено</b></TableCell>
                                         <TableCell><b>Активные соединения</b></TableCell>
                                         <TableCell><b>Время обновления</b></TableCell>
+                                        <TableCell><b>Действия</b></TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -178,6 +211,17 @@ const Statistics = ({ children, ...rest }) => {
                                                 <TableCell>{formatBytes(stat.bytes_sent)}</TableCell>
                                                 <TableCell>{stat.connections_count}</TableCell>
                                                 <TableCell>{formatTimestamp(stat.timestamp)}</TableCell>
+                                                <TableCell>
+                                                    <IconButton
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleResetServerStatistics(stat.server_id);
+                                                        }}
+                                                        color="secondary"
+                                                    >
+                                                        <DeleteIcon />
+                                                    </IconButton>
+                                                </TableCell>
                                             </TableRow>
                                         ))}
                                 </TableBody>

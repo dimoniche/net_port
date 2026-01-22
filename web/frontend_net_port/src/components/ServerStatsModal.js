@@ -6,7 +6,6 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Button from "@mui/material/Button";
-import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import FormControl from "@mui/material/FormControl";
 import Select from "@mui/material/Select";
@@ -86,6 +85,7 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                 console.log('Auto-refresh interval cleared');
             }
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, serverId, timeRange]);
 
     const fetchChartData = async () => {
@@ -323,7 +323,8 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                                        dataKey="bytesReceived"
                                        name="Байт получено"
                                        stroke="#8884d8"
-                                       activeDot={{ r: 8 }}
+                                       dot={false}
+                                       strokeWidth={2}
                                    />
                                )}
                                {visibleParams.bytesSent && (
@@ -333,7 +334,8 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                                        dataKey="bytesSent"
                                        name="Байт отправлено"
                                        stroke="#82ca9d"
-                                       activeDot={{ r: 8 }}
+                                       dot={false}
+                                       strokeWidth={2}
                                    />
                                )}
                                {visibleParams.connections && (
@@ -343,6 +345,8 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                                        dataKey="connections"
                                        name="Активные соединения"
                                        stroke="#ff7300"
+                                       dot={false}
+                                       strokeWidth={2}
                                    />
                                )}
                             </LineChart>

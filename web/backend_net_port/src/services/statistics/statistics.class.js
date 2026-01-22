@@ -75,6 +75,13 @@ exports.Statistics = class Statistics {
     }));
   }
 
+  // Method to reset statistics for a specific server
+  async resetByServer(serverId) {
+    // Delete all records for the specified server
+    await this.db('statistic').where('server_id', Number(serverId)).del();
+    return { success: true, message: `Statistics for server ${serverId} have been reset` };
+  }
+
   // Helper method to convert UTC timestamp to local timezone
   convertToLocalTimezone(utcTimestamp) {
     if (!utcTimestamp) return utcTimestamp;

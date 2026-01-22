@@ -40,4 +40,27 @@ module.exports = function (app) {
       });
     }
   });
+
+  // Custom route for resetting statistics by server
+  app.delete(`${SERVICE_ENDPOINT}/:serverId/reset`, async (req, res, next) => {
+    try {
+      const { serverId } = req.params;
+
+      if (!serverId) {
+        return res.status(400).json({
+          error: 'Missing required parameter: serverId'
+        });
+      }
+
+      const statisticsService = new Statistics(app.get('db'));
+      const result = await statisticsService.resetByServer(serverId);
+      res.json(result);
+    } catch (error) {
+      console.error('Error in statistics reset endpoint:', error);
+      res.status(500).json({
+        error: 'Internal server error',
+        details: error.message
+      });
+    }
+  });
 };
