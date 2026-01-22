@@ -20,4 +20,7 @@
 
 #define MODULE_ACTIVITY_MINIMUM_TIME_SEC        (60U * 4)
 
+// Настройка периода хранения статистики (по умолчанию 3 месяца в секундах)
+#define DEFAULT_STATISTICS_RETENTION_PERIOD     (90L * 24 * 60 * 60) // 90 дней * 24 часа * 60 минут * 60 секунд
+
 #endif //CRYPT_SWITCHER_SETTINGS_H

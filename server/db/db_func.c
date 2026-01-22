@@ -199,3 +199,28 @@ int update_server_statistics(proxy_server_t* servers, proxy_server_t *server, ui
 
     return 0;
 }
+
+int cleanup_old_statistics(time_t retention_period)
+{
+    char query[256];
+    time_t current_time = time(NULL);
+    time_t cutoff_time = current_time - retention_period;
+
+    // Формируем запрос на удаление устаревших записей статистики
+    snprintf(query, sizeof(query), "DELETE FROM statistic WHERE timestamp < to_timestamp(%ld)", cutoff_time);
+
+    logMsg(LOG_DEBUG, "Executing cleanup query: %s", query);
+
+    PGresult *res = PQexec(get_db_connection(), query);
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_ERR, "Failed to cleanup old statistics: %s", PQerrorMessage(get_db_connection()));
+        PQclear(res);
+        return -1;
+    }
+
+    int rows_affected = atoi(PQcmdTuples(res));
+    logMsg(LOG_INFO, "Cleaned up %d old statistics records", rows_affected);
+
+    PQclear(res);
+    return 0;
+}

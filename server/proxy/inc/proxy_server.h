@@ -44,6 +44,7 @@ typedef struct proxy_server_statistics_s
 typedef struct proxy_servers_settings_s
 {
   char local_address[32];
+  time_t statistics_retention_period;
 
 } proxy_servers_settings_t;
 
@@ -130,7 +131,7 @@ typedef struct proxy_server_thread_data_s
  *
  * \return -1 ошибка
  */
-int servers_init(uint32_t user_id, const char* cert_file, const char* key_file);
+int servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period);
 
 /**
  * \brief Запуск прослушивателей портов
@@ -140,7 +141,7 @@ int servers_init(uint32_t user_id, const char* cert_file, const char* key_file);
 int switcher_servers_start();
 
 // Инициализация серверов без использования БД (один сервер из аргументов)
-int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl, bool enable_input_ssl);
+int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl, bool enable_input_ssl, time_t statistics_retention_period);
 
 /**
  * \brief Остановка прослушивателей портов

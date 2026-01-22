@@ -40,6 +40,9 @@ int get_free_output_socket(proxy_server_thread_data_t * data);
 
 // Функция для периодического сохранения статистики
 void* statistics_saver_thread(void* arg) {
+    // Выполняем очистку устаревших данных при первом запуске
+    cleanup_old_statistics(proxy_settings.statistics_retention_period);
+    
     while(1) {
         Thread_sleep(60000); // Сохраняем статистику каждую минуту
         
@@ -48,12 +51,20 @@ void* statistics_saver_thread(void* arg) {
                 save_server_statistics(&servers[i]);
             }
         }
+        
+        // Выполняем очистку устаревших данных раз в час (каждые 60 итераций)
+        static int cleanup_counter = 0;
+        cleanup_counter++;
+        if (cleanup_counter >= 60) {
+            cleanup_old_statistics(proxy_settings.statistics_retention_period);
+            cleanup_counter = 0;
+        }
     }
     return NULL;
 }
 
 int
-servers_init(uint32_t user_id, const char* cert_file, const char* key_file)
+servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period)
 {
     int32_t res = get_user_server_ports(user_id, &servers, &servers_count);
 
@@ -65,6 +76,7 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file)
 
     memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
     strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
+    proxy_settings.statistics_retention_period = statistics_retention_period;
 
     // Инициализация семафора для защиты статистики
     if (sem_init(&statistics_semaphore, 0, 1) != 0) {
@@ -114,7 +126,7 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file)
 }
 
 // Инициализация одного сервера без использования БД (используется для режимов --no-db)
-int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl, bool enable_input_ssl) {
+int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl, bool enable_input_ssl, time_t statistics_retention_period) {
     // Освободим предыдущие контексты при повторном вызове
     if (servers) {
         for (int i = 0; i < servers_count; i++) {
@@ -142,6 +154,8 @@ int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t inp
         servers_count = 0;
         return -1;
     }
+    
+    proxy_settings.statistics_retention_period = statistics_retention_period;
 
     servers[0].id = 0;
     servers[0].enable = true;

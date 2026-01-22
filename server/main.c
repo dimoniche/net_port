@@ -40,6 +40,7 @@ int main(int argc, char** argv) {
     uint16_t cli_output_port = 0;
     bool cli_enable_output_ssl = false;
     bool cli_enable_input_ssl = false;
+    time_t statistics_retention_period = DEFAULT_STATISTICS_RETENTION_PERIOD;
 
     if (argc == 1 || (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))) {
         printf("Net Port Server v%s\n\n", VERSION);
@@ -61,6 +62,7 @@ int main(int argc, char** argv) {
         printf("  --output-port <n> Output port to listen on (used with --no-db)\n");
         printf("  --enable-output-ssl Enable output SSL for the CLI-provided server (used with --no-db)\n");
         printf("  --enable-input-ssl  Enable input SSL for the CLI-provided server (used with --no-db)\n");
+        printf("  --statistics-retention <days> Set statistics retention period in days (default: 90)\n");
         printf("\nExample:\n");
         printf("  %s %s5 %s 192.168.1.100 %s 5432 %s 100\n",
                argv[0], VERBOSE_KEY, HOST_KEY, PORT_KEY, USER_ID);
@@ -210,6 +212,22 @@ int main(int argc, char** argv) {
             cli_enable_input_ssl = true;
             logMsg(LOG_INFO, "Set enable input SSL mode");
         }
+        else if (strstr(argv[i], "--statistics-retention") != NULL)
+        {
+            if (argv[i+1] != NULL) {
+                int days = 0;
+                sscanf(argv[i+1], "%d", &days);
+                if (days > 0) {
+                    statistics_retention_period = (time_t)days * 24 * 60 * 60;
+                    logMsg(LOG_INFO, "Set statistics retention period to %d days", days);
+                } else {
+                    logMsg(LOG_ERR, "Invalid statistics retention period: %d", days);
+                }
+                i++;
+            } else {
+                logMsg(LOG_ERR, "Missing value for --statistics-retention");
+            }
+        }
     }
 
     char log[128];
@@ -219,13 +237,13 @@ int main(int argc, char** argv) {
 
     if (!no_db_mode) {
         db_init(DB_conn_data.ip, DB_conn_data.port, DB_conn_data.username, DB_conn_data.password);
-        servers_init(user_id, cert_file, key_file);
+        servers_init(user_id, cert_file, key_file, statistics_retention_period);
     } else {
         if (cli_input_port == 0 || cli_output_port == 0) {
             logMsg(LOG_EMERG, "--no-db mode requires --input-port and --output-port to be set\n");
             exit(-1);
         }
-        servers_init_no_db(cert_file, key_file, cli_input_port, cli_output_port, cli_enable_output_ssl, cli_enable_input_ssl);
+        servers_init_no_db(cert_file, key_file, cli_input_port, cli_output_port, cli_enable_output_ssl, cli_enable_input_ssl, statistics_retention_period);
     }
     switcher_servers_start();
 
