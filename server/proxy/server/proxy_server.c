@@ -1020,7 +1020,7 @@ connection_output_handler (void* parameter)
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
                 }
 
-                logMsg(LOG_INFO, "Send data to port %d result %d\n", thread_data->data->input_port, result);
+                //logMsg(LOG_INFO, "Send data to port %d result %d\n", thread_data->data->input_port, result);
 
                 if (result != -1)
                 {
@@ -1035,7 +1035,7 @@ connection_output_handler (void* parameter)
                 else
                 {
                     int err = WSAGetLastError();
-                    logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", thread_data->data->input_port, err);
+                    //logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", thread_data->data->input_port, err);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -1051,7 +1051,8 @@ connection_output_handler (void* parameter)
                             break;
                         }
 
-                        logMsg(LOG_INFO, "Send:: wait\n");
+                        //logMsg(LOG_INFO, "Send:: wait\n");
+                        Thread_sleep(1);
                         if(!thread_data->is_input_connected) break;
                         if(thread_data->close_output_socket) break;
                     }
