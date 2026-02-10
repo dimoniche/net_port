@@ -247,7 +247,13 @@ server_input_thread (void* parameter)
             conn->ssl_input = SSL_new(threads_data.ssl_ctx);
             if (!conn->ssl_input) {
                 logMsg(LOG_ERR, "Failed to create SSL object for connection %d\n", conn->id);
-                ERR_print_errors_fp(stderr);
+                // Выводим детальную информацию об ошибке OpenSSL
+                unsigned long ssl_err;
+                while ((ssl_err = ERR_get_error()) != 0) {
+                    char err_buf[256];
+                    ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+                    logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+                }
                 close(conn->input);
                 conn->input = -1;
                 /* wait a bit (interruptible) before restarting to avoid tight loop */
@@ -270,8 +276,13 @@ server_input_thread (void* parameter)
             }
             SSL_set_fd(conn->ssl_input, conn->input);
 
-            if (SSL_connect(conn->ssl_input) != 1) {
-                logMsg(LOG_ERR, "SSL connection failed for connection %d\n", conn->id);
+            int ssl_connect_result = SSL_connect(conn->ssl_input);
+            if (ssl_connect_result != 1) {
+                logMsg(LOG_ERR, "SSL connection failed for connection %d with result %d\n", conn->id, ssl_connect_result);
+                
+                // Получаем код ошибки SSL
+                int ssl_err = SSL_get_error(conn->ssl_input, ssl_connect_result);
+                logMsg(LOG_ERR, "SSL connect error code: %d\n", ssl_err);
                 
                 // Логируем детальные ошибки SSL
                 unsigned long err;
@@ -292,10 +303,15 @@ server_input_thread (void* parameter)
                     logMsg(LOG_ERR, "No peer certificate\n");
                 }
                 
-                SSL_free(conn->ssl_input);
-                conn->ssl_input = NULL;
-                close(conn->input);
-                conn->input = -1;
+                // Освобождаем SSL объект и закрываем сокет
+                if (conn->ssl_input) {
+                    SSL_free(conn->ssl_input);
+                    conn->ssl_input = NULL;
+                }
+                if (conn->input >= 0) {
+                    close(conn->input);
+                    conn->input = -1;
+                }
                 /* brief interruptible pause before restart to avoid tight loop */
                 {
                     int sleep_ms = 200;
@@ -402,11 +418,18 @@ server_input_thread (void* parameter)
                         logMsg(LOG_INFO, "Input SSL connection closed for connection %d\n", conn->id);
                     } else {
                         logMsg(LOG_ERR, "Input SSL error %d for connection %d\n", ssl_err, conn->id);
+                        // Добавляем более детальную информацию об ошибке
+                        logMsg(LOG_ERR, "SSL_read returned %d, SSL_get_error returned %d for connection %d\n", len_apdu, ssl_err, conn->id);
                         unsigned long e;
                         while ((e = ERR_get_error()) != 0) {
                             char err_str[256];
                             ERR_error_string_n(e, err_str, sizeof(err_str));
                             logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                        }
+                        // Освобождаем SSL объект
+                        if (conn->ssl_input) {
+                            SSL_free(conn->ssl_input);
+                            conn->ssl_input = NULL;
                         }
                     }
 
@@ -492,11 +515,18 @@ server_input_thread (void* parameter)
                             break;
                         } else {
                             logMsg(LOG_ERR, "Output SSL write error %d for connection %d\n", ssl_err, conn->id);
+                            // Добавляем более детальную информацию об ошибке
+                            logMsg(LOG_ERR, "SSL_write returned %d, SSL_get_error returned %d for connection %d\n", result, ssl_err, conn->id);
                             unsigned long e;
                             while ((e = ERR_get_error()) != 0) {
                                 char err_str[256];
                                 ERR_error_string_n(e, err_str, sizeof(err_str));
                                 logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                            }
+                            // Освобождаем SSL объект
+                            if (conn->ssl_output) {
+                                SSL_free(conn->ssl_output);
+                                conn->ssl_output = NULL;
                             }
                             break;
                         }
@@ -612,7 +642,13 @@ server_output_thread (void* parameter)
         conn->ssl_output = SSL_new(threads_data.ssl_ctx);
         if (!conn->ssl_output) {
             logMsg(LOG_ERR, "Failed to create SSL object for output connection %d\n", conn->id);
-            ERR_print_errors_fp(stderr);
+            // Выводим детальную информацию об ошибке OpenSSL
+            unsigned long ssl_err;
+            while ((ssl_err = ERR_get_error()) != 0) {
+                char err_buf[256];
+                ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+                logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+            }
             close(conn->output);
             conn->output = -1;
             /* wait a bit (interruptible) before restarting to avoid tight loop */
@@ -635,9 +671,14 @@ server_output_thread (void* parameter)
         }
         SSL_set_fd(conn->ssl_output, conn->output);
 
-        if (SSL_connect(conn->ssl_output) != 1) {
-            logMsg(LOG_ERR, "Output SSL connection failed for connection %d\n", conn->id);
-
+        int ssl_connect_result = SSL_connect(conn->ssl_output);
+        if (ssl_connect_result != 1) {
+            logMsg(LOG_ERR, "Output SSL connection failed for connection %d with result %d\n", conn->id, ssl_connect_result);
+            
+            // Получаем код ошибки SSL
+            int ssl_err = SSL_get_error(conn->ssl_output, ssl_connect_result);
+            logMsg(LOG_ERR, "SSL connect error code: %d\n", ssl_err);
+            
             // Логируем детальные ошибки SSL
             unsigned long err;
             while ((err = ERR_get_error()) != 0) {
@@ -645,7 +686,7 @@ server_output_thread (void* parameter)
                 ERR_error_string_n(err, err_str, sizeof(err_str));
                 logMsg(LOG_ERR, "SSL error: %s\n", err_str);
             }
-
+            
             // Логируем информацию о сертификате
             X509* cert = SSL_get_peer_certificate(conn->ssl_output);
             if (cert) {
@@ -656,11 +697,16 @@ server_output_thread (void* parameter)
             } else {
                 logMsg(LOG_ERR, "No peer certificate\n");
             }
-
-            SSL_free(conn->ssl_output);
-            conn->ssl_output = NULL;
-            close(conn->output);
-            conn->output = -1;
+            
+            // Освобождаем SSL объект и закрываем сокет
+            if (conn->ssl_output) {
+                SSL_free(conn->ssl_output);
+                conn->ssl_output = NULL;
+            }
+            if (conn->output >= 0) {
+                close(conn->output);
+                conn->output = -1;
+            }
             /* brief interruptible pause before restart to avoid tight loop */
             {
                 int sleep_ms = 200;
@@ -738,11 +784,18 @@ server_output_thread (void* parameter)
                         logMsg(LOG_INFO, "Output SSL connection closed for connection %d\n", conn->id);
                     } else {
                         logMsg(LOG_ERR, "Output SSL error %d for connection %d\n", ssl_err, conn->id);
+                        // Добавляем более детальную информацию об ошибке
+                        logMsg(LOG_ERR, "SSL_read returned %d, SSL_get_error returned %d for connection %d\n", len_apdu, ssl_err, conn->id);
                         unsigned long e;
                         while ((e = ERR_get_error()) != 0) {
                             char err_str[256];
                             ERR_error_string_n(e, err_str, sizeof(err_str));
                             logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                        }
+                        // Освобождаем SSL объект
+                        if (conn->ssl_output) {
+                            SSL_free(conn->ssl_output);
+                            conn->ssl_output = NULL;
                         }
                     }
                     break;
@@ -792,11 +845,18 @@ server_output_thread (void* parameter)
                             break;
                         } else {
                             logMsg(LOG_ERR, "Input SSL write error %d for connection %d\n", ssl_err, conn->id);
+                            // Добавляем более детальную информацию об ошибке
+                            logMsg(LOG_ERR, "SSL_write returned %d, SSL_get_error returned %d for connection %d\n", result, ssl_err, conn->id);
                             unsigned long e;
                             while ((e = ERR_get_error()) != 0) {
                                 char err_str[256];
                                 ERR_error_string_n(e, err_str, sizeof(err_str));
                                 logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                            }
+                            // Освобождаем SSL объект
+                            if (conn->ssl_input) {
+                                SSL_free(conn->ssl_input);
+                                conn->ssl_input = NULL;
                             }
                             break;
                         }
@@ -1067,6 +1127,11 @@ switcher_servers_wait_stop()
 
 // Инициализация OpenSSL
 void init_openssl() {
+    // Проверяем результат инициализации OpenSSL
+    if (SSL_library_init() != 1) {
+        logMsg(LOG_ERR, "Failed to initialize OpenSSL library\n");
+        exit(EXIT_FAILURE);
+    }
     SSL_load_error_strings();
     OpenSSL_add_ssl_algorithms();
 }
@@ -1087,6 +1152,13 @@ SSL_CTX *create_client_ssl_context(const char *ca_file) {
     SSL_CTX *ctx = SSL_CTX_new(method);
     if (!ctx) {
         logMsg(LOG_ERR, "Unable to create SSL context\n");
+        // Выводим детальную информацию об ошибке OpenSSL
+        unsigned long ssl_err;
+        while ((ssl_err = ERR_get_error()) != 0) {
+            char err_buf[256];
+            ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+            logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+        }
         return NULL;
     }
     
@@ -1102,7 +1174,13 @@ SSL_CTX *create_client_ssl_context(const char *ca_file) {
     // Загружаем CA-сертификат для проверки сертификата сервера
     if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) {
         logMsg(LOG_ERR, "Failed to load CA certificate from %s\n", ca_file);
-        ERR_print_errors_fp(stderr);
+        // Выводим детальную информацию об ошибке OpenSSL
+        unsigned long ssl_err;
+        while ((ssl_err = ERR_get_error()) != 0) {
+            char err_buf[256];
+            ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+            logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+        }
         SSL_CTX_free(ctx);
         return NULL;
     }
