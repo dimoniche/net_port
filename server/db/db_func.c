@@ -12,6 +12,13 @@
 #include "logMsg.h"
 #include "proxy_server.h"
 
+// Внешние переменные из proxy_server.c
+extern proxy_server_t* servers;
+extern uint16_t servers_count;
+
+// Объявление функции поиска индекса сервера
+int find_server_index_by_id(uint16_t server_id);
+
 static PGconn* conn = NULL;
 static PGresult  *result;
 
@@ -112,7 +119,7 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     memset(*servers, 0, qntuples * sizeof(proxy_server_t));
 
     for (uint16_t i = 0; i < qntuples; i++) {
-        (*servers)[i].id = i;
+        (*servers)[i].id = 0; // Will be set from database
         (*servers)[i].enable = true;
 
         for (uint16_t j = 0; j < nFields; j++) {
@@ -185,7 +192,10 @@ int update_server_statistics(proxy_server_t* servers, proxy_server_t *server, ui
     sem_wait(&statistics_semaphore);
 
     // копируем статистику
-    memcpy(&servers[server->id].statistics, &server->statistics, sizeof(proxy_server_statistics_t));
+    int server_index = find_server_index_by_id(server->id);
+    if (server_index >= 0) {
+        memcpy(&servers[server_index].statistics, &server->statistics, sizeof(proxy_server_statistics_t));
+    }
 
     // Освобождаем семафор
     sem_post(&statistics_semaphore);

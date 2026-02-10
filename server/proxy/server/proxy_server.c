@@ -25,6 +25,16 @@ static proxy_servers_settings_t proxy_settings;
 // Семафор для защиты доступа к статистике серверов
 sem_t statistics_semaphore;
 
+// Функция для поиска индекса сервера в массиве по его ID
+int find_server_index_by_id(uint16_t server_id) {
+    for (int i = 0; i < servers_count; i++) {
+        if (servers[i].id == server_id) {
+            return i;
+        }
+    }
+    return -1; // Сервер с таким ID не найден
+}
+
 int init_input_socket(proxy_server_t * server);
 int init_output_socket(proxy_server_t * server);
 int server_input_init(proxy_server_t * server);
@@ -694,7 +704,12 @@ connection_input_handler (void* parameter)
 
     // Защищаем доступ к статистике семафором
     sem_wait(&statistics_semaphore);
-    memcpy(&servers[thread_data->data->id].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+    {
+        int stats_server_index = find_server_index_by_id(thread_data->data->id);
+        if (stats_server_index >= 0) {
+            memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+        }
+    }
     sem_post(&statistics_semaphore);
 
     while (!done_output_connection) {
@@ -910,7 +925,12 @@ connection_input_handler (void* parameter)
 
     // Защищаем доступ к статистике семафором
     sem_wait(&statistics_semaphore);
-    memcpy(&servers[thread_data->data->id].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+    {
+        int stats_server_index = find_server_index_by_id(thread_data->data->id);
+        if (stats_server_index >= 0) {
+            memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+        }
+    }
     sem_post(&statistics_semaphore);
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);

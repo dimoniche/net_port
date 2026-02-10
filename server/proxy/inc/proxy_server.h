@@ -163,4 +163,7 @@ void* statistics_saver_thread(void* arg);
 int
 switcher_servers_stop();
 
+// Функция для поиска индекса сервера в массиве по его ID
+int find_server_index_by_id(uint16_t server_id);
+
 #endif //CRYPT_SWITCHER_SWITCHER_H
