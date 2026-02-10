@@ -119,7 +119,7 @@ const AppRoutes = (props) => {
 const mainNavSection = [{ title: "Главная", href: "/main", name: "MainTitle" }];
 
 const minorNavSection = [
-    { title: "Профиль", href: "/settings", name: "Config" },
+    { title: "Настройки", href: "/settings", name: "Config" },
     { title: "Серверы", href: "/servers", name: "Config" },
     { title: "Статистика", href: "/statistics", name: "Config" },
 ];

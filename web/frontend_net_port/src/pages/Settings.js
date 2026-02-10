@@ -6,10 +6,16 @@ import { useNavigate } from "react-router-dom";
 import isEmpty from "lodash/isEmpty";
 
 import { UserSettingsData } from "./UsersSettings/UserSettingsData";
+import ServerDisplaySettings from "./ServerSettings/ServerDisplaySettings";
 import { ApiContext } from "../context/ApiContext";
 import { Loader } from "../components/Loader";
 import Main from "./Main";
 import updateAbility from "../config/permission";
+
+import Paper from "@mui/material/Paper";
+import Tabs from "@mui/material/Tabs";
+import Tab from "@mui/material/Tab";
+import Box from "@mui/material/Box";
 
 const Settings = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
@@ -17,6 +23,7 @@ const Settings = ({ children, ...rest }) => {
     const history = useNavigate();
 
     const [userSettings, setUserSettings] = useState(null);
+    const [activeTab, setActiveTab] = useState(0);
 
     const editRSSettingHandler = () => history(`/settings/user`);
 
@@ -33,6 +40,10 @@ const Settings = ({ children, ...rest }) => {
 
         history("/main");
         updateAbility(rest.ability, null);
+    };
+
+    const handleTabChange = (event, newValue) => {
+        setActiveTab(newValue);
     };
 
     useEffect(() => {
@@ -76,13 +87,31 @@ const Settings = ({ children, ...rest }) => {
     return !isEmpty(cookies.user) ? (
         !isEmpty(userSettings) ? (
             <>
-                <UserSettingsData
-                    key="usersettings"
-                    data={userSettings}
-                    editHandler={() => {
-                        editRSSettingHandler();
-                    }}
-                />
+                <Box sx={{ width: '100%' }}>
+                    <Paper square>
+                        <Tabs
+                            value={activeTab}
+                            onChange={handleTabChange}
+                            aria-label="settings tabs"
+                            centered
+                        >
+                            <Tab label="Пользователь" />
+                            <Tab label="Отображение серверов" />
+                        </Tabs>
+                    </Paper>
+                    {activeTab === 0 && (
+                        <UserSettingsData
+                            key="usersettings"
+                            data={userSettings}
+                            editHandler={() => {
+                                editRSSettingHandler();
+                            }}
+                        />
+                    )}
+                    {activeTab === 1 && (
+                        <ServerDisplaySettings ability={rest.ability} />
+                    )}
+                </Box>
             </>
         ) : (
             <Loader title={"Данные загружаются"} />

@@ -23,6 +23,7 @@ import Grid from "@mui/material/Grid";
 
 import { Loader } from "../components/Loader";
 import ServerSettingsData from "./ServerSettings/ServerSettingsData";
+import ServerTableView from "./ServerSettings/ServerTableView";
 import CommonDialog from "../components/CommonDialog";
 
 import updateAbility from "../config/permission";
@@ -40,6 +41,9 @@ const Servers = ({ children, ...rest }) => {
     const [inputPortFilter, setInputPortFilter] = useState("");
     const [outputPortFilter, setInputOutputFilter] = useState("");
     const [enableFilter, setEnableFilter] = useState("");
+
+    // Display settings - default to table view
+    const [tableView, setTableView] = useState(true);
 
     const [open, setOpen] = useState(false);
     const [serverDeleteId, setServerDeleteId] = useState(null);
@@ -85,6 +89,15 @@ const Servers = ({ children, ...rest }) => {
         return () => {
             //abortController.abort();
         };
+    }, []);
+
+    // Load display settings from localStorage
+    useEffect(() => {
+        const savedSettings = localStorage.getItem('serverDisplaySettings');
+        if (savedSettings) {
+            const settings = JSON.parse(savedSettings);
+            setTableView(settings.tableView !== undefined ? settings.tableView : true); // Default to true if not set
+        }
     }, []);
 
     // Filter servers based on filter criteria
@@ -190,71 +203,74 @@ const Servers = ({ children, ...rest }) => {
                 <Box sx={{ flexGrow: 1, mt: 2, width: '100%' }}>
                     <Grid container spacing={2}>
                         <Grid item xs={12} md={6}>
-                        <TableContainer component={Paper}>
-                            <Table sx={{ minWidth: 300 }} aria-label="simple table">
-                                <TableBody>
-                                    <TableRow
-                                        sx={{
-                                            "&:last-child td, &:last-child th": {
-                                                border: 0,
-                                            },
-                                        }}
-                                    >
-                                        <TableCell component="th" scope="row">
-                                            <b>Сервер</b>
-                                        </TableCell>
-                                        <TableCell align="right">
-                                            <Button
-                                                color="primary"
-                                                size="large"
-                                                variant="contained"
-                                                type="submit"
-                                                onClick={() => {
-                                                    newHandler();
-                                                }}
-                                                disabled={
-                                                    cookies.user.role_name === "admin"
-                                                        ? false
-                                                        : !isEmpty(serversData)
-                                                        ? serversData.length >= 5
-                                                        : true
-                                                }
-                                            >
-                                                Добавить
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                    <TableRow
-                                        sx={{
-                                            "&:last-child td, &:last-child th": {
-                                                border: 0,
-                                            },
-                                        }}
-                                    >
-                                        <TableCell component="th" scope="row">
-                                            <b>Все службы</b>
-                                        </TableCell>
-                                        <TableCell align="right">
-                                            <Button
-                                                color="primary"
-                                                size="large"
-                                                variant="contained"
-                                                type="submit"
-                                                onClick={() => {
-                                                    restartServices();
-                                                }}
-                                                disabled={isEmpty(serversData)}
-                                            >
-                                                Перезагрузить
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                </TableBody>
-                            </Table>
-                        </TableContainer>
+                            <TableContainer component={Paper}>
+                                <Table sx={{ minWidth: 300 }} aria-label="simple table">
+                                    <TableBody>
+                                        <TableRow
+                                            sx={{
+                                                "&:last-child td, &:last-child th": {
+                                                    border: 0,
+                                                },
+                                            }}
+                                        >
+                                            <TableCell component="th" scope="row">
+                                                <b>Сервер</b>
+                                            </TableCell>
+                                            <TableCell align="right">
+                                                <Button
+                                                    color="primary"
+                                                    size="large"
+                                                    variant="contained"
+                                                    type="submit"
+                                                    onClick={() => {
+                                                        newHandler();
+                                                    }}
+                                                    disabled={
+                                                        cookies.user.role_name === "admin"
+                                                            ? false
+                                                            : !isEmpty(serversData)
+                                                            ? serversData.length >= 5
+                                                            : true
+                                                    }
+                                                >
+                                                    Добавить
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                        <TableRow
+                                            sx={{
+                                                "&:last-child td, &:last-child th": {
+                                                    border: 0,
+                                                },
+                                            }}
+                                        >
+                                            <TableCell component="th" scope="row">
+                                                <b>Все службы</b>
+                                            </TableCell>
+                                            <TableCell align="right">
+                                                <Button
+                                                    color="primary"
+                                                    size="large"
+                                                    variant="contained"
+                                                    type="submit"
+                                                    onClick={() => {
+                                                        restartServices();
+                                                    }}
+                                                    disabled={isEmpty(serversData)}
+                                                >
+                                                    Перезагрузить
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
                         </Grid>
                         <Grid item xs={12} md={6}>
                             <Paper sx={{ p: 2, height: '100%' }}>
+                                <Typography variant="h6" gutterBottom>
+                                    Фильтры
+                                </Typography>
                                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                     <TextField
                                         label="Название сервера"
@@ -315,22 +331,30 @@ const Servers = ({ children, ...rest }) => {
             
             {isLoaded && !isEmpty(filteredServers) ? (
                 <>
-                    {filteredServers
-                        .sort(function (a, b) {
-                            return a.id - b.id;
-                        })
-                        .map((rs) => (
-                            <ServerSettingsData
-                                key={rs.id}
-                                data={rs}
-                                editHandler={() => {
-                                    editHandler(rs.id);
-                                }}
-                                removeHandle={() => {
-                                    deleteHandler(rs.id);
-                                }}
-                            />
-                        ))}
+                    {tableView ? (
+                        <ServerTableView 
+                            serversData={filteredServers}
+                            deleteHandler={deleteHandler}
+                            editHandler={editHandler}
+                        />
+                    ) : (
+                        filteredServers
+                            .sort(function (a, b) {
+                                return a.id - b.id;
+                            })
+                            .map((rs) => (
+                                <ServerSettingsData
+                                    key={rs.id}
+                                    data={rs}
+                                    editHandler={() => {
+                                        editHandler(rs.id);
+                                    }}
+                                    removeHandle={() => {
+                                        deleteHandler(rs.id);
+                                    }}
+                                />
+                            ))
+                    )}
                     <CommonDialog
                         open={open}
                         title={"Удаление сервера"}
