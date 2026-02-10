@@ -73,6 +73,12 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const [openLogin, setOpenLogin] = React.useState(false);
     const [openRegister, setOpenRegister] = React.useState(false);
 
+    // Statistics state
+    const [statisticsData, setStatisticsData] = useState([]);
+    const [serversData, setServersData] = useState([]);
+    const [activeServersCount, setActiveServersCount] = useState(0);
+    const [totalBytes, setTotalBytes] = useState({ received: 0, sent: 0 });
+
     const handleLogout = () => {
         removeCookie("token");
         removeCookie("user");
@@ -101,11 +107,61 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
         setOpenLogin(true);
     };
 
+    // Функция для форматирования байтов в читаемый формат
+    const formatBytes = (bytes) => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    // Fetch statistics and servers data
+    const fetchStatisticsData = useCallback(async () => {
+        if (!cookies.user) return;
+
+        try {
+            // Fetch statistics data
+            const statistics = await api.get(`/statistics`);
+            
+            // Fetch servers data to get enable status
+            const servers = await api.get(`/servers`);
+
+            if (statistics.status === 200) {
+                setStatisticsData(statistics.data);
+                
+                // Calculate total bytes
+                const totalReceived = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_received) || 0), 0);
+                const totalSent = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_sent) || 0), 0);
+                setTotalBytes({ received: totalReceived, sent: totalSent });
+            }
+
+            if (servers.status === 200) {
+                setServersData(servers.data);
+                
+                // Count active servers (enabled servers)
+                const activeCount = servers.data.filter(server => server.enable).length;
+                setActiveServersCount(activeCount);
+            }
+        } catch (err) {
+            console.error("Error fetching statistics data:", err);
+        }
+    }, [api, cookies.user]);
+
     useEffect(() => {
       if (rest.ability !== undefined) {
         updateAbility(rest.ability, cookies.user);
       }
     }, [cookies.user, rest.ability]);
+
+    // Fetch statistics data periodically
+    useEffect(() => {
+        if (cookies.user) {
+            fetchStatisticsData();
+            const interval = setInterval(fetchStatisticsData, 30000); // Update every 30 seconds
+            return () => clearInterval(interval);
+        }
+    }, [cookies.user, fetchStatisticsData]);
 
     return (
         <React.Fragment>
@@ -131,6 +187,22 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                             >
                                 NET PORT
                             </Typography>
+                            
+                            {/* Statistics Info */}
+                            {cookies.user && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+                                    <Typography variant="body2" sx={{ mr: 2 }}>
+                                        Активных серверов: {activeServersCount}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mr: 2 }}>
+                                        Получено: {formatBytes(totalBytes.received)}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                        Отправлено: {formatBytes(totalBytes.sent)}
+                                    </Typography>
+                                </Box>
+                            )}
+                            
                             <Tooltip title="Текущий пользователь">
                                 <Typography>
                                     {cookies.user !== undefined
