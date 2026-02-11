@@ -56,12 +56,21 @@ exports.Statistics = class Statistics {
   }
 
   async getByServerAndTimeRange(serverId, startTime, endTime) {
+    // Parse time strings to ensure proper handling of local time
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    
+    // If the dates are invalid, try to parse them as local time strings
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error('Invalid date format provided');
+    }
+
     // Получаем статистику для сервера за определенный период
     const result = await this.db
       .from('statistic')
       .where('server_id', Number(serverId))
-      .where('timestamp', '>=', startTime)
-      .where('timestamp', '<=', endTime)
+      .where('timestamp', '>=', start)
+      .where('timestamp', '<=', end)
       .select('*')
       .orderBy('timestamp', 'asc');
 
@@ -89,13 +98,9 @@ exports.Statistics = class Statistics {
     // Convert UTC timestamp to local timezone
     const date = new Date(utcTimestamp);
 
-    // Format as ISO string in local timezone
-    // Note: toISOString() always returns UTC, so we need to adjust it
-    const tzo = -date.getTimezoneOffset();
-    const diff = tzo >= 0 ? '+' : '-';
+    // Format as ISO-like string in local timezone
+    // We want to preserve the local time values, not convert the moment
     const pad = (num) => String(num).padStart(2, '0');
-
-    // Add timezone offset to convert UTC to local time
-    return new Date(date.getTime() + (tzo * 60 * 1000)).toISOString();
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   }
 };

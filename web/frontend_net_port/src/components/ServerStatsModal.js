@@ -89,48 +89,54 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
     }, [open, serverId, timeRange]);
 
     const fetchChartData = async () => {
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            // Calculate time range
-            const endTime = new Date();
-            const startTime = new Date();
-
-            switch (timeRange) {
-                case "1hour":
-                    startTime.setHours(endTime.getHours() - 1);
-                    break;
-                case "6hours":
-                    startTime.setHours(endTime.getHours() - 6);
-                    break;
-                case "1day":
-                    startTime.setDate(endTime.getDate() - 1);
-                    break;
-                case "3days":
-                    startTime.setDate(endTime.getDate() - 3);
-                    break;
-                case "1week":
-                    startTime.setDate(endTime.getDate() - 7);
-                    break;
-                case "1month":
-                    startTime.setMonth(endTime.getMonth() - 1);
-                    break;
-                default:
-                    startTime.setDate(endTime.getDate() - 1);
-            }
-
-            console.log('API Request:', `/statistics/${serverId}/range`, {
-                startTime: startTime.toISOString(),
-                endTime: endTime.toISOString()
-            }); // Debug log
-
-            const response = await api.get(`/statistics/${serverId}/range`, {
-                params: {
-                    startTime: startTime.toISOString(),
-                    endTime: endTime.toISOString()
+            setIsLoading(true);
+            setError(null);
+    
+            try {
+                // Calculate time range
+                const endTime = new Date();
+                const startTime = new Date();
+    
+                switch (timeRange) {
+                    case "1hour":
+                        startTime.setHours(endTime.getHours() - 1);
+                        break;
+                    case "6hours":
+                        startTime.setHours(endTime.getHours() - 6);
+                        break;
+                    case "1day":
+                        startTime.setDate(endTime.getDate() - 1);
+                        break;
+                    case "3days":
+                        startTime.setDate(endTime.getDate() - 3);
+                        break;
+                    case "1week":
+                        startTime.setDate(endTime.getDate() - 7);
+                        break;
+                    case "1month":
+                        startTime.setMonth(endTime.getMonth() - 1);
+                        break;
+                    default:
+                        startTime.setDate(endTime.getDate() - 1);
                 }
-            });
+    
+                // Format dates to local time strings that preserve timezone info
+                const formatLocalDateTime = (date) => {
+                    const pad = (num) => String(num).padStart(2, '0');
+                    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+                };
+    
+                console.log('API Request:', `/statistics/${serverId}/range`, {
+                    startTime: formatLocalDateTime(startTime),
+                    endTime: formatLocalDateTime(endTime)
+                }); // Debug log
+    
+                const response = await api.get(`/statistics/${serverId}/range`, {
+                    params: {
+                        startTime: formatLocalDateTime(startTime),
+                        endTime: formatLocalDateTime(endTime)
+                    }
+                });
 
             console.log('API Response Status:', response.status); // Debug log
 
@@ -141,7 +147,34 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                 if (Array.isArray(response.data) && response.data.length > 0) {
                     // Format data for chart with compact timestamp
                     const formattedData = response.data.map(item => {
-                        const date = new Date(item.timestamp);
+                        // Create a date object from the timestamp
+                        // Since the backend now returns data in local time, we treat it as such
+                        let date;
+                        if (typeof item.timestamp === 'string' && item.timestamp.includes('T')) {
+                            // For ISO-like strings, parse manually to avoid timezone conversion
+                            const parts = item.timestamp.split('T');
+                            if (parts.length === 2) {
+                                const datePart = parts[0];
+                                const timePart = parts[1].split('.')[0].split(':');
+                                const dateParts = datePart.split('-');
+                                if (dateParts.length === 3 && timePart.length >= 2) {
+                                    date = new Date(
+                                        parseInt(dateParts[0]),
+                                        parseInt(dateParts[1]) - 1, // Month is 0-indexed
+                                        parseInt(dateParts[2]),
+                                        parseInt(timePart[0]) || 0,
+                                        parseInt(timePart[1]) || 0,
+                                        parseInt(timePart[2]) || 0
+                                    );
+                                }
+                            }
+                        }
+                        
+                        // Fallback to regular Date parsing if manual parsing failed
+                        if (!date || isNaN(date.getTime())) {
+                            date = new Date(item.timestamp);
+                        }
+                        
                         // Use compact time format: HH:MM for short periods, DD.MM HH:MM for longer periods
                         const hours = String(date.getHours()).padStart(2, '0');
                         const minutes = String(date.getMinutes()).padStart(2, '0');
