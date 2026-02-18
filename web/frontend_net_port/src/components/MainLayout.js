@@ -78,6 +78,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const [serversData, setServersData] = useState([]);
     const [activeServersCount, setActiveServersCount] = useState(0);
     const [totalBytes, setTotalBytes] = useState({ received: 0, sent: 0 });
+    const [totalSpeed, setTotalSpeed] = useState({ receive: 0, send: 0 });
 
     const handleLogout = () => {
         removeCookie("token");
@@ -116,6 +117,19 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
+    // Функция для форматирования скорости в читаемый формат
+    const formatSpeed = (speed) => {
+        if (speed === null || speed === undefined || isNaN(speed) || speed === 0) return '-';
+        
+        const speedNum = typeof speed === 'string' ? parseFloat(speed) : speed;
+        if (speedNum === 0) return '-';
+        
+        const k = 1024;
+        const sizes = ['Bytes/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
+        const i = Math.floor(Math.log(speedNum) / Math.log(k));
+        return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
     // Fetch statistics and servers data
     const fetchStatisticsData = useCallback(async () => {
         if (!cookies.user) return;
@@ -134,6 +148,11 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 const totalReceived = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_received) || 0), 0);
                 const totalSent = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_sent) || 0), 0);
                 setTotalBytes({ received: totalReceived, sent: totalSent });
+                
+                // Calculate total speed
+                const totalReceiveSpeed = statistics.data.reduce((sum, stat) => sum + (parseFloat(stat.avg_receive_speed) || 0), 0);
+                const totalSendSpeed = statistics.data.reduce((sum, stat) => sum + (parseFloat(stat.avg_send_speed) || 0), 0);
+                setTotalSpeed({ receive: totalReceiveSpeed, send: totalSendSpeed });
             }
 
             if (servers.status === 200) {
@@ -192,13 +211,19 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                             {cookies.user && (
                                 <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
                                     <Typography variant="body2" sx={{ mr: 2 }}>
-                                        Активных серверов: {activeServersCount}
+                                        Серверов: {activeServersCount}
                                     </Typography>
                                     <Typography variant="body2" sx={{ mr: 2 }}>
                                         Получено: {formatBytes(totalBytes.received)}
                                     </Typography>
-                                    <Typography variant="body2">
+                                    <Typography variant="body2" sx={{ mr: 2 }}>
                                         Отправлено: {formatBytes(totalBytes.sent)}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mr: 2 }}>
+                                        Прием: {formatSpeed(totalSpeed.receive)}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                        Передача: {formatSpeed(totalSpeed.send)}
                                     </Typography>
                                 </Box>
                             )}

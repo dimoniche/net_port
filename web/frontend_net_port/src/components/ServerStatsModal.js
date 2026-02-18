@@ -33,6 +33,27 @@ const formatBytes = (bytes) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+// Функция для форматирования скорости в читаемый формат
+const formatSpeed = (speed) => {
+    // Проверяем на null, undefined, NaN или нулевое значение
+    if (speed === null || speed === undefined || isNaN(speed) || speed === 0) {
+        return '-';
+    }
+    
+    // Преобразуем в число, если пришло строковое значение
+    const speedNum = typeof speed === 'string' ? parseFloat(speed) : speed;
+    
+    // Проверяем еще раз после преобразования
+    if (isNaN(speedNum) || speedNum < 1) {
+        return '-';
+    }
+    
+    const k = 1024;
+    const sizes = ['Bytes/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
+    const i = Math.floor(Math.log(speedNum) / Math.log(k));
+    return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
 const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
     const { api } = useContext(ApiContext);
     const [timeRange, setTimeRange] = useState("1day");
@@ -42,7 +63,9 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
     const [visibleParams, setVisibleParams] = useState({
         bytesReceived: true,
         bytesSent: true,
-        connections: true
+        connections: true,
+        avgReceiveSpeed: true,
+        avgSendSpeed: true
     });
 
     // Функция для получения описания сервера
@@ -145,8 +168,8 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
 
                 // Check if response.data is an array and has items
                 if (Array.isArray(response.data) && response.data.length > 0) {
-                    // Format data for chart with compact timestamp
-                    const formattedData = response.data.map(item => {
+                    // Сначала форматируем базовые данные
+                    const baseData = response.data.map((item) => {
                         // Create a date object from the timestamp
                         // Since the backend now returns data in local time, we treat it as such
                         let date;
@@ -189,15 +212,39 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                         } else {
                             timestampLabel = `${day}.${month} ${hours}:${minutes}`;
                         }
-    
+                        
                         return {
                             timestamp: timestampLabel,
                             fullTimestamp: date.toLocaleString(), // Keep full timestamp for tooltip
                             bytesReceived: item.bytes_received || 0,
                             bytesSent: item.bytes_sent || 0,
-                            connections: item.connections_count || 0
+                            connections: item.connections_count || 0,
+                            date: date // Сохраняем объект даты для вычислений
                         };
                     });
+                    
+                    // Затем вычисляем скорость на основе разницы между соседними точками
+                    const formattedData = baseData.map((item, index) => {
+                        let avgReceiveSpeed = 0;
+                        let avgSendSpeed = 0;
+                        
+                        if (index > 0) {
+                            const prevItem = baseData[index - 1];
+                            const timeDiff = (item.date.getTime() - prevItem.date.getTime()) / 1000; // в секундах
+                            
+                            if (timeDiff > 0) {
+                                avgReceiveSpeed = (item.bytesReceived - prevItem.bytesReceived) / timeDiff;
+                                avgSendSpeed = (item.bytesSent - prevItem.bytesSent) / timeDiff;
+                            }
+                        }
+                        
+                        return {
+                            ...item,
+                            avgReceiveSpeed: avgReceiveSpeed,
+                            avgSendSpeed: avgSendSpeed
+                        };
+                    });
+                    
                     setChartData(formattedData);
                 } else {
                     setError("No data available for the selected time range");
@@ -284,6 +331,26 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                             />
                             <label htmlFor="connections" style={{ cursor: 'pointer' }}>Активные соединения</label>
                         </div>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <input
+                                type="checkbox"
+                                id="avgReceiveSpeed"
+                                checked={visibleParams.avgReceiveSpeed}
+                                onChange={() => setVisibleParams(prev => ({ ...prev, avgReceiveSpeed: !prev.avgReceiveSpeed }))}
+                                style={{ marginRight: '8px' }}
+                            />
+                            <label htmlFor="avgReceiveSpeed" style={{ cursor: 'pointer' }}>Скорость приема</label>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <input
+                                type="checkbox"
+                                id="avgSendSpeed"
+                                checked={visibleParams.avgSendSpeed}
+                                onChange={() => setVisibleParams(prev => ({ ...prev, avgSendSpeed: !prev.avgSendSpeed }))}
+                                style={{ marginRight: '8px' }}
+                            />
+                            <label htmlFor="avgSendSpeed" style={{ cursor: 'pointer' }}>Скорость передачи</label>
+                        </div>
                     </div>
                 </div>
 
@@ -319,34 +386,43 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                                     yAxisId="right"
                                     orientation="right"
                                     stroke="#82ca9d"
+                                    tickFormatter={(value) => formatSpeed(value)}
+                                />
+                                <YAxis
+                                    yAxisId="connections"
+                                    orientation="right"
+                                    stroke="#ff7300"
+                                    tickFormatter={(value) => value}
+                                    domain={[0, 'dataMax + 1']}
                                 />
                                <Tooltip
-                                   content={({ payload, label }) => {
-                                       if (!payload || payload.length === 0) return null;
+                                    content={({ payload, label }) => {
+                                        if (!payload || payload.length === 0) return null;
 
-                                       const item = payload[0].payload;
-                                       return (
-                                           <div style={{
-                                               backgroundColor: 'white',
-                                               border: '1px solid #ccc',
-                                               padding: '10px',
-                                               borderRadius: '4px'
-                                           }}>
-                                               <p style={{ margin: '5px 0', fontWeight: 'bold' }}>
-                                                   {item.fullTimestamp || label}
-                                               </p>
-                                               {payload.map((entry, index) => (
-                                                   <p key={index} style={{
-                                                       margin: '5px 0',
-                                                       color: entry.stroke
-                                                   }}>
-                                                       {entry.name}: {entry.dataKey.includes('bytes') ? formatBytes(entry.value) : entry.value}
-                                                   </p>
-                                               ))}
-                                           </div>
-                                       );
-                                   }}
-                               />
+                                        const item = payload[0].payload;
+                                        return (
+                                            <div style={{
+                                                backgroundColor: 'white',
+                                                border: '1px solid #ccc',
+                                                padding: '10px',
+                                                borderRadius: '4px'
+                                            }}>
+                                                <p style={{ margin: '5px 0', fontWeight: 'bold' }}>
+                                                    {item.fullTimestamp || label}
+                                                </p>
+                                                {payload.map((entry, index) => (
+                                                    <p key={index} style={{
+                                                        margin: '5px 0',
+                                                        color: entry.stroke
+                                                    }}>
+                                                        {entry.name}: {entry.dataKey.includes('bytes') ? formatBytes(entry.value) :
+                                                                   entry.dataKey.includes('Speed') ? formatSpeed(entry.value) : entry.value}
+                                                    </p>
+                                                ))}
+                                            </div>
+                                        );
+                                    }}
+                                />
                                 <Legend />
 
                                 {visibleParams.bytesReceived && (
@@ -373,11 +449,33 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                                )}
                                {visibleParams.connections && (
                                    <Line
-                                       yAxisId="right"
+                                       yAxisId="connections"
                                        type="monotone"
                                        dataKey="connections"
                                        name="Активные соединения"
                                        stroke="#ff7300"
+                                       dot={false}
+                                       strokeWidth={2}
+                                   />
+                               )}
+                               {visibleParams.avgReceiveSpeed && (
+                                   <Line
+                                       yAxisId="right"
+                                       type="monotone"
+                                       dataKey="avgReceiveSpeed"
+                                       name="Скорость приема"
+                                       stroke="#ff0000"
+                                       dot={false}
+                                       strokeWidth={2}
+                                   />
+                               )}
+                               {visibleParams.avgSendSpeed && (
+                                   <Line
+                                       yAxisId="right"
+                                       type="monotone"
+                                       dataKey="avgSendSpeed"
+                                       name="Скорость передачи"
+                                       stroke="#00ff00"
                                        dot={false}
                                        strokeWidth={2}
                                    />

@@ -98,6 +98,27 @@ const Statistics = ({ children, ...rest }) => {
         return parseFloat((bytesNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
+    // Функция для форматирования скорости в читаемый формат
+    const formatSpeed = (speed) => {
+        // Проверяем на null, undefined, NaN или нулевое значение
+        if (speed === null || speed === undefined || isNaN(speed) || speed === 0) {
+            return '-';
+        }
+        
+        // Преобразуем в число, если пришло строковое значение
+        const speedNum = typeof speed === 'string' ? parseFloat(speed) : speed;
+        
+        // Проверяем еще раз после преобразования
+        if (isNaN(speedNum) || speedNum < 1) {
+            return '-';
+        }
+        
+        const k = 1024;
+        const sizes = ['Bytes/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
+        const i = Math.floor(Math.log(speedNum) / Math.log(k));
+        return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
     // Функция для получения описания сервера
     const getServerDescription = (serverId) => {
         if (!serversData || serversData.length === 0) {
@@ -185,6 +206,8 @@ const Statistics = ({ children, ...rest }) => {
                                         <TableCell><b>Описание сервера</b></TableCell>
                                         <TableCell><b>Байт получено</b></TableCell>
                                         <TableCell><b>Байт отправлено</b></TableCell>
+                                        <TableCell><b>Скорость приема</b></TableCell>
+                                        <TableCell><b>Скорость передачи</b></TableCell>
                                         <TableCell><b>Активные соединения</b></TableCell>
                                         <TableCell><b>Время обновления</b></TableCell>
                                         <TableCell><b>Действия</b></TableCell>
@@ -209,6 +232,8 @@ const Statistics = ({ children, ...rest }) => {
                                                 <TableCell>{getServerDescription(stat.server_id)}</TableCell>
                                                 <TableCell>{formatBytes(stat.bytes_received)}</TableCell>
                                                 <TableCell>{formatBytes(stat.bytes_sent)}</TableCell>
+                                                <TableCell>{formatSpeed(stat.avg_receive_speed)}</TableCell>
+                                                <TableCell>{formatSpeed(stat.avg_send_speed)}</TableCell>
                                                 <TableCell>{stat.connections_count}</TableCell>
                                                 <TableCell>{formatTimestamp(stat.timestamp)}</TableCell>
                                                 <TableCell>

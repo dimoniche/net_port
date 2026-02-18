@@ -6,8 +6,8 @@ exports.Statistics = class Statistics {
   }
 
   async find(params) {
-    // Получаем последнее значение статистики для каждого сервера
-    const query = `
+    // Сначала получаем последние записи для каждого сервера
+    const latestQuery = `
       SELECT s1.*
       FROM statistic s1
       INNER JOIN (
@@ -18,12 +18,61 @@ exports.Statistics = class Statistics {
       ORDER BY s1.server_id
     `;
 
-    const result = await this.db.raw(query);
-    // Извлекаем массив результатов из ответа базы данных
-    const rows = result.rows || (result[0] && result[0].rows) || result;
+    const latestResult = await this.db.raw(latestQuery);
+    const latestRows = latestResult.rows || (latestResult[0] && latestResult[0].rows) || latestResult;
+
+    // Затем получаем все предыдущие записи для всех серверов одним запросом
+    if (latestRows.length === 0) {
+      return [];
+    }
+
+    const serverIds = latestRows.map(row => row.server_id).join(',');
+    const prevQuery = `
+      SELECT server_id, bytes_received, bytes_sent, timestamp
+      FROM statistic
+      WHERE server_id IN (${serverIds})
+        AND timestamp < (SELECT MAX(timestamp) FROM statistic WHERE server_id IN (${serverIds}))
+      ORDER BY server_id, timestamp DESC
+    `;
+
+    const prevResult = await this.db.raw(prevQuery);
+    const prevRows = prevResult.rows || (prevResult[0] && prevResult[0].rows) || prevResult;
+
+    // Создаем мапу предыдущих записей для быстрого доступа
+    const prevMap = {};
+    prevRows.forEach(row => {
+      if (!prevMap[row.server_id]) {
+        prevMap[row.server_id] = [];
+      }
+      prevMap[row.server_id].push(row);
+    });
+
+    // Объединяем данные и рассчитываем скорость
+    const result = latestRows.map(row => {
+      const prevRecords = prevMap[row.server_id] || [];
+      const prevRow = prevRecords.length > 0 ? prevRecords[0] : null;
+
+      let avgReceiveSpeed = 0;
+      let avgSendSpeed = 0;
+
+      if (prevRow) {
+        const timeDiff = (new Date(row.timestamp).getTime() - new Date(prevRow.timestamp).getTime()) / 1000; // в секундах
+        
+        if (timeDiff > 0) {
+          avgReceiveSpeed = (row.bytes_received - prevRow.bytes_received) / timeDiff;
+          avgSendSpeed = (row.bytes_sent - prevRow.bytes_sent) / timeDiff;
+        }
+      }
+
+      return {
+        ...row,
+        avg_receive_speed: avgReceiveSpeed,
+        avg_send_speed: avgSendSpeed
+      };
+    });
 
     // Convert timestamps to local timezone
-    return rows.map(row => ({
+    return result.map(row => ({
       ...row,
       timestamp: this.convertToLocalTimezone(row.timestamp)
     }));
