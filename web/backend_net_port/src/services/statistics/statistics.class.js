@@ -93,7 +93,7 @@ exports.Statistics = class Statistics {
   async getByServerAndTimeRange(serverId, startTime, endTime) {
     // Parse time strings to ensure proper handling of local time
     let start = new Date(startTime);
-    const tzo = -start.getTimezoneOffset();
+    const tzo = 3 * 60;//-start.getTimezoneOffset();
     start = new Date(start.getTime() - (tzo * 60 * 1000))
     let end = new Date(endTime);
     end = new Date(end.getTime() - (tzo * 60 * 1000))
@@ -135,7 +135,7 @@ exports.Statistics = class Statistics {
 
     // Convert UTC timestamp to local timezone
     let date = new Date(utcTimestamp);
-    const tzo = -date.getTimezoneOffset();
+    const tzo = 3 * 60;//-date.getTimezoneOffset();
     date = new Date(date.getTime() + (tzo * 60 * 1000))
 
     // Format as ISO-like string in local timezone
