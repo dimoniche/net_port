@@ -92,8 +92,11 @@ exports.Statistics = class Statistics {
 
   async getByServerAndTimeRange(serverId, startTime, endTime) {
     // Parse time strings to ensure proper handling of local time
-    const start = new Date(startTime);
-    const end = new Date(endTime);
+    let start = new Date(startTime);
+    const tzo = -start.getTimezoneOffset();
+    start = new Date(start.getTime() - (tzo * 60 * 1000))
+    let end = new Date(endTime);
+    end = new Date(end.getTime() - (tzo * 60 * 1000))
     
     // If the dates are invalid, try to parse them as local time strings
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
@@ -132,7 +135,8 @@ exports.Statistics = class Statistics {
 
     // Convert UTC timestamp to local timezone
     let date = new Date(utcTimestamp);
-    date = new Date(date.getTime() + (3 * 3600 * 1000))
+    const tzo = -date.getTimezoneOffset();
+    date = new Date(date.getTime() + (tzo * 60 * 1000))
 
     // Format as ISO-like string in local timezone
     // We want to preserve the local time values, not convert the moment
