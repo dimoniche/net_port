@@ -21,39 +21,25 @@ exports.Statistics = class Statistics {
     const latestResult = await this.db.raw(latestQuery);
     const latestRows = latestResult.rows || (latestResult[0] && latestResult[0].rows) || latestResult;
 
-    // Затем получаем все предыдущие записи для всех серверов одним запросом
-    if (latestRows.length === 0) {
-      return [];
-    }
+    // Затем для каждой последней записи получаем предыдущую запись
+    const result = [];
+    for (const row of latestRows) {
+      const prevQuery = `
+        SELECT bytes_received, bytes_sent, timestamp
+        FROM statistic
+        WHERE server_id = ${row.server_id} AND timestamp < '${row.timestamp}'
+        ORDER BY timestamp DESC
+        LIMIT 1
+      `;
 
-    const serverIds = latestRows.map(row => row.server_id).join(',');
-    const prevQuery = `
-      SELECT server_id, bytes_received, bytes_sent, timestamp
-      FROM statistic
-      WHERE server_id IN (${serverIds})
-        AND timestamp < (SELECT MAX(timestamp) FROM statistic WHERE server_id IN (${serverIds}))
-      ORDER BY server_id, timestamp DESC
-    `;
+      const prevResult = await this.db.raw(prevQuery);
+      const prevRows = prevResult.rows || (prevResult[0] && prevResult[0].rows) || prevResult;
 
-    const prevResult = await this.db.raw(prevQuery);
-    const prevRows = prevResult.rows || (prevResult[0] && prevResult[0].rows) || prevResult;
+      const prevRow = prevRows.length > 0 ? prevRows[0] : null;
 
-    // Создаем мапу предыдущих записей для быстрого доступа
-    const prevMap = {};
-    prevRows.forEach(row => {
-      if (!prevMap[row.server_id]) {
-        prevMap[row.server_id] = [];
-      }
-      prevMap[row.server_id].push(row);
-    });
-
-    // Объединяем данные и рассчитываем скорость
-    const result = latestRows.map(row => {
-      const prevRecords = prevMap[row.server_id] || [];
-      const prevRow = prevRecords.length > 0 ? prevRecords[0] : null;
-
-      let avgReceiveSpeed = 0;
-      let avgSendSpeed = 0;
+      // Рассчитываем скорость
+      let avgReceiveSpeed = null;
+      let avgSendSpeed = null;
 
       if (prevRow) {
         const timeDiff = (new Date(row.timestamp).getTime() - new Date(prevRow.timestamp).getTime()) / 1000; // в секундах
@@ -64,12 +50,12 @@ exports.Statistics = class Statistics {
         }
       }
 
-      return {
+      result.push({
         ...row,
         avg_receive_speed: avgReceiveSpeed,
         avg_send_speed: avgSendSpeed
-      };
-    });
+      });
+    }
 
     // Convert timestamps to local timezone
     return result.map(row => ({
@@ -145,7 +131,8 @@ exports.Statistics = class Statistics {
     if (!utcTimestamp) return utcTimestamp;
 
     // Convert UTC timestamp to local timezone
-    const date = new Date(utcTimestamp);
+    let date = new Date(utcTimestamp);
+    date = new Date(date.getTime() + (3 * 3600 * 1000))
 
     // Format as ISO-like string in local timezone
     // We want to preserve the local time values, not convert the moment
@@ -153,3 +140,4 @@ exports.Statistics = class Statistics {
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   }
 };
+

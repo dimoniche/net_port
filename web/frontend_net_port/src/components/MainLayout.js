@@ -122,7 +122,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
         if (speed === null || speed === undefined || isNaN(speed) || speed === 0) return '-';
         
         const speedNum = typeof speed === 'string' ? parseFloat(speed) : speed;
-        if (speedNum === 0) return '-';
+        if (speedNum < 1) return '-';
         
         const k = 1024;
         const sizes = ['Bytes/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
