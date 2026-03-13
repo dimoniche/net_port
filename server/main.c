@@ -74,16 +74,16 @@ int main(int argc, char** argv) {
         exit(0);
     }
 
+    int verbose_level = LOG_DEBUG;
+
     for (int i = 1; i < argc; i++) {
         char* s;
         logMsg(LOG_DEBUG, "Processing arg %d: '%s'", i, argv[i]);
 
         if (strstr(argv[i], VERBOSE_KEY) != NULL) {
-            int verbose_level;
             s = argv[i] + sizeof(VERBOSE_KEY) - 1;
             sscanf(s, "%d", &verbose_level);
             if ((verbose_level > 0) && (verbose_level <= LOG_LAST_PRIORITY)) {
-                logMsgSetPriority(verbose_level);
                 logMsg(LOG_INFO, "Set verbose level %d", verbose_level);
             } else {
                 logMsg(LOG_EMERG, "Wrong verbose level %d, should be less then %d", verbose_level,
@@ -233,6 +233,7 @@ int main(int argc, char** argv) {
     char log[128];
     sprintf(log, "logs/module_net_port_server_u%d.log", user_id);
     logMsgOpen(log);
+    logMsgSetPriority(verbose_level);
     logMsg(LOG_DEBUG, "Start logger...");
 
     if (!no_db_mode) {

@@ -102,7 +102,7 @@ int logMsgOpen(const char *filename)
     assert(strlen(filename) <= FILEBUF_SIZE);
     strncpy(mlog.logFilename, filename, FILEBUF_SIZE);
     mlog.usingSyslog = 0;
-    mlog.logPriority = LOG_DEBUG;
+    mlog.logPriority = LOG_EMERG;
     return openLogFile();
 }
 
