@@ -1,12 +1,15 @@
-/******************************************************************************
+/*******************************************************************************
 *
 *   Copyright (C)
 *
-******************************************************************************/
+*******************************************************************************/
 
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
 
 #include "logMsg.h"
 #include "db.h"
@@ -26,21 +29,61 @@ int main(int argc, char** argv) {
 
     signal_init();
 
-    TDBConnectionData DB_conn_data = {(char*)"127.1", (char*)"5432"};
+    TDBConnectionData DB_conn_data = {(char*)"127.1", (char*)"5432", NULL, NULL};
 
     uint32_t user_id = 0;
 
+    char *cert_file = NULL;
+    char *key_file = NULL;
+    bool no_db_mode = false;
+    uint16_t cli_input_port = 0;
+    uint16_t cli_output_port = 0;
+    bool cli_enable_output_ssl = false;
+    bool cli_enable_input_ssl = false;
+    time_t statistics_retention_period = DEFAULT_STATISTICS_RETENTION_PERIOD;
+
+    if (argc == 1 || (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))) {
+        printf("Net Port Server v%s\n\n", VERSION);
+        printf("Usage: %s [OPTIONS]\n\n", argv[0]);
+        printf("Options:\n");
+        printf("  %s<level>        Set verbose level (1-%d, higher=more output)\n", VERBOSE_KEY, LOG_LAST_PRIORITY);
+        printf("  %s <host>         Database host IP address\n", HOST_KEY);
+        printf("  %s <port>         Database port number\n", PORT_KEY);
+        printf("  %s <username>     Database username\n", USERNAME_KEY);
+        printf("  %s <password>     Database password\n", PASSWORD_KEY);
+        printf("  %s <id>           User ID for logging\n", USER_ID);
+        printf("  --cert <file>     Path to SSL certificate file\n");
+        printf("  --key <file>      Path to SSL private key file\n");
+        printf("  --threads <num>   Number of socket threads (1-1000)\n");
+        printf("  -h, --help        Show this help message\n");
+        printf("  -v, --version     Show version information\n");
+        printf("  --no-db           Run without DB; set ports via --input-port and --output-port\n");
+        printf("  --input-port <n>  Input port to listen on (used with --no-db)\n");
+        printf("  --output-port <n> Output port to listen on (used with --no-db)\n");
+        printf("  --enable-output-ssl Enable output SSL for the CLI-provided server (used with --no-db)\n");
+        printf("  --enable-input-ssl  Enable input SSL for the CLI-provided server (used with --no-db)\n");
+        printf("  --statistics-retention <days> Set statistics retention period in days (default: 90)\n");
+        printf("\nExample:\n");
+        printf("  %s %s5 %s 192.168.1.100 %s 5432 %s 100\n",
+               argv[0], VERBOSE_KEY, HOST_KEY, PORT_KEY, USER_ID);
+        exit(0);
+    }
+
+    if (argc == 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
+        printf("Net Port Server v%s\n", VERSION);
+        exit(0);
+    }
+
+    int verbose_level = LOG_DEBUG;
+
     for (int i = 1; i < argc; i++) {
         char* s;
-        int verbose_level;
-        logMsg(LOG_DEBUG, "%s", argv[i]);
+        logMsg(LOG_DEBUG, "Processing arg %d: '%s'", i, argv[i]);
 
         if (strstr(argv[i], VERBOSE_KEY) != NULL) {
             s = argv[i] + sizeof(VERBOSE_KEY) - 1;
             sscanf(s, "%d", &verbose_level);
-            logMsg(LOG_DEBUG, "verbose level %d", verbose_level);
             if ((verbose_level > 0) && (verbose_level <= LOG_LAST_PRIORITY)) {
-                logMsgSetPriority(verbose_level);
                 logMsg(LOG_INFO, "Set verbose level %d", verbose_level);
             } else {
                 logMsg(LOG_EMERG, "Wrong verbose level %d, should be less then %d", verbose_level,
@@ -48,36 +91,173 @@ int main(int argc, char** argv) {
                 exit(-1);
             }
         }
-        if (strstr(argv[i], HOST_KEY) != NULL)
+        else if (strstr(argv[i], HOST_KEY) != NULL)
         {
             if (argv[i+1] != NULL)
                 DB_conn_data.ip = argv[i+1];
         }
-        if (strstr(argv[i], PORT_KEY) != NULL)
+        else if (strcmp(argv[i], PORT_KEY) == 0)
+        {
+            if (argv[i+1] != NULL) {
+                DB_conn_data.port = argv[i+1];
+                i++;
+            }
+        }
+        else if (strstr(argv[i], USERNAME_KEY) != NULL)
         {
             if (argv[i+1] != NULL)
-                DB_conn_data.port = argv[i+1];
+            {
+                DB_conn_data.username = argv[i+1];
+                i++;
+                logMsg(LOG_INFO, "Set username: %s", DB_conn_data.username);
+            }
         }
-        if (strstr(argv[i], USER_ID) != NULL)
+        else if (strstr(argv[i], PASSWORD_KEY) != NULL)
+        {
+            if (argv[i+1] != NULL)
+            {
+                DB_conn_data.password = argv[i+1];
+                i++;
+                logMsg(LOG_INFO, "Set password: %s", DB_conn_data.password);
+            }
+        }
+        else if (strstr(argv[i], USER_ID) != NULL)
         {
             if (argv[i+1] != NULL)
             {
                 sscanf(argv[i+1], "%d", &user_id);
+                i++;
+                logMsg(LOG_INFO, "Set user file: %d", user_id);
             }
-
-            i++;
+        }
+        else if (strstr(argv[i], "--cert") != NULL)
+        {
+            if (argv[i+1] != NULL) {
+                cert_file = argv[i+1];
+                i++;
+                logMsg(LOG_INFO, "Set cerificate file: %s", cert_file);
+            }
+        }
+        else if (strstr(argv[i], "--key") != NULL)
+        {
+            if (argv[i+1] != NULL) {
+                key_file = argv[i+1];
+                i++;
+                logMsg(LOG_INFO, "Set key file: %s", key_file);
+            }
+        }
+        else if (strstr(argv[i], "--threads") != NULL || strstr(argv[i], "-t") != NULL)
+        {
+            if (argv[i+1] != NULL) {
+                int thread_count;
+                sscanf(argv[i+1], "%d", &thread_count);
+                if (thread_count > 0 && thread_count <= 1000) {
+                    COUNT_SOCKET_THREAD = thread_count;
+                    logMsg(LOG_INFO, "Set socket threads count to %d", thread_count);
+                } else {
+                    logMsg(LOG_EMERG, "Invalid thread count %d (1-1000 allowed)", thread_count);
+                    exit(-1);
+                }
+                i++;
+            }
+        }
+        else if (strcmp(argv[i], "--no-db") == 0)
+        {
+            no_db_mode = true;
+            logMsg(LOG_INFO, "Set no database mode");
+        }
+        else if (strcmp(argv[i], "--input-port") == 0)
+        {
+            if (argv[i+1] != NULL) {
+                int p = 0;
+                sscanf(argv[i+1], "%d", &p);
+                if (p > 0 && p <= 65535) {
+                    cli_input_port = (uint16_t)p;
+                    logMsg(LOG_INFO, "Set cli_input_port to %d", cli_input_port);
+                } else {
+                    logMsg(LOG_EMERG, "Invalid input port value: %d", p);
+                    exit(-1);
+                }
+                i++;
+            } else {
+                logMsg(LOG_EMERG, "Missing value for --input-port");
+                exit(-1);
+            }
+        }
+        else if (strcmp(argv[i], "--output-port") == 0)
+        {
+            if (argv[i+1] != NULL) {
+                int p = 0;
+                sscanf(argv[i+1], "%d", &p);
+                if (p > 0 && p <= 65535) {
+                    cli_output_port = (uint16_t)p;
+                    logMsg(LOG_INFO, "Set cli_output_port to %d", cli_output_port);
+                } else {
+                    logMsg(LOG_EMERG, "Invalid output port value: %d", p);
+                    exit(-1);
+                }
+                i++;
+            } else {
+                logMsg(LOG_EMERG, "Missing value for --output-port");
+                exit(-1);
+            }
+        }
+        else if (strstr(argv[i], "--enable-output-ssl") != NULL)
+        {
+            cli_enable_output_ssl = true;
+            logMsg(LOG_INFO, "Set enable output SSL mode");
+        }
+        else if (strstr(argv[i], "--enable-input-ssl") != NULL)
+        {
+            cli_enable_input_ssl = true;
+            logMsg(LOG_INFO, "Set enable input SSL mode");
+        }
+        else if (strstr(argv[i], "--statistics-retention") != NULL)
+        {
+            if (argv[i+1] != NULL) {
+                int days = 0;
+                sscanf(argv[i+1], "%d", &days);
+                if (days > 0) {
+                    statistics_retention_period = (time_t)days * 24 * 60 * 60;
+                    logMsg(LOG_INFO, "Set statistics retention period to %d days", days);
+                } else {
+                    logMsg(LOG_ERR, "Invalid statistics retention period: %d", days);
+                }
+                i++;
+            } else {
+                logMsg(LOG_ERR, "Missing value for --statistics-retention");
+            }
         }
     }
 
     char log[128];
     sprintf(log, "logs/module_net_port_server_u%d.log", user_id);
     logMsgOpen(log);
+    logMsgSetPriority(verbose_level);
     logMsg(LOG_DEBUG, "Start logger...");
 
-    db_init(DB_conn_data.ip, DB_conn_data.port);
-
-    servers_init(user_id);
+    if (!no_db_mode) {
+        db_init(DB_conn_data.ip, DB_conn_data.port, DB_conn_data.username, DB_conn_data.password);
+        servers_init(user_id, cert_file, key_file, statistics_retention_period);
+    } else {
+        if (cli_input_port == 0 || cli_output_port == 0) {
+            logMsg(LOG_EMERG, "--no-db mode requires --input-port and --output-port to be set\n");
+            exit(-1);
+        }
+        servers_init_no_db(cert_file, key_file, cli_input_port, cli_output_port, cli_enable_output_ssl, cli_enable_input_ssl, statistics_retention_period);
+    }
     switcher_servers_start();
+
+    if (!no_db_mode) {
+        // Запускаем поток для периодического сохранения статистики
+        Thread statistics_thread = Thread_create(statistics_saver_thread, NULL, false);
+        if (statistics_thread != NULL) {
+            Thread_start(statistics_thread);
+            logMsg(LOG_INFO, "Started statistics saver thread");
+        } else {
+            logMsg(LOG_ERR, "Failed to create statistics saver thread");
+        }
+    }
 
     while (1) {
         if(Hal_getMonotonicTimeInMs() - last_monotonic_time > 1000UL)
@@ -90,6 +270,19 @@ int main(int argc, char** argv) {
             increment_time_counter();
 
             last_monotonic_time = Hal_getMonotonicTimeInMs();
+        }
+
+        // Проверяем, не запрошено ли завершение работы
+        if (is_stop_requested()) {
+            logMsg(LOG_INFO, "Stopping server...");
+            switcher_servers_stop();
+            logMsg(LOG_INFO, "Server stopped successfully");
+            if (!no_db_mode) {
+                exit_nicely(get_db_connection());
+            } else {
+                exit(0);
+            }
+            return 0;
         }
 
         msleep(10);

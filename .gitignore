@@ -1,11 +1,14 @@
 .idea
 /.idea
 /cmake-build*
-/build
+build
+.cache
 node_modules
 combined.log
 error.log
 result
 __pycache__
 .vs
+.vscode/deploy_args.json
 /client_win/out
+.env

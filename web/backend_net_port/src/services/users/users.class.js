@@ -60,7 +60,7 @@ After=network.target auditd.service\n\
 \n\
 [Service]\n\
 WorkingDirectory=/root/net_port\n\
-ExecStart=/bin/su -c "/root/net_port/module_net_port_server* --user ${id}"\n\
+ExecStart=/bin/su -c "/home/net_port/module_net_port_server* --user ${id} --cert server.crt --key server.key --threads 10"\n\
 User=root\n\
 Type=simple\n\
 Restart=always\n\

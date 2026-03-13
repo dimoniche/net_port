@@ -1,8 +1,12 @@
 #include <signal.h>
+#include <stdbool.h>
 
 #include "signal_handler.h"
 #include "db.h"
 #include "db_proc.h"
+#include "proxy_server.h"
+
+static volatile bool stop_requested = false;
 
 void signal_init(void)
 {
@@ -12,15 +16,19 @@ void signal_init(void)
     signal(SIGALRM, sigHandler);
 }
 
+bool is_stop_requested() {
+    return stop_requested;
+}
+
 void sigHandler(int sigNum)
 {
     if (sigNum == SIGINT) {
-        logMsg(LOG_ERR, "SIGINT stopped...");
-        exit_nicely(get_db_connection());
+        logMsg(LOG_ERR, "SIGINT received, stopping server...");
+        stop_requested = true;
     }
     else if (sigNum == SIGTERM) {
-        logMsg(LOG_ERR, "SIGTERM stopped...");
-        exit_nicely(get_db_connection());
+        logMsg(LOG_ERR, "SIGTERM received, stopping server...");
+        stop_requested = true;
     }
     else if (sigNum == SIGALRM) {
     }

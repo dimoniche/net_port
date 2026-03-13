@@ -17,6 +17,12 @@
 #define HOST_KEY_OUT                "--host_out"
 #define PORT_KEY_OUT                "-p_out"
 
+#define CONNECTIONS_KEY          "--connections"
+#define CONNECTIONS_KEY_SHORT     "-c"
+#define TIMEOUT_KEY              "--timeout"
+#define TIMEOUT_KEY_SHORT        "-t"
+#define DISABLE_TIMEOUT_KEY      "--disable-timeout"
+
 #define HELP_KEY_FULL               "--help"
 #define HELP_KEY                    "--h"
 

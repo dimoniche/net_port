@@ -1,31 +1,65 @@
+import paramiko
 from Common import web_files
 
 import subprocess
 import os
 import shutil
+import sys
 
-def uspd_web_update(build, ssh_ip, ssh_user, ssh_password):
+def deploy_database(ssh_ip, ssh_user, ssh_password, dbname, db_user, db_password, db_host='localhost', db_port='5432'):
+    """
+    Развертывание базы данных на удаленном сервере.
+    """
+    print("Deploy database...")
+    
+    # Копируем скрипт развертывания базы данных на сервер
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(hostname=ssh_ip, port=22, username=ssh_user, password=ssh_password)
+    ftp_client = client.open_sftp()
+    
+    ftp_client.put("web/deploy/deploy_db.py", '/root/deploy_db.py')
+    ftp_client.close()
+    
+    # Запускаем скрипт развертывания базы данных на сервере
+    command = f'python3 /root/deploy_db.py {dbname} {db_user} {db_password} {db_host} {db_port}'
+    stdin, stdout, stderr = client.exec_command(command)
+    status_command = stdout.channel.recv_exit_status()
+    
+    if status_command == 0:
+        print("Database deployed successfully")
+    else:
+        print("Failed to deploy database")
+        print(stderr.read().decode())
+    
+    client.close()
+
+def uspd_web_update(build, ssh_ip, ssh_user, ssh_password, db_name, db_user, db_password, db_host='localhost', db_port='5432'):
+
+    # Развертывание базы данных
+    # if not build:
+    #    deploy_database(ssh_ip, ssh_user, ssh_password, db_name, db_user, db_password, db_host, db_port)
 
     # создаем архив с backend
-    inFolder = "web\\backend_net_port"
-    outFolder = "web\\result"
+    inFolder = "web/backend_net_port"
+    outFolder = "web/result"
 
     if not os.path.isdir(outFolder):
         os.makedirs(outFolder)
 
-    if not os.path.isdir(inFolder + '\\node_modules'):
+    if not os.path.isdir(inFolder + '/node_modules'):
         print('Update depends backends: npm install')
         subprocess.check_call('npm install', shell=True, cwd=inFolder)
 
     print("Create tar with backend in folder: " + outFolder)
-    web_files.make_tarfile(outFolder + "\\backend.tgz", inFolder)
+    web_files.make_tarfile(outFolder + "/backend.tgz", inFolder)
     print("success\n")
 
     # создаем сборку frontend
-    inFolder =  "web\\frontend_net_port"
+    inFolder =  "web/frontend_net_port"
     print("Create client: " + inFolder)
 
-    if not os.path.isdir(inFolder + '\\node_modules'):
+    if not os.path.isdir(inFolder + '/node_modules'):
         print('Update depends: npm install')
         subprocess.check_call('npm install', shell=True, cwd=inFolder)
 
@@ -37,10 +71,10 @@ def uspd_web_update(build, ssh_ip, ssh_user, ssh_password):
     print("success\n")
 
     # создаем архив с frontend
-    inFolder = "web\\frontend_net_port\\build"
+    inFolder = "web/frontend_net_port/build"
 
     print("Create tar with backend in folder: " + outFolder)
-    web_files.make_tarfile(outFolder + "\\frontend.tgz", inFolder)
+    web_files.make_tarfile(outFolder + "/frontend.tgz", inFolder)
     print("success\n")
 
     if not build:

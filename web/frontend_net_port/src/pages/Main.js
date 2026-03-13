@@ -82,6 +82,8 @@ const Main = () => {
                 </TableContainer>
             </Grid>
             <Grid item xs={12}></Grid>
+            {
+            false ? 
             <Grid item xs={12}>
                 <TableContainer component={Paper} sx={{ maxWidth: 900, mt: 2 }}>
                     <Table sx={{ minWidth: 900 }} aria-label="simple table">
@@ -226,6 +228,9 @@ const Main = () => {
                     </Table>
                 </TableContainer>
             </Grid>
+            : <></>}
+            {
+            false ? 
             <Grid item xs={12}>
                 <TableContainer component={Paper} sx={{ maxWidth: 900, mt: 2 }}>
                     <Table sx={{ minWidth: 900 }} aria-label="simple table">
@@ -307,6 +312,7 @@ const Main = () => {
                     </Table>
                 </TableContainer>
             </Grid>
+            : <></>}
         </Grid>
     );
 };

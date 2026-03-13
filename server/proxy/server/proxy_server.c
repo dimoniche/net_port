@@ -2,6 +2,10 @@
 
 #include <fcntl.h>
 #include <sys/time.h>
+#include <stdlib.h>
+#include <semaphore.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "db.h"
 #include "logMsg.h"
@@ -10,11 +14,26 @@
 #include "db_func.h"
 #include "time_counter.h"
 
+// Глобальное определение переменной количества потоков
+int COUNT_SOCKET_THREAD = 25;
+
 static proxy_server_t* servers;
 static uint16_t servers_count;
-
 static int32_t count_open_crypt_session = 0;
 static proxy_servers_settings_t proxy_settings;
+
+// Семафор для защиты доступа к статистике серверов
+sem_t statistics_semaphore;
+
+// Функция для поиска индекса сервера в массиве по его ID
+int find_server_index_by_id(uint16_t server_id) {
+    for (int i = 0; i < servers_count; i++) {
+        if (servers[i].id == server_id) {
+            return i;
+        }
+    }
+    return -1; // Сервер с таким ID не найден
+}
 
 int init_input_socket(proxy_server_t * server);
 int init_output_socket(proxy_server_t * server);
@@ -29,8 +48,33 @@ void input_server_wait_stop(proxy_server_t * server);
 int get_free_input_socket(proxy_server_thread_data_t * data);
 int get_free_output_socket(proxy_server_thread_data_t * data);
 
+// Функция для периодического сохранения статистики
+void* statistics_saver_thread(void* arg) {
+    // Выполняем очистку устаревших данных при первом запуске
+    cleanup_old_statistics(proxy_settings.statistics_retention_period);
+    
+    while(1) {
+        Thread_sleep(60000); // Сохраняем статистику каждую минуту
+        
+        for(int i = 0; i < servers_count; i++) {
+            if(servers[i].enable) {
+                save_server_statistics(&servers[i]);
+            }
+        }
+        
+        // Выполняем очистку устаревших данных раз в час (каждые 60 итераций)
+        static int cleanup_counter = 0;
+        cleanup_counter++;
+        if (cleanup_counter >= 60) {
+            cleanup_old_statistics(proxy_settings.statistics_retention_period);
+            cleanup_counter = 0;
+        }
+    }
+    return NULL;
+}
+
 int
-servers_init(uint32_t user_id)
+servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period)
 {
     int32_t res = get_user_server_ports(user_id, &servers, &servers_count);
 
@@ -42,11 +86,40 @@ servers_init(uint32_t user_id)
 
     memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
     strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
+    proxy_settings.statistics_retention_period = statistics_retention_period;
 
-    for(int i = 0; i < servers_count; i++) {
+    // Инициализация семафора для защиты статистики
+    if (sem_init(&statistics_semaphore, 0, 1) != 0) {
+        logMsg(LOG_ERR, "Failed to initialize statistics semaphore\n");
+        exit_nicely(get_db_connection());
+        return -1;
+    }
+
+    // Инициализация OpenSSL перед созданием SSL контекстов
+    init_openssl();
+
+    for(int i = 0; i < servers_count; i++)
+    {
 
         if(!servers[i].enable) continue;
+
+        // Сохраняем пути к сертификатам для каждого сервера
+        if (cert_file) {
+            strncpy(servers[i].cert_file, cert_file, sizeof(servers[i].cert_file) - 1);
+            servers[i].cert_file[sizeof(servers[i].cert_file) - 1] = '\0';
+        } else {
+            servers[i].cert_file[0] = '\0';
+        }
         
+        if (key_file) {
+            strncpy(servers[i].key_file, key_file, sizeof(servers[i].key_file) - 1);
+            servers[i].key_file[sizeof(servers[i].key_file) - 1] = '\0';
+        } else {
+            servers[i].key_file[0] = '\0';
+        }
+
+        // Инициализация SSL если нужно
+        init_ssl_context(&servers[i]);
         if(server_input_init(&servers[i]) < 0) {
             servers[i].is_input_enabled = false;
         } else {
@@ -60,6 +133,83 @@ servers_init(uint32_t user_id)
     }
 
     return res;
+}
+
+// Инициализация одного сервера без использования БД (используется для режимов --no-db)
+int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl, bool enable_input_ssl, time_t statistics_retention_period) {
+    // Освободим предыдущие контексты при повторном вызове
+    if (servers) {
+        for (int i = 0; i < servers_count; i++) {
+            cleanup_ssl_context(&servers[i]);
+        }
+        free(servers);
+        servers = NULL;
+        servers_count = 0;
+    }
+
+    servers_count = 1;
+    servers = (proxy_server_t*) malloc(sizeof(proxy_server_t) * servers_count);
+    if (!servers) {
+        logMsg(LOG_ERR, "Failed to allocate memory for servers (no-db mode)\n");
+        return -1;
+    }
+
+    memset(servers, 0, sizeof(proxy_server_t) * servers_count);
+
+    // Инициализация семафора для защиты статистики
+    if (sem_init(&statistics_semaphore, 0, 1) != 0) {
+        logMsg(LOG_ERR, "Failed to initialize statistics semaphore\n");
+        free(servers);
+        servers = NULL;
+        servers_count = 0;
+        return -1;
+    }
+    
+    proxy_settings.statistics_retention_period = statistics_retention_period;
+
+    servers[0].id = 0;
+    servers[0].enable = true;
+    servers[0].input_port = input_port;
+    servers[0].output_port = output_port;
+    servers[0].is_input_enabled = true;
+    servers[0].is_output_enabled = true;
+    servers[0].enable_output_ssl = enable_output_ssl;
+    servers[0].enable_input_ssl = enable_input_ssl;
+
+    // Инициализируем статистику
+    servers[0].statistics.bytes_received = 0;
+    servers[0].statistics.bytes_sent = 0;
+    servers[0].statistics.connections_count = 0;
+    servers[0].statistics.last_update = time(NULL);
+
+    if (cert_file) {
+        strncpy(servers[0].cert_file, cert_file, sizeof(servers[0].cert_file)-1);
+        servers[0].cert_file[sizeof(servers[0].cert_file)-1] = '\0';
+    }
+    if (key_file) {
+        strncpy(servers[0].key_file, key_file, sizeof(servers[0].key_file)-1);
+        servers[0].key_file[sizeof(servers[0].key_file)-1] = '\0';
+    }
+
+    // Инициализируем SSL контекст если требуется
+    init_ssl_context(&servers[0]);
+
+    // Инициализация сокетов
+    if (server_input_init(&servers[0]) < 0) {
+        servers[0].is_input_enabled = false;
+    } else {
+        servers[0].is_input_enabled = true;
+    }
+    if (server_output_init(&servers[0]) < 0) {
+        servers[0].is_output_enabled = false;
+    } else {
+        servers[0].is_output_enabled = true;
+    }
+
+    logMsg(LOG_INFO, "Initialized single server without DB: input_port=%d output_port=%d enable_output_ssl=%d enable_input_ssl=%d\n",
+           input_port, output_port, enable_output_ssl, enable_input_ssl);
+
+    return 0;
 }
 
 int
@@ -96,7 +246,21 @@ switcher_servers_start()
         if(connections_data != NULL) {
             logMsg(LOG_DEBUG, "Malloc connections data\n");
             memset(connections_data, 0, sizeof(proxy_server_thread_data_t));
+            
+            // Выделяем память для массива local_sockets
+            connections_data->local_sockets = (proxy_server_local_socket_data_t *) malloc(COUNT_SOCKET_THREAD * sizeof(proxy_server_local_socket_data_t));
+            if(connections_data->local_sockets == NULL) {
+                logMsg(LOG_ERR, "Failed to allocate memory for local_sockets\n");
+                free(connections_data);
+                continue;
+            }
+            memset(connections_data->local_sockets, 0, COUNT_SOCKET_THREAD * sizeof(proxy_server_local_socket_data_t));
+            
+            // Копируем данные сервера, кроме SSL контекста
             memcpy(&connections_data->data, &servers[i], sizeof(proxy_server_t));
+            
+            // Восстанавливаем указатель на оригинальный SSL контекст
+            connections_data->data.ssl_ctx = servers[i].ssl_ctx;
 
             server = &connections_data->data;
         } else {
@@ -122,6 +286,8 @@ switcher_servers_start()
                 logMsg(LOG_ERR, "Starting input server failed!\n");
 
                 server->is_input_enabled = false;
+                if(connections_data->local_sockets) free(connections_data->local_sockets);
+                free(connections_data);
                 continue;
             }
         }
@@ -133,6 +299,8 @@ switcher_servers_start()
                 logMsg(LOG_ERR, "Starting output server failed!\n");
 
                 server->is_output_enabled = false;
+                if(connections_data->local_sockets) free(connections_data->local_sockets);
+                free(connections_data);
                 continue;
             }
         }
@@ -142,6 +310,14 @@ switcher_servers_start()
     logMsg(LOG_DEBUG, "%d servers started!\n", count);
 
     return 0;
+}
+
+// Очистка SSL контекста при остановке сервера
+void cleanup_ssl_context(proxy_server_t *server) {
+    if (server->ssl_ctx) {
+        SSL_CTX_free(server->ssl_ctx);
+        server->ssl_ctx = NULL;
+    }
 }
 
 int
@@ -163,6 +339,18 @@ switcher_servers_stop()
 
     input_server_wait_stop(&servers[i]);
   }*/
+
+  // Очистка SSL контекстов для всех серверов
+  for(int i = 0; i < servers_count; i++)
+  {
+      cleanup_ssl_context(&servers[i]);
+  }
+
+  // Очистка OpenSSL
+  cleanup_openssl();
+
+  // Уничтожаем семафор
+  sem_destroy(&statistics_semaphore);
 
   logMsg(LOG_INFO, "%d servers stopped\n", count);
 
@@ -215,6 +403,165 @@ init_input_socket(proxy_server_t * server)
     }
 
     return 0;
+}
+
+// Функция для восстановления SSL-соединения
+void
+reconnect_ssl(proxy_server_local_socket_data_t * thread_data, bool is_input)
+{
+    // Попытка повторного подключения с линейной задержкой
+    int retry_count = 0;
+    const int max_retries = 5;
+    const int base_delay = 1; // Базовая задержка в секундах
+    
+    while (retry_count < max_retries) {
+        if (is_input) {
+            if (thread_data->ssl_input) {
+                SSL_free(thread_data->ssl_input);
+                thread_data->ssl_input = NULL;
+            }
+            
+            if (thread_data->input_local != -1) {
+                close(thread_data->input_local);
+                thread_data->input_local = -1;
+            }
+            
+            logMsg(LOG_INFO, "Attempting to reconnect input SSL connection on port %d (attempt %d)\n",
+                   thread_data->data->input_port, retry_count + 1);
+            
+            // Переподключение
+            thread_data->input_local = socket(AF_INET, SOCK_STREAM, 0);
+            if (thread_data->input_local < 0) {
+                logMsg(LOG_ERR, "Failed to create new input socket: %s\n", strerror(errno));
+                retry_count++;
+                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
+                continue;
+            }
+            
+            int flags = fcntl(thread_data->input_local, F_GETFL, 0);
+            if (fcntl(thread_data->input_local, F_SETFL, flags | O_NONBLOCK) < 0) {
+                logMsg(LOG_ERR, "Failed to set non-blocking mode for new input socket\n");
+                close(thread_data->input_local);
+                thread_data->input_local = -1;
+                retry_count++;
+                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
+                continue;
+            }
+            
+            // SSL handshake
+            thread_data->ssl_input = SSL_new(thread_data->data->ssl_ctx);
+            if (!thread_data->ssl_input) {
+                logMsg(LOG_ERR, "Failed to create new SSL object for input\n");
+                close(thread_data->input_local);
+                thread_data->input_local = -1;
+                retry_count++;
+                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
+                continue;
+            }
+            
+            SSL_set_fd(thread_data->ssl_input, thread_data->input_local);
+            
+            int sock_flags = fcntl(thread_data->input_local, F_GETFL, 0);
+            if (sock_flags >= 0) {
+                fcntl(thread_data->input_local, F_SETFL, sock_flags & ~O_NONBLOCK);
+            }
+            
+            int ssl_ret = SSL_accept(thread_data->ssl_input);
+            
+            if (sock_flags >= 0) {
+                fcntl(thread_data->input_local, F_SETFL, sock_flags);
+            }
+            
+            if (ssl_ret != 1) {
+                logMsg(LOG_ERR, "SSL reconnection handshake failed on input_port %d\n", thread_data->data->input_port);
+                SSL_free(thread_data->ssl_input);
+                thread_data->ssl_input = NULL;
+                close(thread_data->input_local);
+                thread_data->input_local = -1;
+                retry_count++;
+                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
+                continue;
+            } else {
+                logMsg(LOG_INFO, "SSL reconnection successful on input_port %d\n", thread_data->data->input_port);
+                break; // Успешное подключение
+            }
+        } else {
+            if (thread_data->ssl_output) {
+                SSL_free(thread_data->ssl_output);
+                thread_data->ssl_output = NULL;
+            }
+            
+            if (thread_data->output_local != -1) {
+                close(thread_data->output_local);
+                thread_data->output_local = -1;
+            }
+            
+            logMsg(LOG_INFO, "Attempting to reconnect output SSL connection on port %d (attempt %d)\n",
+                   thread_data->data->output_port, retry_count + 1);
+            
+            // Переподключение
+            thread_data->output_local = socket(AF_INET, SOCK_STREAM, 0);
+            if (thread_data->output_local < 0) {
+                logMsg(LOG_ERR, "Failed to create new output socket: %s\n", strerror(errno));
+                retry_count++;
+                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
+                continue;
+            }
+            
+            int flags = fcntl(thread_data->output_local, F_GETFL, 0);
+            if (fcntl(thread_data->output_local, F_SETFL, flags | O_NONBLOCK) < 0) {
+                logMsg(LOG_ERR, "Failed to set non-blocking mode for new output socket\n");
+                close(thread_data->output_local);
+                thread_data->output_local = -1;
+                retry_count++;
+                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
+                continue;
+            }
+            
+            // SSL handshake
+            thread_data->ssl_output = SSL_new(thread_data->data->ssl_ctx);
+            if (!thread_data->ssl_output) {
+                logMsg(LOG_ERR, "Failed to create new SSL object for output\n");
+                close(thread_data->output_local);
+                thread_data->output_local = -1;
+                retry_count++;
+                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
+                continue;
+            }
+            
+            SSL_set_fd(thread_data->ssl_output, thread_data->output_local);
+            
+            int sock_flags = fcntl(thread_data->output_local, F_GETFL, 0);
+            if (sock_flags >= 0) {
+                fcntl(thread_data->output_local, F_SETFL, sock_flags & ~O_NONBLOCK);
+            }
+            
+            int ssl_ret = SSL_accept(thread_data->ssl_output);
+            
+            if (sock_flags >= 0) {
+                fcntl(thread_data->output_local, F_SETFL, sock_flags);
+            }
+            
+            if (ssl_ret != 1) {
+                logMsg(LOG_ERR, "SSL reconnection handshake failed on output_port %d\n", thread_data->data->output_port);
+                SSL_free(thread_data->ssl_output);
+                thread_data->ssl_output = NULL;
+                close(thread_data->output_local);
+                thread_data->output_local = -1;
+                retry_count++;
+                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
+                continue;
+            } else {
+                logMsg(LOG_INFO, "SSL reconnection successful on output_port %d\n", thread_data->data->output_port);
+                break; // Успешное подключение
+            }
+        }
+    }
+    
+    // Если не удалось подключиться после всех попыток
+    if (retry_count >= max_retries) {
+        logMsg(LOG_ERR, "Failed to reconnect SSL connection after %d attempts\n", max_retries);
+    }
 }
 
 int
@@ -278,16 +625,103 @@ connection_input_handler (void* parameter)
 
     logMsg(LOG_INFO, "Start new connection_input_handler on input_port %d\n", thread_data->data->input_port);
 
+    // Инициализация SSL если нужно
+    if (thread_data->data->enable_input_ssl) {
+        if (!thread_data->data->ssl_ctx) {
+            logMsg(LOG_ERR, "SSL context is not initialized on input_port %d\n", thread_data->data->input_port);
+            close(thread_data->input_local);
+            thread_data->is_input_connected = false;
+            return 0;
+        }
+        thread_data->ssl_input = SSL_new(thread_data->data->ssl_ctx);
+        if (!thread_data->ssl_input) {
+            logMsg(LOG_ERR, "Failed to create SSL object on input_port %d\n", thread_data->data->input_port);
+            // Выводим детальную информацию об ошибке OpenSSL
+            unsigned long ssl_err;
+            while ((ssl_err = ERR_get_error()) != 0) {
+                char err_buf[256];
+                ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+                logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+            }
+            close(thread_data->input_local);
+            thread_data->is_input_connected = false;
+            return 0;
+        }
+
+        SSL_set_fd(thread_data->ssl_input, thread_data->input_local);
+
+        /*
+         * Ensure the socket is blocking during the TLS handshake.
+         * The accept() earlier sets the accepted socket to non-blocking which
+         * can cause SSL_accept() to return with WANT_READ/WANT_WRITE and be
+         * treated as a fatal error here. Temporarily clear O_NONBLOCK, perform
+         * the handshake, then restore the original flags (including non-blocking).
+         */
+        int sock_flags = fcntl(thread_data->input_local, F_GETFL, 0);
+        if (sock_flags >= 0) {
+            fcntl(thread_data->input_local, F_SETFL, sock_flags & ~O_NONBLOCK);
+        }
+
+        int ssl_ret = SSL_accept(thread_data->ssl_input);
+
+        /* restore original flags (re-enable non-blocking if it was set) */
+        if (sock_flags >= 0) {
+            fcntl(thread_data->input_local, F_SETFL, sock_flags);
+        }
+
+        if (ssl_ret != 1) {
+            logMsg(LOG_ERR, "SSL handshake failed on input_port %d with result %d\n", thread_data->data->input_port, ssl_ret);
+
+            // Получаем код ошибки SSL
+            int ssl_err = SSL_get_error(thread_data->ssl_input, ssl_ret);
+            logMsg(LOG_ERR, "SSL accept error code: %d\n", ssl_err);
+
+            /* Log detailed OpenSSL errors */
+            unsigned long err;
+            while ((err = ERR_get_error()) != 0) {
+                char err_str[256];
+                ERR_error_string_n(err, err_str, sizeof(err_str));
+                logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+            }
+
+            // Освобождаем SSL объект и закрываем сокет
+            if (thread_data->ssl_input) {
+                SSL_free(thread_data->ssl_input);
+                thread_data->ssl_input = NULL;
+            }
+            if (thread_data->input_local != -1) {
+                close(thread_data->input_local);
+                thread_data->input_local = -1;
+            }
+            thread_data->is_input_connected = false;
+            return 0;
+        }
+        logMsg(LOG_INFO, "SSL connection established on input_port %d\n", thread_data->data->input_port);
+    }
+
+    // Обновляем статистику - увеличиваем количество соединений
+    thread_data->data->statistics.connections_count++;
+
+    // Защищаем доступ к статистике семафором
+    sem_wait(&statistics_semaphore);
+    {
+        int stats_server_index = find_server_index_by_id(thread_data->data->id);
+        if (stats_server_index >= 0) {
+            memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+        }
+    }
+    sem_post(&statistics_semaphore);
+
     while (!done_output_connection) {
         fd_set read_set;
         FD_ZERO(&read_set);
         FD_SET(thread_data->input_local, &read_set);
 
-        if(get_time_counter() - last_exchange_time > RESTART_CONNECTION_TIMEOUT) {
+        /*if(get_time_counter() - last_exchange_time > RESTART_CONNECTION_TIMEOUT) {
             logMsg(LOG_DEBUG,"Start timeout disconnect on input_port %d\n", thread_data->data->input_port);
             done_output_connection = 1;
             break;
-        }
+        }*/
 
         struct timeval timeout;
         timeout.tv_sec = 1;
@@ -303,19 +737,60 @@ connection_input_handler (void* parameter)
         }
 
         if(FD_ISSET(thread_data->input_local, &read_set)) {
-            len_epdu = recv(thread_data->input_local, (char *) thread_data->input_buf, sizeof(thread_data->input_buf),
-                            0);
+            if (thread_data->data->enable_input_ssl) {
+                len_epdu = SSL_read(thread_data->ssl_input, (char *) thread_data->input_buf, sizeof(thread_data->input_buf));
+
+                if (len_epdu <= 0) {
+                    int ssl_err = SSL_get_error(thread_data->ssl_input, len_epdu);
+                    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+                        /* Non-blocking socket wants more data; skip this cycle */
+                        Thread_sleep(1);
+                        continue;
+                    } else if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                        logMsg(LOG_INFO, "Input SSL connection closed\n");
+                        break;
+                    } else {
+                        logMsg(LOG_ERR, "Input SSL error %d\n", ssl_err);
+                        // Добавляем более детальную информацию об ошибке
+                        logMsg(LOG_ERR, "SSL_read returned %d, SSL_get_error returned %d\n", len_epdu, ssl_err);
+                        unsigned long e;
+                        while ((e = ERR_get_error()) != 0) {
+                            char err_str[256];
+                            ERR_error_string_n(e, err_str, sizeof(err_str));
+                            logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                        }
+                        // Освобождаем SSL объект
+                        if (thread_data->ssl_input) {
+                            SSL_free(thread_data->ssl_input);
+                            thread_data->ssl_input = NULL;
+                        }
+                        
+                        // Попытка восстановления соединения
+                        reconnect_ssl(thread_data, true);
+                        if (thread_data->ssl_input) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                len_epdu = recv(thread_data->input_local, (char *) thread_data->input_buf, sizeof(thread_data->input_buf), 0);
+
+                if (len_epdu <= 0) {
+                    if(len_epdu == 0) {
+                        logMsg(LOG_INFO, "Input recv() connection closed\n");
+                    } else {
+                      logMsg(LOG_ERR, "Input recv() error:: %d\n", WSAGetLastError());
+                    }
+                    break;
+                }
+            }
 
             logMsg(LOG_INFO, "Receive data from input port %d: lenght %d\n",thread_data->data->input_port, len_epdu);
 
-            if (len_epdu <= 0) {
-                if(len_epdu == 0) {
-                    logMsg(LOG_INFO, "Input recv() connection closed\n");
-                } else {
-                  logMsg(LOG_ERR, "Input recv() error:: %d\n", WSAGetLastError());
-                }
-                break;
-            }
+            // Обновляем статистику - байты получены
+            update_server_statistics(servers, thread_data->data, len_epdu, 0);
 
             int remaining = len_epdu;
             int sent = 0;
@@ -346,9 +821,38 @@ connection_input_handler (void* parameter)
             }
 
             do {
-                int result = send(thread_data->output_local,
+                int result;
+                if (thread_data->data->enable_output_ssl) {
+                    if (!thread_data->ssl_output) {
+                        logMsg(LOG_ERR, "SSL output object is NULL on port %d\n", thread_data->data->output_port);
+                        break;
+                    }
+                    result = SSL_write(thread_data->ssl_output, (const char *)&thread_data->input_buf[sent], len_epdu - sent);
+                    
+                    if (result <= 0) {
+                        int ssl_err = SSL_get_error(thread_data->ssl_output, result);
+                        if (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_WANT_WRITE) {
+                            logMsg(LOG_ERR, "SSL write error %d on output port %d\n", ssl_err, thread_data->data->output_port);
+                            // Добавляем более детальную информацию об ошибке
+                            logMsg(LOG_ERR, "SSL_write returned %d, SSL_get_error returned %d\n", result, ssl_err);
+                            unsigned long e;
+                            while ((e = ERR_get_error()) != 0) {
+                                char err_str[256];
+                                ERR_error_string_n(e, err_str, sizeof(err_str));
+                                logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                            }
+                            // Освобождаем SSL объект
+                            if (thread_data->ssl_output) {
+                                SSL_free(thread_data->ssl_output);
+                                thread_data->ssl_output = NULL;
+                            }
+                        }
+                    }
+                } else {
+                    result = send(thread_data->output_local,
                                 (const char *)&thread_data->input_buf[sent],
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                }
 
                 logMsg(LOG_INFO, "Send output data to port %d result %d\n", thread_data->data->output_port, result);
 
@@ -402,10 +906,32 @@ connection_input_handler (void* parameter)
     }
 
     // сообщим о закрытии клиенту
-    close(thread_data->input_local);
+    // Освобождаем SSL объект если он был создан
+    if (thread_data->ssl_input) {
+        SSL_free(thread_data->ssl_input);
+        thread_data->ssl_input = NULL;
+    }
+
+    if (thread_data->input_local != -1) {
+        close(thread_data->input_local);
+        thread_data->input_local = -1;
+    }
     thread_data->close_output_socket = true;
 
     thread_data->is_input_connected = false;
+
+    // Обновляем статистику - уменьшаем количество соединений
+    thread_data->data->statistics.connections_count--;
+
+    // Защищаем доступ к статистике семафором
+    sem_wait(&statistics_semaphore);
+    {
+        int stats_server_index = find_server_index_by_id(thread_data->data->id);
+        if (stats_server_index >= 0) {
+            memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+        }
+    }
+    sem_post(&statistics_semaphore);
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);
 
@@ -422,6 +948,80 @@ connection_output_handler (void* parameter)
 
     thread_data->is_output_connected = true;
     logMsg(LOG_INFO, "Start new connection_output_handler on output_port %d\n", thread_data->data->output_port);
+     
+    // Инициализация SSL если нужно
+    if (thread_data->data->enable_output_ssl) {
+        if (!thread_data->data->ssl_ctx) {
+            logMsg(LOG_ERR, "SSL context is not initialized on output_port %d\n", thread_data->data->output_port);
+            close(thread_data->output_local);
+            thread_data->is_output_connected = false;
+            return 0;
+        }
+        thread_data->ssl_output = SSL_new(thread_data->data->ssl_ctx);
+        if (!thread_data->ssl_output) {
+            logMsg(LOG_ERR, "Failed to create SSL object on output_port %d\n", thread_data->data->output_port);
+            // Выводим детальную информацию об ошибке OpenSSL
+            unsigned long ssl_err;
+            while ((ssl_err = ERR_get_error()) != 0) {
+                char err_buf[256];
+                ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+                logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+            }
+            close(thread_data->output_local);
+            thread_data->is_output_connected = false;
+            return 0;
+        }
+        
+        SSL_set_fd(thread_data->ssl_output, thread_data->output_local);
+
+        /*
+         * Ensure the socket is blocking during the TLS handshake.
+         * The accept() earlier sets the accepted socket to non-blocking which
+         * can cause SSL_accept() to return with WANT_READ/WANT_WRITE and be
+         * treated as a fatal error here. Temporarily clear O_NONBLOCK, perform
+         * the handshake, then restore the original flags (including non-blocking).
+         */
+        int sock_flags = fcntl(thread_data->output_local, F_GETFL, 0);
+        if (sock_flags >= 0) {
+            fcntl(thread_data->output_local, F_SETFL, sock_flags & ~O_NONBLOCK);
+        }
+
+        int ssl_ret = SSL_accept(thread_data->ssl_output);
+
+        /* restore original flags (re-enable non-blocking if it was set) */
+        if (sock_flags >= 0) {
+            fcntl(thread_data->output_local, F_SETFL, sock_flags);
+        }
+
+        if (ssl_ret != 1) {
+            logMsg(LOG_ERR, "SSL handshake failed on output_port %d with result %d\n", thread_data->data->output_port, ssl_ret);
+
+            // Получаем код ошибки SSL
+            int ssl_err = SSL_get_error(thread_data->ssl_output, ssl_ret);
+            logMsg(LOG_ERR, "SSL accept error code: %d\n", ssl_err);
+
+            /* Log detailed OpenSSL errors */
+            unsigned long err;
+            while ((err = ERR_get_error()) != 0) {
+                char err_str[256];
+                ERR_error_string_n(err, err_str, sizeof(err_str));
+                logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+            }
+
+            // Освобождаем SSL объект и закрываем сокет
+            if (thread_data->ssl_output) {
+                SSL_free(thread_data->ssl_output);
+                thread_data->ssl_output = NULL;
+            }
+            if (thread_data->output_local != -1) {
+                close(thread_data->output_local);
+                thread_data->output_local = -1;
+            }
+            thread_data->is_output_connected = false;
+            return 0;
+        }
+        logMsg(LOG_INFO, "SSL connection established on output_port %d\n", thread_data->data->output_port);
+    }
 
     while (!done_output_connection) {
         fd_set read_set;
@@ -449,19 +1049,61 @@ connection_output_handler (void* parameter)
         }
 
         if(FD_ISSET(thread_data->output_local, &read_set)) {
-            len_epdu = recv(thread_data->output_local, (char *) thread_data->output_buf, sizeof(thread_data->output_buf),
-                            0);
+            if (thread_data->data->enable_output_ssl) {
+                len_epdu = SSL_read(thread_data->ssl_output, (char *) thread_data->output_buf, sizeof(thread_data->output_buf));
 
-            logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",thread_data->data->output_port, len_epdu);
-
-            if (len_epdu <= 0) {
-                if(len_epdu == 0) {
-                    logMsg(LOG_INFO, "Output recv() connection closed\n");
-                } else {
-                  logMsg(LOG_ERR, "Output recv() error:: %d\n", WSAGetLastError());
+                if (len_epdu <= 0) {
+                    int ssl_err = SSL_get_error(thread_data->ssl_output, len_epdu);
+                    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+                        /* Non-blocking socket wants more data; skip this cycle */
+                        Thread_sleep(1);
+                        continue;
+                    } else if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                        logMsg(LOG_INFO, "Output SSL connection closed\n");
+                        break;
+                    } else {
+                        logMsg(LOG_ERR, "Output SSL error %d\n", ssl_err);
+                        // Добавляем более детальную информацию об ошибке
+                        logMsg(LOG_ERR, "SSL_read returned %d, SSL_get_error returned %d\n", len_epdu, ssl_err);
+                        unsigned long e;
+                        while ((e = ERR_get_error()) != 0) {
+                            char err_str[256];
+                            ERR_error_string_n(e, err_str, sizeof(err_str));
+                            logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                        }
+                        // Освобождаем SSL объект
+                        if (thread_data->ssl_output) {
+                            SSL_free(thread_data->ssl_output);
+                            thread_data->ssl_output = NULL;
+                        }
+                        
+                        // Попытка восстановления соединения
+                        reconnect_ssl(thread_data, false);
+                        if (thread_data->ssl_output) {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
                 }
-                break;
+            } else {
+                len_epdu = recv(thread_data->output_local, (char *) thread_data->output_buf, sizeof(thread_data->output_buf),
+                                0);
+
+                logMsg(LOG_INFO, "Receive data from output port %d: lenght %d\n",thread_data->data->output_port, len_epdu);
+
+                if (len_epdu <= 0) {
+                    if(len_epdu == 0) {
+                        logMsg(LOG_INFO, "Output recv() connection closed\n");
+                    } else {
+                      logMsg(LOG_ERR, "Output recv() error:: %d\n", WSAGetLastError());
+                    }
+                    break;
+                }
             }
+
+            // Обновляем статистику - байты получены
+            update_server_statistics(servers, thread_data->data, 0, len_epdu);
 
             int remaining = len_epdu;
             int sent = 0;
@@ -477,11 +1119,40 @@ connection_output_handler (void* parameter)
             }
 
             do {
-                int result = send(thread_data->input_local,
+                int result;
+                if (thread_data->data->enable_input_ssl) {
+                    if (!thread_data->ssl_input) {
+                        logMsg(LOG_ERR, "SSL input object is NULL on port %d\n", thread_data->data->input_port);
+                        break;
+                    }
+                    result = SSL_write(thread_data->ssl_input, (const char *)&thread_data->output_buf[sent], len_epdu - sent);
+                    
+                    if (result <= 0) {
+                        int ssl_err = SSL_get_error(thread_data->ssl_input, result);
+                        if (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_WANT_WRITE) {
+                            logMsg(LOG_ERR, "SSL write error %d on input port %d\n", ssl_err, thread_data->data->input_port);
+                            // Добавляем более детальную информацию об ошибке
+                            logMsg(LOG_ERR, "SSL_write returned %d, SSL_get_error returned %d\n", result, ssl_err);
+                            unsigned long e;
+                            while ((e = ERR_get_error()) != 0) {
+                                char err_str[256];
+                                ERR_error_string_n(e, err_str, sizeof(err_str));
+                                logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                            }
+                            // Освобождаем SSL объект
+                            if (thread_data->ssl_input) {
+                                SSL_free(thread_data->ssl_input);
+                                thread_data->ssl_input = NULL;
+                            }
+                        }
+                    }
+                } else {
+                    result = send(thread_data->input_local,
                                 (const char *)&thread_data->output_buf[sent],
                                 len_epdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                }
 
-                logMsg(LOG_INFO, "Send data to port %d result %d\n", thread_data->data->input_port, result);
+                //logMsg(LOG_INFO, "Send data to port %d result %d\n", thread_data->data->input_port, result);
 
                 if (result != -1)
                 {
@@ -496,7 +1167,7 @@ connection_output_handler (void* parameter)
                 else
                 {
                     int err = WSAGetLastError();
-                    logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", thread_data->data->input_port, err);
+                    //logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", thread_data->data->input_port, err);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -512,7 +1183,8 @@ connection_output_handler (void* parameter)
                             break;
                         }
 
-                        logMsg(LOG_INFO, "Send:: wait\n");
+                        //logMsg(LOG_INFO, "Send:: wait\n");
+                        Thread_sleep(1);
                         if(!thread_data->is_input_connected) break;
                         if(thread_data->close_output_socket) break;
                     }
@@ -534,7 +1206,17 @@ connection_output_handler (void* parameter)
     }
 
     // сообщим о закрытии клиенту
-    close(thread_data->output_local);
+    
+    // Освобождаем SSL объект если он был создан
+    if (thread_data->ssl_output) {
+        SSL_free(thread_data->ssl_output);
+        thread_data->ssl_output = NULL;
+    }
+     
+    if (thread_data->output_local != -1) {
+        close(thread_data->output_local);
+        thread_data->output_local = -1;
+    }
 
     thread_data->is_output_connected = false;
     thread_data->close_output_socket = false;
@@ -599,20 +1281,22 @@ serverInputThread (void* parameter)
                     continue;
                 }
 
+             
                 if(connections_data != NULL) {
 
                     // локальный входящий сокет для нового потока
                     connections_data->local_sockets[current_free_socket_input].input_local = socket_local;
-                
+                  
                     logMsg(LOG_DEBUG, "Start thread input socket create\n");
-
+     
                     Thread thread = Thread_create(connection_input_handler, (void *) &connections_data->local_sockets[current_free_socket_input], true);
-
+     
                     if (thread != NULL) {
                         Thread_start(thread);
                         logMsg(LOG_DEBUG, "Handler assigned\n");
                     } else {
                         logMsg(LOG_DEBUG, "Thread not create\n");
+                        close(socket_local);
                     }
                 } else {
                     logMsg(LOG_DEBUG, "Malloc ERROR\n");
@@ -629,8 +1313,6 @@ serverInputThread (void* parameter)
     logMsg(LOG_INFO,"Exit server id = %d on input_port = %d ...\n", server->id, server->input_port);
 
     server->is_input_running = false;
-
-    free(parameter);
 
     return 0;
 }
@@ -786,9 +1468,13 @@ server_output_is_running(proxy_server_t * server)
 
 int get_free_input_socket(proxy_server_thread_data_t * data)
 {
+    // Начинаем поиск со случайного смещения
+    int start_index = rand() % COUNT_SOCKET_THREAD;
+    
     for(int i = 0; i < COUNT_SOCKET_THREAD; i++) {
-        if(!data->local_sockets[i].is_input_connected) {
-            return i;
+        int index = (start_index + i) % COUNT_SOCKET_THREAD;
+        if(!data->local_sockets[index].is_input_connected) {
+            return index;
         }
     }
 
@@ -804,4 +1490,123 @@ int get_free_output_socket(proxy_server_thread_data_t * data)
     }
 
     return -1;
+}
+
+// Инициализация SSL контекста при старте
+void init_ssl_context(proxy_server_t *server) {
+    // Проверяем, что пути к сертификату и ключу указаны, если SSL включен
+    if ((server->enable_output_ssl || server->enable_input_ssl) &&
+        (!server->cert_file[0] || !server->key_file[0])) {
+        logMsg(LOG_ERR, "SSL enabled but certificate or key file not specified\n");
+        server->enable_output_ssl = false;
+        server->enable_input_ssl = false;
+        return;
+    }
+
+    if (server->enable_output_ssl || server->enable_input_ssl) {
+        logMsg(LOG_INFO, "Initializing SSL context with cert file: %s, key file: %s\n", server->cert_file, server->key_file);
+        server->ssl_ctx = create_server_ssl_context(server->cert_file, server->key_file);
+        if (!server->ssl_ctx) {
+            logMsg(LOG_ERR, "Failed to initialize SSL context\n");
+            server->enable_output_ssl = false;
+            server->enable_input_ssl = false;
+            return;
+        }
+        logMsg(LOG_INFO, "SSL context initialized\n");
+    }
+}
+
+// Инициализация OpenSSL
+void init_openssl() {
+    // Проверяем результат инициализации OpenSSL
+    if (SSL_library_init() != 1) {
+        logMsg(LOG_ERR, "Failed to initialize OpenSSL library\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    SSL_load_error_strings();
+    OpenSSL_add_ssl_algorithms();
+}
+
+// Очистка ресурсов OpenSSL
+void cleanup_openssl() {
+    // Очищаем ошибки OpenSSL
+    ERR_free_strings();
+    
+    // В современных версиях OpenSSL EVP_cleanup() не обязательна,
+    // но оставляем для совместимости
+    EVP_cleanup();
+}
+
+// Создание SSL контекста для сервера
+SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file) {
+    if (!cert_file || !key_file || !cert_file[0] || !key_file[0]) {
+        logMsg(LOG_ERR, "Certificate or key file path is empty\n");
+        return NULL;
+    }
+    
+    const SSL_METHOD *method = TLS_server_method();
+    SSL_CTX *ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        logMsg(LOG_ERR, "Unable to create SSL context\n");
+        // Выводим детальную информацию об ошибке OpenSSL
+        unsigned long ssl_err;
+        while ((ssl_err = ERR_get_error()) != 0) {
+            char err_buf[256];
+            ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+            logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+        }
+        return NULL;
+    }
+    
+    // Логируем создание SSL контекста
+    logMsg(LOG_INFO, "Server SSL context created\n");
+
+    // Настройка контекста
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+    
+    // Отключаем требование сертификата от клиента
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+    
+    if (SSL_CTX_use_certificate_file(ctx, cert_file, SSL_FILETYPE_PEM) <= 0) {
+        logMsg(LOG_ERR, "Failed to load server certificate from %s\n", cert_file);
+        // Выводим детальную информацию об ошибке OpenSSL
+        unsigned long ssl_err;
+        while ((ssl_err = ERR_get_error()) != 0) {
+            char err_buf[256];
+            ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+            logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+        }
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+    
+    if (SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) <= 0) {
+        logMsg(LOG_ERR, "Failed to load server private key from %s\n", key_file);
+        // Выводим детальную информацию об ошибке OpenSSL
+        unsigned long ssl_err;
+        while ((ssl_err = ERR_get_error()) != 0) {
+            char err_buf[256];
+            ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+            logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+        }
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+    
+    // Проверяем, что приватный ключ соответствует сертификату
+    if (!SSL_CTX_check_private_key(ctx)) {
+        logMsg(LOG_ERR, "Private key does not match the certificate\n");
+        // Выводим детальную информацию об ошибке OpenSSL
+        unsigned long ssl_err;
+        while ((ssl_err = ERR_get_error()) != 0) {
+            char err_buf[256];
+            ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+            logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+        }
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+
+    return ctx;
 }
