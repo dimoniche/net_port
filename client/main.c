@@ -1,8 +1,8 @@
-/******************************************************************************
-*
-*   Copyright (C)
-*
-******************************************************************************/
+/*******************************************************************************
+ *
+ *   Copyright (C)
+ *
+ *******************************************************************************/
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -32,9 +32,16 @@ static void print_usage(void)
     fprintf(stderr, "         -p_in             - net_port service port\n");
     fprintf(stderr, "         --host_out        - user device service address \n");
     fprintf(stderr, "         -p_out            - user device service port\n");
+    fprintf(stderr, "         --connections, -c - number of connections (default: 1)\n");
+    fprintf(stderr, "         --timeout, -t     - timeout in seconds for output threads (default: 1200)\n");
+    fprintf(stderr, "         --disable-timeout - disable timeout for connections\n");
+    fprintf(stderr, "         -e, --ssl         - enable SSL encryption for input connection\n");
+    fprintf(stderr, "         -o, --ssl-output  - enable SSL encryption for output connection\n");
+    fprintf(stderr, "         -a, --ca-file     - path to CA certificate file\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "\nExamples:\n");
-    fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22\n", progname);
+    fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --connections 5 --timeout 60\n", progname);
+    fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --disable-timeout\n", progname);
     fprintf(stderr, "\n");
 }
 
@@ -46,11 +53,18 @@ int main(int argc, char** argv) {
 
     signal_init();
 
-    proxy_server_t* settings = get_client_settings();
+    proxy_server_thread_data_t* settings = get_client_settings();
 
     sprintf(settings->input_address,"82.146.44.140");
     sprintf(settings->output_address,"127.0.0.1");
     settings->output_port = 22;
+    settings->connections_count = 1;
+    settings->timeout_seconds = RESTART_SOCKET_TIMEOUT;
+    settings->graceful_shutdown = false; // Инициализация флага graceful shutdown
+    settings->disable_timeout = false; // Инициализация флага отключения таймаута
+    settings->enable_ssl = false; // SSL по умолчанию выключен
+    settings->enable_output_ssl = false; // Output SSL по умолчанию выключен
+    settings->ca_file[0] = '\0'; // Путь к CA файлу по умолчанию пустой
 
     bool show_help = true;
 
@@ -76,40 +90,95 @@ int main(int argc, char** argv) {
         }
         if (strstr(argv[i], HOST_KEY_IN) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%s", settings->input_address);
+                strncpy(settings->input_address, argv[i+1], sizeof(settings->input_address) - 1);
+                settings->input_address[sizeof(settings->input_address) - 1] = '\0';
                 show_help = false;
+                i++; // Skip next argument
             }
         }
         if (strstr(argv[i], HOST_KEY_OUT) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%s", settings->output_address);
+                strncpy(settings->output_address, argv[i+1], sizeof(settings->output_address) - 1);
+                settings->output_address[sizeof(settings->output_address) - 1] = '\0';
                 show_help = false;
-            }  
+                i++; // Skip next argument
+            }
         }
         if (strstr(argv[i], PORT_KEY_IN) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%d", &settings->input_port);
+                if (sscanf(argv[i+1], "%hu", &settings->input_port) != 1) {
+                    logMsg(LOG_ERR, "Invalid input port: %s\n", argv[i+1]);
+                    return -1;
+                }
                 show_help = false;
+                i++; // Skip next argument
             }
         }
         if (strstr(argv[i], PORT_KEY_OUT) != NULL)
         {
-            if (argv[i+1] != NULL)
+            if (i + 1 < argc && argv[i+1] != NULL)
             {
-                sscanf(argv[i+1], "%d", &settings->output_port);
+                if (sscanf(argv[i+1], "%hu", &settings->output_port) != 1) {
+                    logMsg(LOG_ERR, "Invalid output port: %s\n", argv[i+1]);
+                    return -1;
+                }
                 show_help = false;
-            }  
+                i++; // Skip next argument
+            }
         }
-        if (strstr(argv[i], HELP_KEY_FULL) != NULL
-        || strstr(argv[i], HELP_KEY) != NULL)
+        if (strcmp(argv[i], CONNECTIONS_KEY) == 0 || strcmp(argv[i], CONNECTIONS_KEY_SHORT) == 0)
+        {
+            if (i + 1 < argc && argv[i+1] != NULL)
+            {
+                if (sscanf(argv[i+1], "%d", &settings->connections_count) != 1 || settings->connections_count <= 0) {
+                    logMsg(LOG_ERR, "Invalid connections count: %s\n", argv[i+1]);
+                    return -1;
+                }
+                show_help = false;
+                i++; // Skip next argument
+            }
+        }
+        if (strcmp(argv[i], TIMEOUT_KEY) == 0 || strcmp(argv[i], TIMEOUT_KEY_SHORT) == 0)
+        {
+            if (i + 1 < argc && argv[i+1] != NULL)
+            {
+                if (sscanf(argv[i+1], "%d", &settings->timeout_seconds) != 1 || settings->timeout_seconds <= 0) {
+                    logMsg(LOG_ERR, "Invalid timeout: %s\n", argv[i+1]);
+                    return -1;
+                }
+                show_help = false;
+                i++; // Skip next argument
+            }
+        }
+        if (strcmp(argv[i], DISABLE_TIMEOUT_KEY) == 0) {
+            settings->disable_timeout = true;
+            show_help = false;
+        }
+        if (strcmp(argv[i], HELP_KEY_FULL) == 0 || strcmp(argv[i], HELP_KEY) == 0)
         {
             show_help = true;
+        }
+        if (strcmp(argv[i], "--ssl") == 0 || strcmp(argv[i], "-e") == 0) {
+            settings->enable_ssl = true;
+            show_help = false;
+        }
+        if (strcmp(argv[i], "--ssl-output") == 0 || strcmp(argv[i], "-o") == 0) {
+            settings->enable_output_ssl = true;
+            show_help = false;
+        }
+        if (strcmp(argv[i], "--ca-file") == 0 || strcmp(argv[i], "-a") == 0) {
+            if (i + 1 < argc && argv[i+1] != NULL) {
+                strncpy(settings->ca_file, argv[i+1], sizeof(settings->ca_file) - 1);
+                settings->ca_file[sizeof(settings->ca_file) - 1] = '\0';
+                show_help = false;
+                i++; // Skip next argument
+            }
         }
     }
 
@@ -121,6 +190,14 @@ int main(int argc, char** argv) {
     switcher_servers_start();
 
     while (1) {
+        proxy_server_thread_data_t* settings = get_client_settings();
+        
+        // Проверяем флаг graceful shutdown (поддерживаем сигнал-безопасный флаг)
+        if (settings->graceful_shutdown || global_graceful_shutdown) {
+            logMsg(LOG_INFO, "Graceful shutdown initiated, stopping servers...");
+            break;
+        }
+        
         if(Hal_getMonotonicTimeInMs() - last_monotonic_time > 1000UL)
         {
             //fflush(stdout);
@@ -135,6 +212,12 @@ int main(int argc, char** argv) {
 
         msleep(10);
     }
+    
+    // Выполняем graceful shutdown
+    switcher_servers_stop();
+    switcher_servers_wait_stop();
+    
+    logMsg(LOG_INFO, "Application shutdown completed gracefully");
 
     return 0;
 }

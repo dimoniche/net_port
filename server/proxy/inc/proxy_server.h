@@ -7,15 +7,13 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <semaphore.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "hal_thread.h"
 
-#ifdef _WIN32
-#include <io.h>
-#include <WinSock.h>
-#else
 #define SOCKET int
-#include <stdlib.h>
 #include <memory.h>
 #include <unistd.h>
 #include <errno.h>
@@ -26,7 +24,6 @@
 
 #define Sleep(x) usleep(x*1000)
 #define WSAGetLastError() errno
-#endif
 
 #define INPUT_SOCKET    0
 #define OUTPUT_SOCKET   1
@@ -35,9 +32,19 @@
 
 #define RESTART_CONNECTION_TIMEOUT      3600
 
+// Структура для хранения статистики сервера
+typedef struct proxy_server_statistics_s
+{
+    uint64_t bytes_received;      // Байт получено
+    uint64_t bytes_sent;          // Байт отправлено
+    uint32_t connections_count;   // Количество активных соединений
+    time_t last_update;           // Время последнего обновления статистики
+} proxy_server_statistics_t;
+
 typedef struct proxy_servers_settings_s
 {
   char local_address[32];
+  time_t statistics_retention_period;
 
 } proxy_servers_settings_t;
 
@@ -68,10 +75,22 @@ typedef struct proxy_server_s
     bool is_output_running;
     bool stop_output_running;
 
+    bool enable_output_ssl; // Флаг включения SSL на output сокете
+    bool enable_input_ssl;  // Флаг включения SSL на input сокете
+    SSL_CTX *ssl_ctx; // SSL контекст для сервера
+    char cert_file[256]; // Путь к сертификату сервера
+    char key_file[256]; // Путь к приватному ключу сервера
+    
+    // Статистика сервера
+    proxy_server_statistics_t statistics;
+
 } proxy_server_t;
 
 // количество одновременных подключений на одном сокете
-#define COUNT_SOCKET_THREAD   25
+extern int COUNT_SOCKET_THREAD;
+
+// Семафор для защиты доступа к статистике серверов
+extern sem_t statistics_semaphore;
 
 // локальные сокеты и их буфера
 typedef struct proxy_server_local_socket_data_s
@@ -89,6 +108,9 @@ typedef struct proxy_server_local_socket_data_s
     // необходимость закрытия исходящего к клиенту сокета
     bool close_output_socket;
 
+    SSL *ssl_output; // SSL объект для исходящего соединения
+    SSL *ssl_input;  // SSL объект для входящего соединения
+
     // настроечные данные сервера
     proxy_server_t * data;
 
@@ -97,7 +119,7 @@ typedef struct proxy_server_local_socket_data_s
 typedef struct proxy_server_thread_data_s
 {
     // данные сокетов
-    proxy_server_local_socket_data_t local_sockets[COUNT_SOCKET_THREAD];
+    proxy_server_local_socket_data_t *local_sockets;
 
     // настроечные данные одного ожидающего сервера
     proxy_server_t data;
@@ -109,7 +131,7 @@ typedef struct proxy_server_thread_data_s
  *
  * \return -1 ошибка
  */
-int servers_init(uint32_t user_id);
+int servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period);
 
 /**
  * \brief Запуск прослушивателей портов
@@ -118,12 +140,30 @@ int servers_init(uint32_t user_id);
  */
 int switcher_servers_start();
 
+// Инициализация серверов без использования БД (один сервер из аргументов)
+int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl, bool enable_input_ssl, time_t statistics_retention_period);
+
 /**
  * \brief Остановка прослушивателей портов
  *
  * \return -1 ошибка
  */
+  
+// Функции для работы с OpenSSL
+void init_ssl_context(proxy_server_t *server);
+void init_openssl();
+void cleanup_openssl();
+SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file);
+// Освобождение SSL контекста для сервера
+void cleanup_ssl_context(proxy_server_t *server);
+
+// Функция для периодического сохранения статистики
+void* statistics_saver_thread(void* arg);
+
 int
 switcher_servers_stop();
+
+// Функция для поиска индекса сервера в массиве по его ID
+int find_server_index_by_id(uint16_t server_id);
 
 #endif //CRYPT_SWITCHER_SWITCHER_H

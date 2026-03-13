@@ -7,7 +7,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 0)
-set(VERSION_PATCH 2)
+set(VERSION_PATCH 3)
 set(BUILD_REVISION 0)
 set(SOFT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 set(MODULE_NAME module_net_port_server)
@@ -61,4 +61,6 @@ add_executable(${EXEC_NAME}
 target_link_libraries(${EXEC_NAME}
         server_proxy_common
         -lrt
+        -lssl
+        -lcrypto
 )

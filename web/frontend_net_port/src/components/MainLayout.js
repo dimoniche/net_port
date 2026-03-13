@@ -73,6 +73,13 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const [openLogin, setOpenLogin] = React.useState(false);
     const [openRegister, setOpenRegister] = React.useState(false);
 
+    // Statistics state
+    const [statisticsData, setStatisticsData] = useState([]);
+    const [serversData, setServersData] = useState([]);
+    const [activeServersCount, setActiveServersCount] = useState(0);
+    const [totalBytes, setTotalBytes] = useState({ received: 0, sent: 0 });
+    const [totalSpeed, setTotalSpeed] = useState({ receive: 0, send: 0 });
+
     const handleLogout = () => {
         removeCookie("token");
         removeCookie("user");
@@ -101,11 +108,79 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
         setOpenLogin(true);
     };
 
-    useEffect(() => {
-        if (rest.ability !== undefined) {
-            updateAbility(rest.ability, cookies.user);
+    // Функция для форматирования байтов в читаемый формат
+    const formatBytes = (bytes) => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    // Функция для форматирования скорости в читаемый формат
+    const formatSpeed = (speed) => {
+        if (speed === null || speed === undefined || isNaN(speed) || speed === 0) return '-';
+        
+        const speedNum = typeof speed === 'string' ? parseFloat(speed) : speed;
+        if (speedNum < 1) return '-';
+        
+        const k = 1024;
+        const sizes = ['Bytes/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
+        const i = Math.floor(Math.log(speedNum) / Math.log(k));
+        return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+
+    // Fetch statistics and servers data
+    const fetchStatisticsData = useCallback(async () => {
+        if (!cookies.user) return;
+
+        try {
+            // Fetch statistics data
+            const statistics = await api.get(`/statistics`);
+            
+            // Fetch servers data to get enable status
+            const servers = await api.get(`/servers`);
+
+            if (statistics.status === 200) {
+                setStatisticsData(statistics.data);
+                
+                // Calculate total bytes
+                const totalReceived = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_received) || 0), 0);
+                const totalSent = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_sent) || 0), 0);
+                setTotalBytes({ received: totalReceived, sent: totalSent });
+                
+                // Calculate total speed
+                const totalReceiveSpeed = statistics.data.reduce((sum, stat) => sum + (parseFloat(stat.avg_receive_speed) || 0), 0);
+                const totalSendSpeed = statistics.data.reduce((sum, stat) => sum + (parseFloat(stat.avg_send_speed) || 0), 0);
+                setTotalSpeed({ receive: totalReceiveSpeed, send: totalSendSpeed });
+            }
+
+            if (servers.status === 200) {
+                setServersData(servers.data);
+                
+                // Count active servers (enabled servers)
+                const activeCount = servers.data.filter(server => server.enable).length;
+                setActiveServersCount(activeCount);
+            }
+        } catch (err) {
+            console.error("Error fetching statistics data:", err);
         }
-    }, []);
+    }, [api, cookies.user]);
+
+    useEffect(() => {
+      if (rest.ability !== undefined) {
+        updateAbility(rest.ability, cookies.user);
+      }
+    }, [cookies.user, rest.ability]);
+
+    // Fetch statistics data periodically
+    useEffect(() => {
+        if (cookies.user) {
+            fetchStatisticsData();
+            const interval = setInterval(fetchStatisticsData, 30000); // Update every 30 seconds
+            return () => clearInterval(interval);
+        }
+    }, [cookies.user, fetchStatisticsData]);
 
     return (
         <React.Fragment>
@@ -131,6 +206,28 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                             >
                                 NET PORT
                             </Typography>
+                            
+                            {/* Statistics Info */}
+                            {cookies.user && (
+                                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
+                                    <Typography variant="body2" sx={{ mr: 2 }}>
+                                        Серверов: {activeServersCount}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mr: 2 }}>
+                                        Получено: {formatBytes(totalBytes.received)}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mr: 2 }}>
+                                        Отправлено: {formatBytes(totalBytes.sent)}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ mr: 2 }}>
+                                        Прием: {formatSpeed(totalSpeed.receive)}
+                                    </Typography>
+                                    <Typography variant="body2">
+                                        Передача: {formatSpeed(totalSpeed.send)}
+                                    </Typography>
+                                </Box>
+                            )}
+                            
                             <Tooltip title="Текущий пользователь">
                                 <Typography>
                                     {cookies.user !== undefined

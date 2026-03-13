@@ -1,93 +1,137 @@
 #include "proxy_client.h"
 
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "logMsg.h"
 #include "time_counter.h"
 
 static proxy_server_thread_data_t threads_data;
 
-int init_sockets();
+/* Signal-safe global shutdown flag */
+volatile sig_atomic_t global_graceful_shutdown = 0;
 
-void server_input_start();
-void server_output_start();
+int init_input_sockets(proxy_server_connection_t *conn);
+int init_output_sockets(proxy_server_connection_t *conn);
 
-bool server_input_is_running(proxy_server_t * server);
-void input_server_stop(proxy_server_t * server);
-void input_server_wait_stop(proxy_server_t * server);
+void server_input_start(int conn_index);
+void server_output_start(int conn_index);
 
-proxy_server_t* get_client_settings()
+bool server_input_is_running(proxy_server_connection_t *conn);
+void input_server_stop(proxy_server_connection_t *conn);
+void input_server_wait_stop(proxy_server_connection_t *conn);
+
+proxy_server_thread_data_t* get_client_settings()
 {
-    return &threads_data.data;
+    return &threads_data;
+}
+
+// Инициализация SSL контекста при старте
+void init_ssl_context() {
+    // Проверяем, нужно ли SSL для input или output соединения
+    bool need_ssl = threads_data.enable_ssl || threads_data.enable_output_ssl;
+
+    if (need_ssl) {
+        // Проверяем, что путь к CA сертификату указан
+        if (!threads_data.ca_file[0]) {
+            logMsg(LOG_ERR, "SSL enabled but CA file not specified\n");
+            threads_data.enable_ssl = false;
+            threads_data.enable_output_ssl = false;
+            return;
+        }
+
+        logMsg(LOG_INFO, "Initializing SSL context with CA file: %s\n", threads_data.ca_file);
+        threads_data.ssl_ctx = create_client_ssl_context(threads_data.ca_file);
+        if (!threads_data.ssl_ctx) {
+            logMsg(LOG_ERR, "Failed to initialize SSL context\n");
+            exit(EXIT_FAILURE);
+        }
+        logMsg(LOG_INFO, "SSL context initialized\n");
+    }
 }
 
 int
 switcher_servers_start()
 {
-    server_input_start();
+    // Инициализация SSL контекста если нужно
+    init_ssl_context();
 
-    logMsg(LOG_DEBUG, "Clients started!\n");
+    // Инициализация массива подключений
+    threads_data.connections = (proxy_server_connection_t *)malloc(threads_data.connections_count * sizeof(proxy_server_connection_t));
+    if (!threads_data.connections) {
+        logMsg(LOG_ERR, "Failed to allocate memory for connections\n");
+        return -1;
+    }
+
+    memset(threads_data.connections, 0, threads_data.connections_count * sizeof(proxy_server_connection_t));
+
+    // Запуск всех input потоков
+    for (int i = 0; i < threads_data.connections_count; i++) {
+        threads_data.connections[i].id = i;
+        server_input_start(i);
+    }
+
+    logMsg(LOG_DEBUG, "Clients started! Connections: %d\n", threads_data.connections_count);
 
     return 0;
 }
 
 int
-init_input_sockets()
+init_input_sockets(proxy_server_connection_t *conn)
 {
     int ret = 1;
 
-    SOCKET * socket_in = &threads_data.data.input;
-
-    if (0 > (*(socket_in) = socket(AF_INET, SOCK_STREAM, 0)))
+    if ((conn->input = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
-        logMsg(LOG_ERR, "socket() input error\n");
+        logMsg(LOG_ERR, "socket() input error for connection %d\n", conn->id);
         return -2;
     }
 
-    if (0 > setsockopt(*(socket_in), SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret))) {
-        logMsg(LOG_ERR, "setsockopt() input error\n");
+    if (setsockopt(conn->input, SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret)) < 0) {
+        logMsg(LOG_ERR, "setsockopt() input error for connection %d\n", conn->id);
         return -2;
     }
 
     int optval = 1;
-    if(0 > setsockopt(*(socket_in), SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval))) {
-        logMsg(LOG_ERR, "setsockopt() input error\n");
+    if(setsockopt(conn->input, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)) < 0) {
+        logMsg(LOG_ERR, "setsockopt() input error for connection %d\n", conn->id);
         return -2;
     }
 
-    memset(&threads_data.data.input_addr, 0, sizeof(threads_data.data.input_addr));
+    memset(&conn->input_addr, 0, sizeof(conn->input_addr));
 
-    threads_data.data.input_addr.sin_family = AF_INET;
-    threads_data.data.input_addr.sin_addr.s_addr = inet_addr(threads_data.data.input_address);
-    threads_data.data.input_addr.sin_port = htons(threads_data.data.input_port);
+    conn->input_addr.sin_family = AF_INET;
+    conn->input_addr.sin_addr.s_addr = inet_addr(threads_data.input_address);
+    conn->input_addr.sin_port = htons(threads_data.input_port);
 
     return 0;
 }
 
 int
-init_output_sockets()
+init_output_sockets(proxy_server_connection_t *conn)
 {
     int ret = 1;
 
-    SOCKET * socket_out = &threads_data.data.output;
-
-    if (0 > (*(socket_out) = socket(AF_INET, SOCK_STREAM, 0)))
+    if ((conn->output = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     {
-        logMsg(LOG_ERR, "socket() output error\n");
+        logMsg(LOG_ERR, "socket() output error for connection %d\n", conn->id);
         return -2;
     }
 
-    if (0 > setsockopt(*(socket_out), SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret))) {
-        logMsg(LOG_ERR, "setsockopt() output error\n");
+    if (setsockopt(conn->output, SOL_SOCKET, SO_REUSEADDR, &ret, sizeof(ret)) < 0) {
+        logMsg(LOG_ERR, "setsockopt() output error for connection %d\n", conn->id);
         return -2;
     }
 
-    memset(&threads_data.data.output_addr, 0, sizeof(threads_data.data.output_addr));
+    memset(&conn->output_addr, 0, sizeof(conn->output_addr));
 
-    threads_data.data.output_addr.sin_family = AF_INET;
-    threads_data.data.output_addr.sin_addr.s_addr = inet_addr(threads_data.data.output_address);
-    threads_data.data.output_addr.sin_port = htons(threads_data.data.output_port);
+    conn->output_addr.sin_family = AF_INET;
+    conn->output_addr.sin_addr.s_addr = inet_addr(threads_data.output_address);
+    conn->output_addr.sin_port = htons(threads_data.output_port);
 
     return 0;
 }
@@ -95,49 +139,253 @@ init_output_sockets()
 void*
 server_input_thread (void* parameter)
 {
-    restart_input_thread:;
+    int conn_index = *(int*)parameter;
+    proxy_server_connection_t *conn = &threads_data.connections[conn_index];
+    free(parameter); // Освобождаем параметр потока сразу после использования
+    
+    restart_input_thread:
+    // Reset socket descriptor before reconnecting
+    conn->input = -1;
+    Thread_sleep(100); // Small delay before reconnect attempt
+
+    /* If a stop was requested while we were sleeping or earlier, exit promptly */
+    if (conn->stop_running_input || global_graceful_shutdown) {
+        logMsg(LOG_INFO, "Input thread stop requested at restart for connection %d\n", conn->id);
+        conn->is_starting_input = false;
+        conn->is_running_input = false;
+        if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+        return 0;
+    }
 
     int len_apdu;
-    uint64_t last_exchange_time = get_time_counter();
+    conn->last_exchange_time = get_time_counter();
 
-    logMsg(LOG_INFO, "Restart input server\n");
+    logMsg(LOG_INFO, "Restart input server for connection %d\n", conn->id);
 
-    init_input_sockets();
+    // Reinitialize socket structures
+    memset(&conn->input_addr, 0, sizeof(conn->input_addr));
+    if (init_input_sockets(conn) != 0) {
+        logMsg(LOG_ERR, "Failed to reinitialize input sockets for connection %d\n", conn->id);
+        Thread_sleep(1000);
+        goto restart_input_thread;
+    }
 
-    if (0 > connect(threads_data.data.input, (struct sockaddr *) &threads_data.data.input_addr,
-                    sizeof(threads_data.data.input_addr)))
     {
-        logMsg(LOG_ERR, "Input server connect error\n");
-    } else {
-        logMsg(LOG_INFO, "Connect input server\n");
+        int backoff = 1;
+        int connected = 0;
 
-        int flags = fcntl(threads_data.data.input , F_GETFL, 0);
-        if(fcntl(threads_data.data.input, F_SETFL, flags|O_NONBLOCK) < 0) {
-            logMsg(LOG_ERR, "connect fcntl error\n");
+        logMsg(LOG_INFO, "Start to server connection %d\n", conn->id);
+
+        while (!conn->stop_running_input) {
+            if (connect(conn->input, (struct sockaddr *) &conn->input_addr,
+                        sizeof(conn->input_addr)) == 0) {
+                connected = 1;
+                logMsg(LOG_INFO, "Server connected %d\n", conn->id);
+                break;
+            }
+
+            logMsg(LOG_ERR, "Input server connect error for connection %d, retrying in %d seconds\n", conn->id, backoff);
+
+            // Close and recreate socket before retry
+            if (conn->input >= 0) {
+                close(conn->input);
+                conn->input = -1;
+            }
+
+            /* Sleep in small increments so we can react quickly to stop requests */
+            {
+                int sleep_ms = backoff * 1000;
+                int slept = 0;
+                while (slept < sleep_ms && !conn->stop_running_input && !global_graceful_shutdown) {
+                    int step = (sleep_ms - slept) > 200 ? 200 : (sleep_ms - slept);
+                    Thread_sleep(step);
+                    slept += step;
+                }
+            }
+
+            if (conn->stop_running_input || global_graceful_shutdown) {
+                logMsg(LOG_INFO, "Input thread stop requested for connection %d\n", conn->id);
+                if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                conn->is_starting_input = false;
+                conn->is_running_input = false;
+                return 0;
+            }
+
+            if (backoff < 30) backoff *= 2;
+
+            if (init_input_sockets(conn) != 0) {
+                Thread_sleep(1000);
+                continue;
+            }
+        }
+
+        if (!connected) {
+            if (conn->stop_running_input || global_graceful_shutdown) {
+                logMsg(LOG_INFO, "Input thread stop requested before connect for connection %d\n", conn->id);
+                if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                conn->is_starting_input = false;
+                conn->is_running_input = false;
+                return 0;
+            } else {
+                goto restart_input_thread;
+            }
+        }
+
+        logMsg(LOG_INFO, "Connect input server for connection %d\n", conn->id);
+
+        // Инициализация SSL соединения если включено
+        if (threads_data.enable_ssl) {
+            /* If stop requested, exit before creating SSL object */
+            if (conn->stop_running_input || global_graceful_shutdown) {
+                logMsg(LOG_INFO, "Input thread stop requested before SSL init for connection %d\n", conn->id);
+                if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                conn->is_starting_input = false;
+                conn->is_running_input = false;
+                return 0;
+            }
+
+            conn->ssl_input = SSL_new(threads_data.ssl_ctx);
+            if (!conn->ssl_input) {
+                logMsg(LOG_ERR, "Failed to create SSL object for connection %d\n", conn->id);
+                // Выводим детальную информацию об ошибке OpenSSL
+                unsigned long ssl_err;
+                while ((ssl_err = ERR_get_error()) != 0) {
+                    char err_buf[256];
+                    ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+                    logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+                }
+                close(conn->input);
+                conn->input = -1;
+                /* wait a bit (interruptible) before restarting to avoid tight loop */
+                {
+                    int sleep_ms = 200;
+                    int slept = 0;
+                    while (slept < sleep_ms && !conn->stop_running_input && !global_graceful_shutdown) {
+                        int step = (sleep_ms - slept) > 50 ? 50 : (sleep_ms - slept);
+                        Thread_sleep(step);
+                        slept += step;
+                    }
+                }
+                if (conn->stop_running_input || global_graceful_shutdown) {
+                    conn->is_starting_input = false;
+                    conn->is_running_input = false;
+                    if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                    return 0;
+                }
+                goto restart_input_thread;
+            }
+            SSL_set_fd(conn->ssl_input, conn->input);
+
+            int ssl_connect_result = SSL_connect(conn->ssl_input);
+            if (ssl_connect_result != 1) {
+                logMsg(LOG_ERR, "SSL connection failed for connection %d with result %d\n", conn->id, ssl_connect_result);
+                
+                // Получаем код ошибки SSL
+                int ssl_err = SSL_get_error(conn->ssl_input, ssl_connect_result);
+                logMsg(LOG_ERR, "SSL connect error code: %d\n", ssl_err);
+                
+                // Логируем детальные ошибки SSL
+                unsigned long err;
+                while ((err = ERR_get_error()) != 0) {
+                    char err_str[256];
+                    ERR_error_string_n(err, err_str, sizeof(err_str));
+                    logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                }
+                
+                // Логируем информацию о сертификате
+                X509* cert = SSL_get_peer_certificate(conn->ssl_input);
+                if (cert) {
+                    char* cert_str = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+                    logMsg(LOG_ERR, "Peer certificate subject: %s\n", cert_str);
+                    OPENSSL_free(cert_str);
+                    X509_free(cert);
+                } else {
+                    logMsg(LOG_ERR, "No peer certificate\n");
+                }
+                
+                // Освобождаем SSL объект и закрываем сокет
+                if (conn->ssl_input) {
+                    SSL_free(conn->ssl_input);
+                    conn->ssl_input = NULL;
+                }
+                if (conn->input >= 0) {
+                    close(conn->input);
+                    conn->input = -1;
+                }
+                /* brief interruptible pause before restart to avoid tight loop */
+                {
+                    int sleep_ms = 200;
+                    int slept = 0;
+                    while (slept < sleep_ms && !conn->stop_running_input && !global_graceful_shutdown) {
+                        int step = (sleep_ms - slept) > 50 ? 50 : (sleep_ms - slept);
+                        Thread_sleep(step);
+                        slept += step;
+                    }
+                }
+                if (conn->stop_running_input || global_graceful_shutdown) {
+                    conn->is_starting_input = false;
+                    conn->is_running_input = false;
+                    if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                    return 0;
+                }
+                goto restart_input_thread;
+            }
+
+            logMsg(LOG_INFO, "SSL connection established for connection %d\n", conn->id);
+        }
+
+        int flags = fcntl(conn->input , F_GETFL, 0);
+        if(fcntl(conn->input, F_SETFL, flags|O_NONBLOCK) < 0) {
+            logMsg(LOG_ERR, "connect fcntl error for connection %d\n", conn->id);
         }
     }
 
-    threads_data.data.is_running_input = true;
-    threads_data.data.is_starting_input = false;
+    conn->is_running_input = true;
+    conn->is_starting_input = false;
 
-    while (threads_data.data.stop_running_input == false) {
+    while (conn->stop_running_input == false) {
 
         fd_set read_set;
         FD_ZERO(&read_set);
-        FD_SET(threads_data.data.input, &read_set);
+        FD_SET(conn->input, &read_set);
 
-        if(get_time_counter() - last_exchange_time > RESTART_SOCKET_TIMEOUT) {
-            // останавливаем внутренний порт
-            threads_data.data.stop_running_output = true;
-            close(threads_data.data.input);
+        if(!threads_data.disable_timeout && get_time_counter() - conn->last_exchange_time > threads_data.timeout_seconds) {
+            // Плавное закрытие соединения по таймауту
+            logMsg(LOG_INFO, "Inactivity timeout approaching for connection %d, initiating graceful shutdown", conn->id);
+            
+            // Останавливаем output поток
+            conn->stop_running_output = true;
+            
+            // Даем время для graceful shutdown
+            int shutdown_timeout = 5; // 5 секунд на корректное завершение
+            uint64_t shutdown_start = get_time_counter();
+            
+            while(conn->is_running_output &&
+                  (get_time_counter() - shutdown_start < shutdown_timeout)) {
+                Thread_sleep(10);
+            }
+            
+            // Закрываем сокет
+            if (conn->input >= 0) {
+                close(conn->input);
+                conn->input = -1;
+            }
 
-            logMsg(LOG_INFO, "Timeout Input thread");
+            logMsg(LOG_INFO, "Timeout Input thread for connection %d", conn->id);
 
-            while(threads_data.data.is_running_output) {
+            // Ожидаем полной остановки output потока
+            uint64_t wait_start = get_time_counter();
+            while(conn->is_running_output &&
+                  (get_time_counter() - wait_start < 30)) { // 30 секунд максимум
                 Thread_sleep(10);
             }
 
-            logMsg(LOG_INFO, "Restart by timeout Input thread\n");
+            logMsg(LOG_INFO, "Restart by timeout Input thread for connection %d\n", conn->id);
+            // Reset output socket before restarting
+            if (conn->output >= 0) {
+                close(conn->output);
+                conn->output = -1;
+            }
             goto restart_input_thread;
         }
 
@@ -145,7 +393,7 @@ server_input_thread (void* parameter)
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
-        int select_res = select(threads_data.data.input + 1, &read_set, NULL, NULL, &timeout);
+        int select_res = select(conn->input + 1, &read_set, NULL, NULL, &timeout);
 
         if(select_res == -1) {
             break;
@@ -153,56 +401,143 @@ server_input_thread (void* parameter)
             continue;
         }
 
-        if(FD_ISSET(threads_data.data.input, &read_set)) {
+        if(FD_ISSET(conn->input, &read_set)) {
 
-            if(threads_data.data.stop_running_input) break;
+            if(conn->stop_running_input || global_graceful_shutdown) break;
 
-            len_apdu = recv(threads_data.data.input, (char *) threads_data.receive_input, sizeof(threads_data.receive_input), 0);
+            if (threads_data.enable_ssl) {
+                len_apdu = SSL_read(conn->ssl_input, (char *) conn->receive_input, sizeof(conn->receive_input));
 
-            logMsg(LOG_INFO, "Receive data from input port %d: lenght %d\n",threads_data.data.input_port, len_apdu);
+                if (len_apdu <= 0) {
+                    int ssl_err = SSL_get_error(conn->ssl_input, len_apdu);
+                    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+                        /* Non-blocking socket wants more data; treat as no data this cycle */
+                        Thread_sleep(1);
+                        continue;
+                    } else if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                        logMsg(LOG_INFO, "Input SSL connection closed for connection %d\n", conn->id);
+                    } else {
+                        logMsg(LOG_ERR, "Input SSL error %d for connection %d\n", ssl_err, conn->id);
+                        // Добавляем более детальную информацию об ошибке
+                        logMsg(LOG_ERR, "SSL_read returned %d, SSL_get_error returned %d for connection %d\n", len_apdu, ssl_err, conn->id);
+                        unsigned long e;
+                        while ((e = ERR_get_error()) != 0) {
+                            char err_str[256];
+                            ERR_error_string_n(e, err_str, sizeof(err_str));
+                            logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                        }
+                        // Освобождаем SSL объект
+                        if (conn->ssl_input) {
+                            SSL_free(conn->ssl_input);
+                            conn->ssl_input = NULL;
+                        }
+                    }
 
-            if (len_apdu <= 0) {
-                if(len_apdu == 0) {
-                    logMsg(LOG_INFO, "Input recv() connection closed\n");
-                } else {
-                  logMsg(LOG_ERR, "Input recv() error:: %d\n", WSAGetLastError());
+                    /* Stop and restart input thread on SSL close/error */
+                    conn->stop_running_output = true;
+                    if (conn->input >= 0) {
+                        close(conn->input);
+                        conn->input = -1;
+                    }
+
+                    uint64_t wait_start = get_time_counter();
+                    while(conn->is_running_output && (get_time_counter() - wait_start < 30)) {
+                        Thread_sleep(10);
+                    }
+
+                    logMsg(LOG_INFO, "Restart Input thread for connection %d\n", conn->id);
+                    goto restart_input_thread;
                 }
+            } else {
+                len_apdu = recv(conn->input, (char *) conn->receive_input, sizeof(conn->receive_input), 0);
 
-                // останавливаем внутренний порт
-                threads_data.data.stop_running_output = true;
-                close(threads_data.data.input);
+                logMsg(LOG_INFO, "Receive data from input port %d: length %d for connection %d\n", threads_data.input_port, len_apdu, conn->id);
 
-                while(threads_data.data.is_running_output) {
-                    Thread_sleep(10);
+                if (len_apdu <= 0) {
+                    if(len_apdu == 0) {
+                        logMsg(LOG_INFO, "Input recv() connection closed for connection %d\n", conn->id);
+                    } else {
+                        logMsg(LOG_ERR, "Input recv() error:: %d for connection %d\n", errno, conn->id);
+                    }
+
+                    conn->stop_running_output = true;
+                    if (conn->input >= 0) {
+                        close(conn->input);
+                        conn->input = -1;
+                    }
+
+                    uint64_t wait_start = get_time_counter();
+                    while(conn->is_running_output && (get_time_counter() - wait_start < 30)) {
+                        Thread_sleep(10);
+                    }
+
+                    logMsg(LOG_INFO, "Restart Input thread for connection %d\n", conn->id);
+                    goto restart_input_thread;
                 }
-
-                logMsg(LOG_INFO, "Restart Input thread\n");
-                goto restart_input_thread;
             }
 
-            server_output_start();
+            // Проверяем и запускаем output поток если он не активен
+            if (!conn->is_running_output && !conn->is_starting_output) {
+                server_output_start(conn_index);
+            }
 
             int remaining = len_apdu;
             int sent = 0;
 
-            last_exchange_time = get_time_counter();
+            conn->last_exchange_time = get_time_counter();
 
-            while(!threads_data.data.is_running_output) {
+            while(!conn->is_running_output) {
                 Thread_sleep(10);
 
-                if(get_time_counter() - last_exchange_time > 120) {
+                if(get_time_counter() - conn->last_exchange_time > 120) {
 
-                    logMsg(LOG_INFO, "Restart Input thread if output no started\n");
+                    logMsg(LOG_INFO, "Restart Input thread if output no started for connection %d\n", conn->id);
                     goto restart_input_thread;
                 }
             }
 
             do {
-                int result = send(threads_data.data.output,
-                                (const char *)&threads_data.receive_input[sent],
-                                len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                int result;
 
-                logMsg(LOG_INFO, "Send data to output_port %d result %d\n", threads_data.data.output_port, result);
+                /* Forward to local host_out */
+                if (threads_data.enable_output_ssl && conn->ssl_output) {
+                    result = SSL_write(conn->ssl_output,
+                                      (const char *)&conn->receive_input[sent],
+                                      len_apdu - sent);
+
+                    if (result <= 0) {
+                        int ssl_err = SSL_get_error(conn->ssl_output, result);
+                        if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+                            Thread_sleep(1);
+                            continue;
+                        } else if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                            logMsg(LOG_INFO, "Output SSL connection closed for connection %d\n", conn->id);
+                            break;
+                        } else {
+                            logMsg(LOG_ERR, "Output SSL write error %d for connection %d\n", ssl_err, conn->id);
+                            // Добавляем более детальную информацию об ошибке
+                            logMsg(LOG_ERR, "SSL_write returned %d, SSL_get_error returned %d for connection %d\n", result, ssl_err, conn->id);
+                            unsigned long e;
+                            while ((e = ERR_get_error()) != 0) {
+                                char err_str[256];
+                                ERR_error_string_n(e, err_str, sizeof(err_str));
+                                logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                            }
+                            // Освобождаем SSL объект
+                            if (conn->ssl_output) {
+                                SSL_free(conn->ssl_output);
+                                conn->ssl_output = NULL;
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    result = send(conn->output,
+                                (const char *)&conn->receive_input[sent],
+                                len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                }
+
+                logMsg(LOG_INFO, "Send data to output_port %d result %d for connection %d\n", threads_data.output_port, result, conn->id);
 
                 if (result != -1)
                 {
@@ -215,8 +550,8 @@ server_input_thread (void* parameter)
                 }
                 else
                 {
-                    int err = WSAGetLastError();
-                    logMsg(LOG_INFO, "Send data to output_port %d WSAGetLastError %d\n", threads_data.data.output_port, err);
+                    int err = errno;
+                    logMsg(LOG_INFO, "Send data to output_port %d errno %d for connection %d\n", threads_data.output_port, err, conn->id);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -224,36 +559,41 @@ server_input_thread (void* parameter)
 
                         tv.tv_sec = 1;
                         FD_ZERO(&fds);
-                        FD_SET(0, &fds);
-                        select_res = select((SOCKET)(threads_data.data.output + 1), NULL, &fds, NULL, &tv);
+                        FD_SET(conn->output, &fds);
+                        select_res = select(conn->output + 1, NULL, &fds, NULL, &tv);
 
                         if(select_res == -1) {
-                            logMsg(LOG_ERR, "Send:: select error:: %d\n", WSAGetLastError());
+                            logMsg(LOG_ERR, "Send:: select error:: %d for connection %d\n", errno, conn->id);
                             break;
                         }
 
-                        logMsg(LOG_INFO, "Send:: wait\n");
-                        if(!threads_data.data.is_running_output) break;
+                        logMsg(LOG_INFO, "Send:: wait for connection %d\n", conn->id);
+                        if(!conn->is_running_output) break;
                     }
                     else
                     {
-                        logMsg(LOG_INFO, "Send:: send error:: %d\n", WSAGetLastError());
+                        logMsg(LOG_INFO, "Send:: send error:: %d for connection %d\n", errno, conn->id);
                         break;
                     }
                 }
-            } while (threads_data.data.is_running_output);
+            } while (conn->is_running_output);
         }
 
         Thread_sleep(10);
     }
 
-    close(threads_data.data.input);
+    if (threads_data.enable_ssl && conn->ssl_input) {
+        SSL_shutdown(conn->ssl_input);
+        SSL_free(conn->ssl_input);
+        conn->ssl_input = NULL;
+    }
+    close(conn->input);
 
-    logMsg(LOG_INFO,"Exit input server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.input_port);
+    logMsg(LOG_INFO,"Exit input server id = %d on port = %d ...\n", conn->id, threads_data.input_port);
 
-    if(threads_data.data.stop_running_input == false) goto restart_input_thread;
+    if(conn->stop_running_input == false) goto restart_input_thread;
 
-    threads_data.data.is_running_input = false;
+    conn->is_running_input = false;
 
     return 0;
 }
@@ -261,39 +601,166 @@ server_input_thread (void* parameter)
 void*
 server_output_thread (void* parameter)
 {
+    int conn_index = *(int*)parameter;
+    proxy_server_connection_t *conn = &threads_data.connections[conn_index];
+    free(parameter); // Освобождаем параметр потока сразу после использования
+    
     int len_apdu;
+    uint64_t last_exchange_time = get_time_counter();
 
-    logMsg(LOG_INFO, "Start output server\n");
+    logMsg(LOG_INFO, "Start output server for connection %d\n", conn->id);
 
-    init_output_sockets();
-
-    if (0 > connect(threads_data.data.output, (struct sockaddr *) &threads_data.data.output_addr,
-                    sizeof(threads_data.data.output_addr)))
-    {
-        logMsg(LOG_ERR, "Output server connect error\n");
-    } else {
-        logMsg(LOG_INFO, "Connect output server\n");
-
-        int flags = fcntl(threads_data.data.output , F_GETFL, 0);
-        if(fcntl(threads_data.data.output, F_SETFL, flags|O_NONBLOCK) < 0) {
-            logMsg(LOG_ERR, "connect fcntl error\n");
-        }
+    if (init_output_sockets(conn) != 0) {
+        logMsg(LOG_ERR, "Output socket initialization failed for connection %d\n", conn->id);
+        conn->is_running_output = false;
+        return 0;
     }
 
-    threads_data.data.is_running_output = true;
-    threads_data.data.is_starting_output = false;
+    if (connect(conn->output, (struct sockaddr *) &conn->output_addr,
+                sizeof(conn->output_addr)) < 0)
+    {
+        logMsg(LOG_ERR, "Output server connect error for connection %d: %s\n", conn->id, strerror(errno));
+        close(conn->output);
+        conn->output = -1;
+        conn->is_running_output = false;
+        return 0;
+    }
 
-    while (threads_data.data.stop_running_output == false) {
+    logMsg(LOG_INFO, "Connect output server for connection %d\n", conn->id);
+
+    // Инициализация SSL соединения для output если включено
+    if (threads_data.enable_output_ssl) {
+        /* If stop requested, exit before creating SSL object */
+        if (conn->stop_running_output || global_graceful_shutdown) {
+            logMsg(LOG_INFO, "Output thread stop requested before SSL init for connection %d\n", conn->id);
+            if (conn->output >= 0) { close(conn->output); conn->output = -1; }
+            conn->is_starting_output = false;
+            conn->is_running_output = false;
+            return 0;
+        }
+
+        conn->ssl_output = SSL_new(threads_data.ssl_ctx);
+        if (!conn->ssl_output) {
+            logMsg(LOG_ERR, "Failed to create SSL object for output connection %d\n", conn->id);
+            // Выводим детальную информацию об ошибке OpenSSL
+            unsigned long ssl_err;
+            while ((ssl_err = ERR_get_error()) != 0) {
+                char err_buf[256];
+                ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+                logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+            }
+            close(conn->output);
+            conn->output = -1;
+            /* wait a bit (interruptible) before restarting to avoid tight loop */
+            {
+                int sleep_ms = 200;
+                int slept = 0;
+                while (slept < sleep_ms && !conn->stop_running_output && !global_graceful_shutdown) {
+                    int step = (sleep_ms - slept) > 50 ? 50 : (sleep_ms - slept);
+                    Thread_sleep(step);
+                    slept += step;
+                }
+            }
+            if (conn->stop_running_output || global_graceful_shutdown) {
+                conn->is_starting_output = false;
+                conn->is_running_output = false;
+                if (conn->output >= 0) { close(conn->output); conn->output = -1; }
+                return 0;
+            }
+            return 0;
+        }
+        SSL_set_fd(conn->ssl_output, conn->output);
+
+        int ssl_connect_result = SSL_connect(conn->ssl_output);
+        if (ssl_connect_result != 1) {
+            logMsg(LOG_ERR, "Output SSL connection failed for connection %d with result %d\n", conn->id, ssl_connect_result);
+            
+            // Получаем код ошибки SSL
+            int ssl_err = SSL_get_error(conn->ssl_output, ssl_connect_result);
+            logMsg(LOG_ERR, "SSL connect error code: %d\n", ssl_err);
+            
+            // Логируем детальные ошибки SSL
+            unsigned long err;
+            while ((err = ERR_get_error()) != 0) {
+                char err_str[256];
+                ERR_error_string_n(err, err_str, sizeof(err_str));
+                logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+            }
+            
+            // Логируем информацию о сертификате
+            X509* cert = SSL_get_peer_certificate(conn->ssl_output);
+            if (cert) {
+                char* cert_str = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
+                logMsg(LOG_ERR, "Peer certificate subject: %s\n", cert_str);
+                OPENSSL_free(cert_str);
+                X509_free(cert);
+            } else {
+                logMsg(LOG_ERR, "No peer certificate\n");
+            }
+            
+            // Освобождаем SSL объект и закрываем сокет
+            if (conn->ssl_output) {
+                SSL_free(conn->ssl_output);
+                conn->ssl_output = NULL;
+            }
+            if (conn->output >= 0) {
+                close(conn->output);
+                conn->output = -1;
+            }
+            /* brief interruptible pause before restart to avoid tight loop */
+            {
+                int sleep_ms = 200;
+                int slept = 0;
+                while (slept < sleep_ms && !conn->stop_running_output && !global_graceful_shutdown) {
+                    int step = (sleep_ms - slept) > 50 ? 50 : (sleep_ms - slept);
+                    Thread_sleep(step);
+                    slept += step;
+                }
+            }
+            if (conn->stop_running_output || global_graceful_shutdown) {
+                conn->is_starting_output = false;
+                conn->is_running_output = false;
+                if (conn->output >= 0) { close(conn->output); conn->output = -1; }
+                return 0;
+            }
+            return 0;
+        }
+
+        logMsg(LOG_INFO, "Output SSL connection established for connection %d\n", conn->id);
+    }
+
+    int flags = fcntl(conn->output , F_GETFL, 0);
+    if(fcntl(conn->output, F_SETFL, flags|O_NONBLOCK) < 0) {
+        logMsg(LOG_ERR, "connect fcntl error for connection %d: %s\n", conn->id, strerror(errno));
+    }
+
+    conn->is_running_output = true;
+    conn->is_starting_output = false;
+
+    while (conn->stop_running_output == false) {
 
         fd_set read_set;
         FD_ZERO(&read_set);
-        FD_SET(threads_data.data.output, &read_set);
+        FD_SET(conn->output, &read_set);
+
+        // Проверка таймаута бездействия с graceful shutdown
+        if(!threads_data.disable_timeout && get_time_counter() - last_exchange_time > threads_data.timeout_seconds) {
+            logMsg(LOG_INFO, "Inactivity timeout detected for connection %d, initiating graceful shutdown\n", conn->id);
+            
+            // Пытаемся корректно закрыть соединение
+            if (conn->output >= 0) {
+                shutdown(conn->output, SHUT_RDWR);
+            }
+            
+            logMsg(LOG_INFO, "Timeout Output thread for connection %d - no data exchange\n", conn->id);
+            break;
+        }
 
         struct timeval timeout;
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
-        int select_res = select(threads_data.data.output + 1, &read_set, NULL, NULL, &timeout);
+        int select_res = select(conn->output + 1, &read_set, NULL, NULL, &timeout);
         if(select_res == -1) {
             break;
         } else if(select_res == 0) {
@@ -301,37 +768,106 @@ server_output_thread (void* parameter)
             continue;
         }
 
-        if(FD_ISSET(threads_data.data.output, &read_set)) {
-            if(threads_data.data.stop_running_output) break;
+        if(FD_ISSET(conn->output, &read_set)) {
+            if(conn->stop_running_output) break;
 
-            len_apdu = recv(threads_data.data.output, (char *) threads_data.receive_output, sizeof(threads_data.receive_output), 0);
+            if (threads_data.enable_output_ssl) {
+                len_apdu = SSL_read(conn->ssl_output, (char *) conn->receive_output, sizeof(conn->receive_output));
 
-            logMsg(LOG_INFO, "Receive data from output port %d: length %d\n",threads_data.data.output_port, len_apdu);
-
-            if (len_apdu <= 0) {
-                if(len_apdu == 0) {
-                    logMsg(LOG_INFO, "Output recv() connection closed\n");
-                } else {
-                  logMsg(LOG_ERR, "Output recv() error:: %d\n", WSAGetLastError());
+                if (len_apdu <= 0) {
+                    int ssl_err = SSL_get_error(conn->ssl_output, len_apdu);
+                    if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+                        /* Non-blocking socket wants more data; treat as no data this cycle */
+                        Thread_sleep(1);
+                        continue;
+                    } else if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                        logMsg(LOG_INFO, "Output SSL connection closed for connection %d\n", conn->id);
+                    } else {
+                        logMsg(LOG_ERR, "Output SSL error %d for connection %d\n", ssl_err, conn->id);
+                        // Добавляем более детальную информацию об ошибке
+                        logMsg(LOG_ERR, "SSL_read returned %d, SSL_get_error returned %d for connection %d\n", len_apdu, ssl_err, conn->id);
+                        unsigned long e;
+                        while ((e = ERR_get_error()) != 0) {
+                            char err_str[256];
+                            ERR_error_string_n(e, err_str, sizeof(err_str));
+                            logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                        }
+                        // Освобождаем SSL объект
+                        if (conn->ssl_output) {
+                            SSL_free(conn->ssl_output);
+                            conn->ssl_output = NULL;
+                        }
+                    }
+                    break;
                 }
-                break;
+            } else {
+                len_apdu = recv(conn->output, (char *) conn->receive_output, sizeof(conn->receive_output), 0);
+
+                if (len_apdu <= 0) {
+                    if(len_apdu == 0) {
+                        logMsg(LOG_INFO, "Output recv() connection closed for connection %d\n", conn->id);
+                    } else {
+                      logMsg(LOG_ERR, "Output recv() error:: %d for connection %d\n", errno, conn->id);
+                    }
+                    break;
+                }
             }
+
+            logMsg(LOG_INFO, "Receive data from output port %d: length %d for connection %d\n", threads_data.output_port, len_apdu, conn->id);
+
+            // Обновляем время последнего обмена
+            last_exchange_time = get_time_counter();
 
             int remaining = len_apdu;
             int sent = 0;
 
-            if(threads_data.data.stop_running_output) break;
+            if(conn->stop_running_output) break;
 
-            while(!threads_data.data.is_running_input) {
+            while(!conn->is_running_input) {
                 Thread_sleep(10);
             }
 
             do {
-                int result = send(threads_data.data.input,
-                                (const char *)&threads_data.receive_output[sent],
-                                len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                int result = -1;
 
-                logMsg(LOG_INFO, "Send data to input_port %d result %d\n", threads_data.data.input_port, result);
+                if (threads_data.enable_ssl && conn->ssl_input) {
+                    result = SSL_write(conn->ssl_input,
+                                        (const char *)&conn->receive_output[sent],
+                                        len_apdu - sent);
+
+                    if (result <= 0) {
+                        int ssl_err = SSL_get_error(conn->ssl_input, result);
+                        if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE) {
+                            Thread_sleep(1);
+                            continue;
+                        } else if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                            logMsg(LOG_INFO, "Input SSL connection closed for connection %d\n", conn->id);
+                            break;
+                        } else {
+                            logMsg(LOG_ERR, "Input SSL write error %d for connection %d\n", ssl_err, conn->id);
+                            // Добавляем более детальную информацию об ошибке
+                            logMsg(LOG_ERR, "SSL_write returned %d, SSL_get_error returned %d for connection %d\n", result, ssl_err, conn->id);
+                            unsigned long e;
+                            while ((e = ERR_get_error()) != 0) {
+                                char err_str[256];
+                                ERR_error_string_n(e, err_str, sizeof(err_str));
+                                logMsg(LOG_ERR, "SSL error: %s\n", err_str);
+                            }
+                            // Освобождаем SSL объект
+                            if (conn->ssl_input) {
+                                SSL_free(conn->ssl_input);
+                                conn->ssl_input = NULL;
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    result = send(conn->input,
+                                (const char *)&conn->receive_output[sent],
+                                len_apdu - sent, MSG_NOSIGNAL | MSG_DONTWAIT);
+                }
+
+                logMsg(LOG_INFO, "Send data to input_port %d result %d for connection %d\n", threads_data.input_port, result, conn->id);
 
                 if (result != -1)
                 {
@@ -344,8 +880,8 @@ server_output_thread (void* parameter)
                 }
                 else
                 {
-                    int err = WSAGetLastError();
-                    logMsg(LOG_INFO, "Send data to input_port %d WSAGetLastError %d\n", threads_data.data.input_port, err);
+                    int err = errno;
+                    logMsg(LOG_INFO, "Send data to input_port %d errno %d for connection %d\n", threads_data.input_port, err, conn->id);
                     if (err == EAGAIN)
                     {
                         struct timeval tv = {};
@@ -353,91 +889,301 @@ server_output_thread (void* parameter)
 
                         tv.tv_sec = 1;
                         FD_ZERO(&fds);
-                        FD_SET(0, &fds);
-                        select_res = select((SOCKET)(threads_data.data.input + 1), NULL, &fds, NULL, &tv);
+                        FD_SET(conn->input, &fds);
+                        select_res = select(conn->input + 1, NULL, &fds, NULL, &tv);
 
                         if(select_res == -1) {
-                            logMsg(LOG_ERR, "Send:: select error:: %d\n", WSAGetLastError());
+                            logMsg(LOG_ERR, "Send:: select error:: %d for connection %d\n", errno, conn->id);
                             break;
                         }
 
-                        logMsg(LOG_INFO, "Send:: wait\n");
-                        if(!threads_data.data.is_running_input) break;
+                        logMsg(LOG_INFO, "Send:: wait for connection %d\n", conn->id);
+                        if(!conn->is_running_input) break;
                     }
                     else
                     {
-                        logMsg(LOG_INFO, "Send:: send error:: %d\n", WSAGetLastError());
+                        logMsg(LOG_INFO, "Send:: send error:: %d for connection %d\n", errno, conn->id);
                         break;
                     }
                 }
-            } while (threads_data.data.is_running_input);
+            } while (conn->is_running_input);
         }
 
         Thread_sleep(10);
     }
 
-    close(threads_data.data.output);
+    if (threads_data.enable_output_ssl && conn->ssl_output) {
+        SSL_shutdown(conn->ssl_output);
+        SSL_free(conn->ssl_output);
+        conn->ssl_output = NULL;
+    }
+    close(conn->output);
 
-    logMsg(LOG_INFO,"Exit output server id = %d on port = %d ...\n", threads_data.data.id, threads_data.data.output_port);
+    logMsg(LOG_INFO,"Exit output server id = %d on port = %d ...\n", conn->id, threads_data.output_port);
 
-    threads_data.data.is_running_output = false;
-    threads_data.data.stop_running_output = false;
+    conn->is_running_output = false;
+    conn->stop_running_output = false;
 
     return 0;
 }
 
 void
-server_input_start()
+server_input_start(int conn_index)
 {
-    if (threads_data.data.is_running_input == false) {
+    proxy_server_connection_t *conn = &threads_data.connections[conn_index];
+    
+    if (conn->is_running_input == false) {
 
-        threads_data.data.is_starting_input = true;
-        threads_data.data.stop_running_input = false;
+        conn->is_starting_input = true;
+        conn->stop_running_input = false;
 
-        threads_data.data.input_thread = Thread_create(server_input_thread, (void *) &threads_data.data, false);
+        // Создаем копию индекса для передачи в поток
+        int *param = malloc(sizeof(int));
+        if (!param) {
+            logMsg(LOG_ERR, "Failed to allocate memory for thread parameter (connection %d)\n", conn_index);
+            conn->is_starting_input = false;
+            return;
+        }
+        *param = conn_index;
+        
+        conn->input_thread = Thread_create(server_input_thread, (void *) param, true); // Создаем отсоединенный поток
+        if (!conn->input_thread) {
+            logMsg(LOG_ERR, "Failed to create input thread for connection %d\n", conn_index);
+            free(param);
+            conn->is_starting_input = false;
+            return;
+        }
 
-        Thread_start(threads_data.data.input_thread);
+        logMsg(LOG_DEBUG, "Input thread for connection %d\n starting", conn_index);
+        Thread_start(conn->input_thread);
 
-        while (threads_data.data.is_starting_input)
+        while (conn->is_starting_input)
             Thread_sleep(1);
     }
 }
 
 void
-server_output_start()
+server_output_start(int conn_index)
 {
-    if (threads_data.data.is_running_output == false) {
+    proxy_server_connection_t *conn = &threads_data.connections[conn_index];
+    
+    if (conn->is_running_output == false && conn->is_starting_output == false) {
 
-        threads_data.data.is_starting_output = true;
-        threads_data.data.stop_running_output = false;
+        conn->is_starting_output = true;
+        conn->stop_running_output = false;
 
-        threads_data.data.output_thread = Thread_create(server_output_thread, (void *) &threads_data.data, false);
+        // Создаем копию индекса для передачи в поток
+        int *param = malloc(sizeof(int));
+        if (!param) {
+            logMsg(LOG_ERR, "Failed to allocate memory for thread parameter (connection %d)\n", conn_index);
+            conn->is_starting_output = false;
+            return;
+        }
+        *param = conn_index;
+        
+        conn->output_thread = Thread_create(server_output_thread, (void *) param, true);
+        if (!conn->output_thread) {
+            logMsg(LOG_ERR, "Failed to create output thread for connection %d\n", conn_index);
+            free(param);
+            conn->is_starting_output = false;
+            return;
+        }
 
-        Thread_start(threads_data.data.output_thread);
+        Thread_start(conn->output_thread);
 
-        while (threads_data.data.is_starting_output)
+        // Ожидаем подтверждения запуска потока
+        uint64_t wait_start = get_time_counter();
+        while (conn->is_starting_output) {
             Thread_sleep(1);
+            
+            // Таймаут на запуск потока - 5 секунд
+            if (get_time_counter() - wait_start > 5) {
+                logMsg(LOG_ERR, "Timeout waiting for output thread start (connection %d)\n", conn_index);
+                conn->is_starting_output = false;
+                break;
+            }
+        }
     }
 }
 
-void input_server_stop(proxy_server_t * server)
+void input_server_stop(proxy_server_connection_t *conn)
 {
-  if (server->is_running_input == true) {
-    server->stop_running_input = true;
+  if (conn->is_running_input == true) {
+    conn->stop_running_input = true;
   }
 }
 
 void
-input_server_wait_stop(proxy_server_t * server)
+input_server_wait_stop(proxy_server_connection_t *conn)
 {
-  if (server->is_running_input == true) {
-    while (server->is_running_input)
+  if (conn->is_running_input == true) {
+    while (conn->is_running_input)
       Thread_sleep(1);
   }
 }
 
 bool
-server_input_is_running(proxy_server_t * server)
+server_input_is_running(proxy_server_connection_t *conn)
 {
-    return server->is_running_input;
+    return conn->is_running_input;
+}
+
+void
+switcher_servers_stop()
+{
+    proxy_server_thread_data_t* settings = get_client_settings();
+    
+    logMsg(LOG_INFO, "Initiating graceful shutdown of all connections...");
+    
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+
+        // Устанавливаем флаги остановки для всех соединений (независимо от текущего состояния)
+        conn->stop_running_input = true;
+        conn->stop_running_output = true;
+    }
+
+    // Try to unblock threads which may be blocked in select/recv by shutting down fds
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+        if (conn->input >= 0) {
+            logMsg(LOG_DEBUG, "Shutting down input fd for connection %d\n", conn->id);
+            shutdown(conn->input, SHUT_RDWR);
+        }
+        if (conn->output >= 0) {
+            logMsg(LOG_DEBUG, "Shutting down output fd for connection %d\n", conn->id);
+            shutdown(conn->output, SHUT_RDWR);
+        }
+        /* Don't call SSL_shutdown here — allow the input thread to perform
+           SSL_shutdown()/SSL_free() itself to avoid double-freeing the
+           SSL object. We already shutdown the underlying fds above to
+           unblock select/recv. */
+    }
+
+    // Освобождаем память соединений
+    if (settings->connections) {
+        // Сначала дожидаемся завершения и уничтожаем все потоки
+        for (int i = 0; i < settings->connections_count; i++) {
+            proxy_server_connection_t *conn = &settings->connections[i];
+            
+            if (conn->input_thread) {
+                // Дожидаемся завершения потока
+                while (conn->is_running_input) {
+                    Thread_sleep(10);
+                }
+                // Не вызываем Thread_destroy() для отсоединённых потоков —
+                // реализация Thread_destroy() может попытаться освободить ресурсы,
+                // уже освобождённые потоками, что приводит к corruption.
+                conn->input_thread = NULL;
+            }
+
+            if (conn->output_thread) {
+                // Дожидаемся завершения потока
+                while (conn->is_running_output) {
+                    Thread_sleep(10);
+                }
+                // Не вызываем Thread_destroy() по той же причине.
+                conn->output_thread = NULL;
+            }
+        }
+        
+        free(settings->connections);
+        settings->connections = NULL;
+        settings->connections_count = 0;
+    }
+
+    // Очистка SSL контекста
+    if (settings->ssl_ctx) {
+        SSL_CTX_free(settings->ssl_ctx);
+        settings->ssl_ctx = NULL;
+    }
+}
+
+void
+switcher_servers_wait_stop()
+{
+    proxy_server_thread_data_t* settings = get_client_settings();
+    
+    logMsg(LOG_INFO, "Waiting for all connections to stop gracefully...");
+    
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+        
+        // Ожидаем остановки input потока
+        while (conn->is_running_input) {
+            Thread_sleep(10);
+        }
+        
+        // Ожидаем остановки output потока
+        while (conn->is_running_output) {
+            Thread_sleep(10);
+        }
+        
+        logMsg(LOG_INFO, "Connection %d stopped gracefully", conn->id);
+    }
+    
+    logMsg(LOG_INFO, "All connections stopped gracefully");
+}
+
+// Инициализация OpenSSL
+void init_openssl() {
+    // Проверяем результат инициализации OpenSSL
+    if (SSL_library_init() != 1) {
+        logMsg(LOG_ERR, "Failed to initialize OpenSSL library\n");
+        exit(EXIT_FAILURE);
+    }
+    SSL_load_error_strings();
+    OpenSSL_add_ssl_algorithms();
+}
+
+// Очистка ресурсов OpenSSL
+void cleanup_openssl() {
+    EVP_cleanup();
+}
+
+// Создание SSL контекста для клиента
+SSL_CTX *create_client_ssl_context(const char *ca_file) {
+    if (!ca_file || !ca_file[0]) {
+        logMsg(LOG_ERR, "CA file path is empty\n");
+        return NULL;
+    }
+    
+    const SSL_METHOD *method = TLS_client_method();
+    SSL_CTX *ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        logMsg(LOG_ERR, "Unable to create SSL context\n");
+        // Выводим детальную информацию об ошибке OpenSSL
+        unsigned long ssl_err;
+        while ((ssl_err = ERR_get_error()) != 0) {
+            char err_buf[256];
+            ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+            logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+        }
+        return NULL;
+    }
+    
+    // Логируем создание SSL контекста
+    logMsg(LOG_INFO, "Client SSL context created\n");
+
+    // Настройка контекста
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+    
+    // Клиент проверяет сертификат сервера
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+    
+    // Загружаем CA-сертификат для проверки сертификата сервера
+    if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) {
+        logMsg(LOG_ERR, "Failed to load CA certificate from %s\n", ca_file);
+        // Выводим детальную информацию об ошибке OpenSSL
+        unsigned long ssl_err;
+        while ((ssl_err = ERR_get_error()) != 0) {
+            char err_buf[256];
+            ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+            logMsg(LOG_ERR, "SSL error: %s\n", err_buf);
+        }
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+
+    return ctx;
 }

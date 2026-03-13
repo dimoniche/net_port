@@ -106,4 +106,26 @@ exports.Servers = class Servers {
 
     return `server ${id} updated`;
   }
+
+  async restart(id) {
+    const server = await this.db
+      .from('servers')
+      .where('id', Number(id))
+      .first();
+
+    if (!server) {
+      throw new Error(`Server with id ${id} not found`);
+    }
+
+    try {
+      const command_start_service = 'systemctl';
+      const args_restart_service = 'restart';
+      const args_name_service = `net_port_u${server.user_id}`;
+
+      await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+      return { success: true, message: `Server ${id} restarted successfully` };
+    } catch (e) {
+      throw new Error(`Failed to restart server: ${e.message}`);
+    }
+  }
 };

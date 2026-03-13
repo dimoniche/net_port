@@ -14,7 +14,6 @@ import TextField from "@mui/material/TextField";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Paper from "@mui/material/Paper";
-import isEmpty from "lodash/isEmpty";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import updateAbility from "../../config/permission";
@@ -27,7 +26,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
     const history = useNavigate();
     const [cookies, , removeCookie] = useCookies();
 
-    const [isSubmitting, setSubmitting] = useState(false);
+    const [, setSubmitting] = useState(false);
     const [isChangedData, setChangedData] = useState(false);
     const [addError, setAddError] = useState(false);
     const [serverData, setServerData] = useState();
@@ -66,6 +65,8 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
                     output_port: server.data[0].output_port,
                     description: server.data[0].description,
                     enable: server.data[0].enable,
+                    ssl: server.data[0].enable_ssl,
+                    input_ssl: server.data[0].enable_input_ssl,
                 });
 
                 setServerData(serverData);
@@ -98,6 +99,8 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
             output_port: formik.values.output_port,
             description: formik.values.description,
             enable: formik.values.enable,
+            enable_ssl: formik.values.ssl,
+            enable_input_ssl: formik.values.input_ssl,
             user_id: cookies.user.id,
         };
 
@@ -133,11 +136,23 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
         formik.setFieldValue("enable", !formik.values.enable);
     };
 
+    const sslState = () => {
+        setChangedData(true);
+        formik.setFieldValue("ssl", !formik.values.ssl);
+    };
+
+    const inputSslState = () => {
+        setChangedData(true);
+        formik.setFieldValue("input_ssl", !formik.values.input_ssl);
+    };
+
     const InitValues = {
         input_port: "",
         output_port: "",
         description: "",
         enable: false,
+        ssl: false,
+        input_ssl: false,
     };
 
     let Schema = Yup.object({
@@ -145,6 +160,8 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
         output_port: Yup.number().min(6000).max(7000).required(),
         description: Yup.string(),
         enable: Yup.boolean(),
+        ssl: Yup.boolean(),
+        input_ssl: Yup.boolean(),
     });
 
     const formik = useFormik({
@@ -173,7 +190,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
                     <Grid item xs={6}>
                         <TextField
                             sx={InputFieldWidth}
-                            label="Входящий порт"
+                            label="Пользовательский порт (input)"
                             variant="outlined"
                             onChange={formik.handleChange}
                             onKeyUp={() => {
@@ -193,7 +210,7 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
                     <Grid item xs={6}>
                         <TextField
                             sx={InputFieldWidth}
-                            label="Перенаправляемый порт"
+                            label="Внутренний порт (output)"
                             variant="outlined"
                             onChange={formik.handleChange}
                             onKeyUp={() => {
@@ -245,6 +262,38 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
                         />
                     </Grid>
                     <Grid item xs={6}></Grid>
+                    <Grid item xs={6}>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={formik.values.ssl}
+                                    onChange={sslState}
+                                    inputProps={{ "aria-label": "controlled" }}
+                                />
+                            }
+                            label={
+                                formik.values.ssl
+                                    ? "SSL на внутреннем порту включен"
+                                    : "SSL на внутреннем порту отключен"
+                            }
+                        />
+                    </Grid>
+                    <Grid item xs={6}>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={formik.values.input_ssl}
+                                    onChange={inputSslState}
+                                    inputProps={{ "aria-label": "controlled" }}
+                                />
+                            }
+                            label={
+                                formik.values.input_ssl
+                                    ? "SSL на пользовательском порту включен"
+                                    : "SSL на пользовательском порту отключен"
+                            }
+                        />
+                    </Grid>
                     <Grid item xs={6}>
                         <Button
                             color="primary"
