@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.7)
+cmake_minimum_required(VERSION 3.10)
 set(CMAKE_C_STANDARD 11)
 
 set(proxy_common_SRCS
