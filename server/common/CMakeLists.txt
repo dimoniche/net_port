@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.7)
 set(CMAKE_C_STANDARD 11)
 
-set(CMAKE_SYSTEM_NAME Linux)
-
 set(proxy_common_SRCS
         ${CMAKE_CURRENT_LIST_DIR}/log/logMsg.c
         ${CMAKE_CURRENT_LIST_DIR}/db/db.c
@@ -14,8 +12,17 @@ set(proxy_common_linux_SRCS
         ${CMAKE_CURRENT_LIST_DIR}/hal/thread/linux/thread_linux.c
 )
 
-set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
-set(PostgreSQL_INCLUDE_DIRS "\\usr\\include\\postgresql")
+# OS detection
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(PostgreSQL_LIBRARY -lpq)
+    set(PostgreSQL_INCLUDE_DIRS "/usr/local/opt/libpq/include")
+    set(PostgreSQL_LIBRARY_DIRS "/usr/local/opt/libpq/lib")
+else()
+    # Assume Linux
+    set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
+    set(PostgreSQL_INCLUDE_DIRS "/usr/include/postgresql")
+    set(PostgreSQL_LIBRARY_DIRS "/usr/lib/x86_64-linux-gnu")
+endif()
 
 link_directories(${PostgreSQL_LIBRARY_DIRS})
 

@@ -24,15 +24,31 @@ generate_product_version(
 
 set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 
-set(CMAKE_SYSTEM_NAME Linux)
+# OS detection
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(PostgreSQL_LIBRARY -lpq)
+    set(PostgreSQL_INCLUDE_DIRS "/usr/local/opt/libpq/include")
+    set(PostgreSQL_LIBRARY_DIRS "/usr/local/opt/libpq/lib")
+else()
+    # Assume Linux
+    set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
+    set(PostgreSQL_INCLUDE_DIRS "/usr/include/postgresql")
+    set(PostgreSQL_LIBRARY_DIRS "/usr/lib/x86_64-linux-gnu")
+endif()
 
-set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
-set(PostgreSQL_INCLUDE_DIRS "\\usr\\include\\postgresql")
 link_directories(${PostgreSQL_LIBRARY_DIRS})
+
+find_package(OpenSSL REQUIRED)
 
 # feature checks
 include(CheckLibraryExists)
 check_library_exists(rt clock_gettime "time.h" CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
+
+if(CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
+    set(EXTRA_LIBS -lrt)
+else()
+    set(EXTRA_LIBS "")
+endif()
 
 # check if we are on a little or a big endian
 include(TestBigEndian)
@@ -43,6 +59,7 @@ add_subdirectory(common)
 include_directories(
         .
         ${PostgreSQL_INCLUDE_DIRS}
+        ${OPENSSL_INCLUDE_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
@@ -60,7 +77,6 @@ add_executable(${EXEC_NAME}
 
 target_link_libraries(${EXEC_NAME}
         server_proxy_common
-        -lrt
-        -lssl
-        -lcrypto
+        ${EXTRA_LIBS}
+        ${OPENSSL_LIBRARIES}
 )

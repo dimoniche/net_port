@@ -26,14 +26,22 @@ generate_product_version(
 
 set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 
-set(CMAKE_SYSTEM_NAME Linux)
+#set(CMAKE_SYSTEM_NAME Linux)
 
 #set(CMAKE_C_COMPILER arm-linux-gnueabihf-gcc)
 #set(CMAKE_CXX_COMPILER arm-linux-gnueabihf-g++)
 
+find_package(OpenSSL REQUIRED)
+
 # feature checks
 include(CheckLibraryExists)
 check_library_exists(rt clock_gettime "time.h" CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
+
+if(CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
+    set(EXTRA_LIBS -lrt)
+else()
+    set(EXTRA_LIBS "")
+endif()
 
 # check if we are on a little or a big endian
 include(TestBigEndian)
@@ -43,6 +51,7 @@ add_subdirectory(common)
 
 include_directories(
         .
+        ${OPENSSL_INCLUDE_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
@@ -58,7 +67,6 @@ add_executable(${EXEC_NAME}
 
 target_link_libraries(${EXEC_NAME}
         client_proxy_common
-        -lrt
-        -lssl
-        -lcrypto
+        ${EXTRA_LIBS}
+        ${OPENSSL_LIBRARIES}
 )
