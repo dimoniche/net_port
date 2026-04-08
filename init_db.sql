@@ -8,6 +8,9 @@ CREATE TABLE role (
     description TEXT
 );
 
+-- Insert default admin role
+INSERT INTO role (id, name, description) VALUES (1, 'admin', '');
+
 CREATE TABLE servers (
     id SERIAL PRIMARY KEY,
     user_id INTEGER,
@@ -37,3 +40,7 @@ CREATE TABLE users (
     username VARCHAR(255),
     phone VARCHAR(255)
 );
+
+-- Insert default admin user (password hash placeholder)
+INSERT INTO users (id, login, password, email, role_name, username, phone)
+VALUES (1, 'admin', '$2a$10$IbbqSxmhsXaOBuVSgS3WCe0XRZsw7JPv8ObApAtlSmuoMifVdoNnC', '', 'admin', '', '');
