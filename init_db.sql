@@ -9,12 +9,14 @@ CREATE TABLE role (
 );
 
 CREATE TABLE servers (
+    id SERIAL PRIMARY KEY,
     user_id INTEGER,
     input_port INTEGER,
     output_port INTEGER,
     enable BOOLEAN,
     enable_ssl BOOLEAN,
-    enable_input_ssl BOOLEAN
+    enable_input_ssl BOOLEAN,
+    description TEXT
 );
 
 CREATE TABLE statistic (
@@ -32,4 +34,6 @@ CREATE TABLE users (
     password VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     role_name VARCHAR(255),
+    username VARCHAR(255),
+    phone VARCHAR(255)
 );
