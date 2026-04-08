@@ -61,6 +61,7 @@ COPY nginx.conf /etc/nginx/sites-available/default
 # Создание скрипта для запуска сервера
 RUN echo "#!/bin/bash\n" \
     "service postgresql start &\n" \
+    "sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/*/main/postgresql.conf &\n" \
     "sleep 10 &\n" \
     "su - postgres -c \"psql -f /root/net_port/source/init_db.sql\" &\n" \
     "service nginx start &\n" \
