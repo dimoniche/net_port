@@ -41,6 +41,3 @@ CREATE TABLE users (
     phone VARCHAR(255)
 );
 
--- Insert default admin user (password hash placeholder)
-INSERT INTO users (id, login, password, email, role_name, username, phone)
-VALUES (1, 'admin', '$2a$10$IbbqSxmhsXaOBuVSgS3WCe0XRZsw7JPv8ObApAtlSmuoMifVdoNnC', '', 'admin', '', '');

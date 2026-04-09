@@ -9,4 +9,9 @@ services:
       - "13880:8080"
       - "49000-49999:6000-6999"
       - "25432:5432"
+    environment:
+      - DB_USER=admin
+      - DB_PASSWORD=password
+      - APP_USER=admin
+      - APP_PASSWORD=password
     restart: unless-stopped
