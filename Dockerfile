@@ -14,12 +14,14 @@ RUN apt-get update && apt-get install -y \
     postgresql-contrib \
     tzdata \
     libpq-dev \
-    curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Установка последней версии Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
-    apt-get install -y nodejs
+# Установка 20 версии Node.js
+ARG NODE_VERSION=20
+RUN wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+ENV NVM_DIR=/root/.nvm
+RUN bash -c "source $NVM_DIR/nvm.sh && nvm install $NODE_VERSION"
 
 # Настройка часового пояса
 RUN ln -fs /usr/sshare/zoneinfo/UTC /etc/localtime && \
@@ -43,10 +45,10 @@ RUN cp server/module_net_port_server* /root/net_port/
 
 # Установка и настройка веб-части
 WORKDIR /root/net_port/source/web/backend_net_port
-RUN npm install
+RUN bash -c "source $NVM_DIR/nvm.sh && npm install"
 
 WORKDIR /root/net_port/source/web/frontend_net_port
-RUN npm install && npm run build
+RUN bash -c "source $NVM_DIR/nvm.sh && npm install && npm run build"
 
 # Копирование скомпилированного фронтенда в директорию, обслуживаемую Nginx
 RUN mkdir -p /var/www/html && cp -r build/* /var/www/html/
@@ -59,20 +61,22 @@ COPY init_db.sql /root/net_port/source/
 # Копирование конфигурации Nginx
 COPY nginx.conf /etc/nginx/sites-available/default
 
+COPY init_db.sql /var/lib/postgresql/
+RUN chown postgres:postgres /var/lib/postgresql/init_db.sql
+
+# Создание скрипта для запуска сервера
+RUN echo "#!/bin/bash\n" \
+    "sed -i 's/#listen_addresses = \x27localhost\x27/listen_addresses = \x27*\x27/' /etc/postgresql/*/main/postgresql.conf \n" \
+    "service postgresql restart \n" \
+    "su - postgres -c \"psql -f /var/lib/postgresql/init_db.sql\"\n" \
+    "service nginx start \n" \
+    "cd /root/net_port/source/web/backend_net_port && bash -c \"source $NVM_DIR/nvm.sh && npm start\" \n" \
+    "wait && tail -f /dev/null" > /root/net_port/start.sh && \
+    chmod +x /root/net_port/start.sh
+
 EXPOSE 80
 EXPOSE 6000-6999
 EXPOSE 8080
 EXPOSE 5432
-
-# Создание скрипта для запуска сервера
-RUN echo "#!/bin/bash\n" \
-    "sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/*/main/postgresql.conf &\n" \
-    "service postgresql restart &\n" \
-    "sleep 10 &\n" \
-    "su - postgres -c \"psql -f /root/net_port/source/init_db.sql\" &\n" \
-    "service nginx start &\n" \
-    "cd /root/net_port/web/backend_net_port && npm start &\n" \
-    "wait && tail -f /dev/null" > /root/net_port/start.sh && \
-    chmod +x /root/net_port/start.sh
 
 CMD ["/root/net_port/start.sh"]
