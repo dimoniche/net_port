@@ -22,6 +22,10 @@ CREATE TABLE servers (
     description TEXT
 );
 
+-- Insert default server for user 1
+INSERT INTO servers (user_id, input_port, output_port, enable, enable_ssl, enable_input_ssl, description)
+VALUES (1, 6000, 6001, true, false, false, 'Default server');
+
 CREATE TABLE statistic (
     id SERIAL PRIMARY KEY,
     server_id INTEGER,
