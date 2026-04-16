@@ -71,58 +71,8 @@ COPY init_db.sql /var/lib/postgresql/
 RUN chown postgres:postgres /var/lib/postgresql/init_db.sql
 
 # Создание скрипта для запуска сервера
-RUN echo "#!/bin/bash\n" \
-    "# Set default values if environment variables are not set\n" \
-    "DB_USER=\${DB_USER:-admin}\n" \
-    "DB_PASSWORD=\${DB_PASSWORD}\n" \
-    "DB_HOST=\${DB_HOST:-localhost}\n" \
-    "THREADS=\${THREADS:-10}\n" \
-    "\n" \
-    "# Create .env file for backend with current environment variables\n" \
-    "echo \"DB_USER=\$DB_USER\" > /root/net_port/source/web/backend_net_port/.env\n" \
-    "echo \"DB_PASSWORD=\$DB_PASSWORD\" >> /root/net_port/source/web/backend_net_port/.env\n" \
-    "echo \"DB_HOST=\$DB_HOST\" >> /root/net_port/source/web/backend_net_port/.env\n" \
-    "\n" \
-    "# Update PostgreSQL configuration to allow remote connections\n" \
-    "sed -i 's/#listen_addresses = \x27localhost\x27/listen_addresses = \x27*\x27/' /etc/postgresql/*/main/postgresql.conf \n" \
-    "service postgresql restart \n" \
-    "\n" \
-    "# Initialize database from SQL script\n" \
-    "su - postgres -c \"psql -f /var/lib/postgresql/init_db.sql\"\n" \
-    "\n" \
-    "# Create PostgreSQL user with password from environment\n" \
-    "su - postgres -c \"psql -c \\\"CREATE ROLE \\\"\\\"\$DB_USER\\\"\\\" WITH LOGIN PASSWORD '\$DB_PASSWORD';\\\"\"\n" \
-    "\n" \
-    "# Grant privileges\n" \
-    "su - postgres -c \"psql -c \\\"GRANT ALL PRIVILEGES ON DATABASE net_port TO \\\"\\\"\$DB_USER\\\"\\\";\\\"\"\n" \
-    "su - postgres -c \"psql -d net_port -c \\\"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \\\"\\\"\$DB_USER\\\"\\\";\\\"\"\n" \
-    "su - postgres -c \"psql -d net_port -c \\\"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \\\"\\\"\$DB_USER\\\"\\\";\\\"\"\n" \
-    "\n" \
-    "# Add admin user with hashed password from environment\n" \
-    "cd /root/net_port/source/web/backend_net_port && bash -c \"source $NVM_DIR/nvm.sh && NODE_PATH=/root/net_port/source/web/backend_net_port/node_modules node ../utils/add_test_user.js\" \n" \
-    "\n" \
-    "# Generate SSL certificates if they don't exist\n" \
-    "if [ ! -f /root/net_port/server.crt ] || [ ! -f /root/net_port/server.key ]; then\n" \
-    "    mkdir -p /root/net_port\n" \
-    "    cd /root/net_port\n" \
-    "    openssl genrsa -out server.key 2048\n" \
-    "    openssl req -new -x509 -key server.key -out server.crt -days 3650 -subj \"/C=RU/ST=Moscow/L=Moscow/O=Net Port/CN=localhost\"\n" \
-    "fi\n" \
-    "\n" \
-    "service nginx start \n" \
-    "\n" \
-    "# Start net_port server in background\n" \
-    "cd /root/net_port\n" \
-    "./module_net_port_server* -v1 --user 1 --cert server.crt --key server.key --threads \$THREADS --username \$DB_USER --password \$DB_PASSWORD -p 5432 &\n" \
-    "SERVER_PID=\$!\n" \
-    "\n" \
-    "# Start Node.js backend\n" \
-    "cd /root/net_port/source/web/backend_net_port && bash -c \"source $NVM_DIR/nvm.sh && npm start\" &\n" \
-    "BACKEND_PID=\$!\n" \
-    "\n" \
-    "wait \$SERVER_PID \$BACKEND_PID\n" \
-    "tail -f /dev/null" > /root/net_port/start.sh && \
-    chmod +x /root/net_port/start.sh
+COPY start.sh /root/net_port/start.sh
+RUN chmod +x /root/net_port/start.sh
 
 EXPOSE 80
 EXPOSE 6000-6999
