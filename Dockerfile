@@ -67,8 +67,9 @@ COPY init_db.sql /root/net_port/source/
 # Копирование конфигурации Nginx
 COPY nginx.conf /etc/nginx/sites-available/default
 
-COPY init_db.sql /var/lib/postgresql/
-RUN chown postgres:postgres /var/lib/postgresql/init_db.sql
+# Copy init_db.sql to a location that won't be overwritten by volume mount
+COPY init_db.sql /etc/postgresql/init_db.sql
+RUN chown postgres:postgres /etc/postgresql/init_db.sql
 
 # Создание скрипта для запуска сервера
 COPY start.sh /root/net_port/start.sh

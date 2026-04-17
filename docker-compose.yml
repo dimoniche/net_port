@@ -15,4 +15,6 @@ services:
       - APP_USER=admin
       - APP_PASSWORD=password
       - THREADS=10
-    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    restart: unless-stopped    

@@ -12,15 +12,44 @@ echo "DB_USER=$DB_USER" > /root/net_port/source/web/backend_net_port/.env
 echo "DB_PASSWORD=$DB_PASSWORD" >> /root/net_port/source/web/backend_net_port/.env
 echo "DB_HOST=$DB_HOST" >> /root/net_port/source/web/backend_net_port/.env
 
+# Check if PostgreSQL data directory is initialized
+if [ ! -d /var/lib/postgresql/14/main ] || [ ! -f /var/lib/postgresql/14/main/PG_VERSION ]; then
+    echo "PostgreSQL data directory not found, initializing..."
+    # Ensure directory exists with proper permissions
+    mkdir -p /var/lib/postgresql/14
+    chown -R postgres:postgres /var/lib/postgresql/14
+    # Initialize PostgreSQL database cluster
+    su - postgres -c "/usr/lib/postgresql/14/bin/initdb -D /var/lib/postgresql/14/main --encoding=UTF8 --locale=C"
+fi
+
 # Update PostgreSQL configuration to allow remote connections
 sed -i 's/#listen_addresses = '\''localhost'\''/listen_addresses = '\''*'\''/' /etc/postgresql/*/main/postgresql.conf
-service postgresql restart
 
-# Initialize database from SQL script
-su - postgres -c "psql -f /var/lib/postgresql/init_db.sql"
+# Start PostgreSQL
+service postgresql start
 
-# Create PostgreSQL user with password from environment
-su - postgres -c "psql -c \"CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';\""
+# Wait for PostgreSQL to be ready
+sleep 5
+
+# Check if database already exists
+if su - postgres -c "psql -lqt" 2>/dev/null | cut -d \| -f 1 | grep -qw net_port; then
+    echo "Database 'net_port' already exists, skipping initialization."
+else
+    echo "Database 'net_port' not found, initializing..."
+    # Initialize database from SQL script
+    su - postgres -c "psql -f /etc/postgresql/init_db.sql"
+fi
+
+# Check if user already exists
+if su - postgres -c "psql -c \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1; then
+    echo "User '$DB_USER' already exists, skipping creation."
+else
+    echo "Creating PostgreSQL user '$DB_USER'..."
+    # Create PostgreSQL user with password from environment
+    su - postgres -c "psql -c \"CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';\""
+fi
+
+# Grant privileges (these are idempotent, safe to run multiple times)
 su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE net_port TO $DB_USER;\""
 su - postgres -c "psql -d net_port -c \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;\""
 su - postgres -c "psql -d net_port -c \"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;\""
