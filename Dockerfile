@@ -3,20 +3,37 @@ FROM ubuntu:22.04
 # Установка необходимых зависимостей
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    git \
-    nginx \
-    postgresql \
-    postgresql-contrib \
-    tzdata \
-    libpq-dev \
-    wget \
-    mc \
-    systemd \
-    openssl \
-    && rm -rf /var/lib/apt/lists/*
+ARG EXTERNAL_DB=false
+
+RUN apt-get update && \
+    if [ "$EXTERNAL_DB" = "true" ]; then \
+        apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            nginx \
+            tzdata \
+            libpq-dev \
+            wget \
+            mc \
+            systemd \
+            openssl ; \
+    else \
+        apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            nginx \
+            postgresql \
+            postgresql-contrib \
+            tzdata \
+            libpq-dev \
+            wget \
+            mc \
+            systemd \
+            openssl ; \
+    fi && \
+    rm -rf /var/lib/apt/lists/*
 
 # Установка 20 версии Node.js
 ARG NODE_VERSION=20

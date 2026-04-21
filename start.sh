@@ -5,54 +5,70 @@ set -e
 DB_USER=${DB_USER:-admin}
 DB_PASSWORD=${DB_PASSWORD}
 DB_HOST=${DB_HOST:-localhost}
+DB_PORT=${DB_PORT:-5432}
 THREADS=${THREADS:-10}
+
+# Determine if we are using local PostgreSQL (localhost or 127.0.0.1)
+if [ "$DB_HOST" = "localhost" ] || [ "$DB_HOST" = "127.0.0.1" ]; then
+    USE_LOCAL_DB=true
+else
+    USE_LOCAL_DB=false
+fi
 
 # Create .env file for backend with current environment variables
 echo "DB_USER=$DB_USER" > /root/net_port/source/web/backend_net_port/.env
 echo "DB_PASSWORD=$DB_PASSWORD" >> /root/net_port/source/web/backend_net_port/.env
 echo "DB_HOST=$DB_HOST" >> /root/net_port/source/web/backend_net_port/.env
+echo "DB_PORT=$DB_PORT" >> /root/net_port/source/web/backend_net_port/.env
 
-# Check if PostgreSQL data directory is initialized
-if [ ! -d /var/lib/postgresql/14/main ] || [ ! -f /var/lib/postgresql/14/main/PG_VERSION ]; then
-    echo "PostgreSQL data directory not found, initializing..."
-    # Ensure directory exists with proper permissions
-    mkdir -p /var/lib/postgresql/14
-    chown -R postgres:postgres /var/lib/postgresql/14
-    # Initialize PostgreSQL database cluster
-    su - postgres -c "/usr/lib/postgresql/14/bin/initdb -D /var/lib/postgresql/14/main --encoding=UTF8 --locale=C"
-fi
+# Only initialize and start local PostgreSQL if using local DB
+if [ "$USE_LOCAL_DB" = "true" ]; then
+    # Check if PostgreSQL data directory is initialized
+    if [ ! -d /var/lib/postgresql/14/main ] || [ ! -f /var/lib/postgresql/14/main/PG_VERSION ]; then
+        echo "PostgreSQL data directory not found, initializing..."
+        # Ensure directory exists with proper permissions
+        mkdir -p /var/lib/postgresql/14
+        chown -R postgres:postgres /var/lib/postgresql/14
+        # Initialize PostgreSQL database cluster
+        su - postgres -c "/usr/lib/postgresql/14/bin/initdb -D /var/lib/postgresql/14/main --encoding=UTF8 --locale=C"
+    fi
 
-# Update PostgreSQL configuration to allow remote connections
-sed -i 's/#listen_addresses = '\''localhost'\''/listen_addresses = '\''*'\''/' /etc/postgresql/*/main/postgresql.conf
+    # Update PostgreSQL configuration to allow remote connections
+    sed -i 's/#listen_addresses = '\''localhost'\''/listen_addresses = '\''*'\''/' /etc/postgresql/*/main/postgresql.conf
 
-# Start PostgreSQL
-service postgresql start
+    # Start PostgreSQL
+    service postgresql start
 
-# Wait for PostgreSQL to be ready
-sleep 5
+    # Wait for PostgreSQL to be ready
+    sleep 5
 
-# Check if database already exists
-if su - postgres -c "psql -lqt" 2>/dev/null | cut -d \| -f 1 | grep -qw net_port; then
-    echo "Database 'net_port' already exists, skipping initialization."
+    # Check if database already exists
+    if su - postgres -c "psql -lqt" 2>/dev/null | cut -d \| -f 1 | grep -qw net_port; then
+        echo "Database 'net_port' already exists, skipping initialization."
+    else
+        echo "Database 'net_port' not found, initializing..."
+        # Initialize database from SQL script
+        su - postgres -c "psql -f /etc/postgresql/init_db.sql"
+    fi
+
+    # Check if user already exists
+    if su - postgres -c "psql -c \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1; then
+        echo "User '$DB_USER' already exists, skipping creation."
+    else
+        echo "Creating PostgreSQL user '$DB_USER'..."
+        # Create PostgreSQL user with password from environment
+        su - postgres -c "psql -c \"CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';\""
+    fi
+
+    # Grant privileges (these are idempotent, safe to run multiple times)
+    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE net_port TO $DB_USER;\""
+    su - postgres -c "psql -d net_port -c \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;\""
+    su - postgres -c "psql -d net_port -c \"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;\""
 else
-    echo "Database 'net_port' not found, initializing..."
-    # Initialize database from SQL script
-    su - postgres -c "psql -f /etc/postgresql/init_db.sql"
+    echo "Using external PostgreSQL at $DB_HOST:$DB_PORT, skipping local PostgreSQL initialization."
+    # Wait a moment for external DB to be reachable (optional)
+    sleep 2
 fi
-
-# Check if user already exists
-if su - postgres -c "psql -c \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1; then
-    echo "User '$DB_USER' already exists, skipping creation."
-else
-    echo "Creating PostgreSQL user '$DB_USER'..."
-    # Create PostgreSQL user with password from environment
-    su - postgres -c "psql -c \"CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';\""
-fi
-
-# Grant privileges (these are idempotent, safe to run multiple times)
-su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE net_port TO $DB_USER;\""
-su - postgres -c "psql -d net_port -c \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;\""
-su - postgres -c "psql -d net_port -c \"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;\""
 
 # Add admin user with hashed password from environment
 cd /root/net_port/source/web/backend_net_port && bash -c "source $NVM_DIR/nvm.sh && NODE_PATH=/root/net_port/source/web/backend_net_port/node_modules node ../utils/add_test_user.js"
@@ -81,7 +97,7 @@ start_server() {
     while true; do
         echo "Starting net_port server..."
         cd /root/net_port
-        ./module_net_port_server* --user 1 -v1 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD -p 5432 &
+        ./module_net_port_server* --user 1 -v1 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT &
         server_pid=$!
         wait $server_pid || true
         server_exit_code=$?
