@@ -258,6 +258,7 @@ install_packages() {
             apt-get install -y --no-install-recommends \
                 postgresql \
                 postgresql-contrib \
+                libpq-dev \
                 >> "$LOG_FILE" 2>&1 || warning "PostgreSQL installation had issues"
             
             info "Installing web server and runtime..."
@@ -329,6 +330,7 @@ install_packages() {
                 wget \
                 python3 \
                 python3-pip \
+                libpq-dev \
                 >> "$LOG_FILE" 2>&1 || warning "Some packages failed to install"
             
             # Initialize PostgreSQL if needed
@@ -401,29 +403,16 @@ main() {
     # Build C server and client
     info "Building C server and client..."
     cd "$INSTALL_DIR/source"
-    
-    # Check if build directory exists with binaries
-    BUILT_BINARIES=false
-    if [ -d "build" ]; then
-        # Check for existing binaries
-        SERVER_BIN=$(find build -name "module_net_port_server*" -type f ! -name "*.dir" | head -1)
-        CLIENT_BIN=$(find build -name "module_net_port_client*" -type f ! -name "*.dir" | head -1)
         
-        if [ -n "$SERVER_BIN" ] && [ -n "$CLIENT_BIN" ]; then
-            info "Using existing binaries..."
-            cp "$SERVER_BIN" "$INSTALL_DIR/bin/"
-            cp "$CLIENT_BIN" "$INSTALL_DIR/bin/"
-            BUILT_BINARIES=true
-        fi
-    fi
-    
     # Build if binaries not found
     if [ "$BUILT_BINARIES" = false ]; then
         info "Building from source..."
         mkdir -p build
+        
+        cmake CMakeLists.txt >> "$LOG_FILE" 2>&1 || error_exit "CMake configuration failed"
+        cmake --build . >> "$LOG_FILE" 2>&1 || error_exit "Build failed"
+        
         cd build
-        cmake .. >> "$LOG_FILE" 2>&1 || error_exit "CMake configuration failed"
-        make -j$(nproc) >> "$LOG_FILE" 2>&1 || error_exit "Build failed"
         
         # Copy binaries
         SERVER_BIN=$(find . -name "module_net_port_server*" -type f ! -name "*.dir" | head -1)
