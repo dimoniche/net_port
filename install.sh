@@ -435,8 +435,6 @@ main() {
     cp "$INSTALL_DIR/source/init_db.sql" /etc/postgresql/init_db.sql
     chown postgres:postgres /etc/postgresql/init_db.sql
 
-    rm -rf "$INSTALL_DIR/source"
-
     # Database setup
     info "Setting up PostgreSQL database..."
         
@@ -608,6 +606,8 @@ EOF
     systemctl restart nginx >> "$LOG_FILE" 2>&1 && \
         success "Nginx restarted" || error_exit "Failed to restart nginx"
     
+    rm -rf "$INSTALL_DIR/source"
+
     # Generate SSL certificates (self-signed for development)
     info "Generating SSL certificates..."
     cd "$INSTALL_DIR/ssl"
