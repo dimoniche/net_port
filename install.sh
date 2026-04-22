@@ -211,24 +211,83 @@ install_packages() {
     case $OS in
         ubuntu|debian)
             log "Installing packages using apt..."
-            apt-get update >> "$LOG_FILE" 2>&1 || error_exit "Failed to update package list"
-            apt-get install -y \
+            
+            # Set non-interactive mode for apt
+            export DEBIAN_FRONTEND=noninteractive
+            
+            # Update package list with retry
+            info "Updating package list..."
+            for i in {1..3}; do
+                apt-get update >> "$LOG_FILE" 2>&1 && break
+                if [ $i -eq 3 ]; then
+                    warning "Failed to update package list after 3 attempts, continuing anyway"
+                else
+                    warning "Failed to update package list, retrying ($i/3)..."
+                    sleep 2
+                fi
+            done
+            
+            # Install basic dependencies first
+            info "Installing basic dependencies..."
+            apt-get install -y --no-install-recommends \
+                curl \
+                wget \
+                gnupg \
+                ca-certificates \
+                software-properties-common \
+                apt-transport-https \
+                >> "$LOG_FILE" 2>&1 || warning "Some basic packages failed to install"
+            
+            # Add NodeSource repository for Node.js 14
+            if ! command_exists node || [[ $(node --version | cut -d'.' -f1 | tr -d 'v') -lt 14 ]]; then
+                info "Adding NodeSource repository..."
+                curl -fsSL https://deb.nodesource.com/setup_14.x | bash - >> "$LOG_FILE" 2>&1 || \
+                    warning "Failed to add NodeSource repository"
+            fi
+            
+            # Install packages in groups for better error handling
+            info "Installing build tools..."
+            apt-get install -y --no-install-recommends \
                 build-essential \
                 cmake \
                 git \
+                pkg-config \
+                >> "$LOG_FILE" 2>&1 || warning "Some build tools failed to install"
+            
+            info "Installing PostgreSQL..."
+            apt-get install -y --no-install-recommends \
                 postgresql \
                 postgresql-contrib \
+                >> "$LOG_FILE" 2>&1 || warning "PostgreSQL installation had issues"
+            
+            info "Installing web server and runtime..."
+            apt-get install -y --no-install-recommends \
                 nginx \
                 nodejs \
-                npm \
+                >> "$LOG_FILE" 2>&1 || warning "Web server/runtime installation had issues"
+            
+            # npm comes with nodejs on newer versions, but install separately if needed
+            if ! command_exists npm; then
+                apt-get install -y --no-install-recommends npm >> "$LOG_FILE" 2>&1 || \
+                    warning "npm installation failed"
+            fi
+            
+            info "Installing additional dependencies..."
+            apt-get install -y --no-install-recommends \
                 openssl \
                 libssl-dev \
-                pkg-config \
-                curl \
-                wget \
                 python3 \
                 python3-pip \
-                >> "$LOG_FILE" 2>&1 || error_exit "Failed to install system dependencies"
+                >> "$LOG_FILE" 2>&1 || warning "Some additional dependencies failed to install"
+            
+            # Verify critical packages
+            for pkg in nodejs postgresql nginx; do
+                if dpkg -l | grep -q "^ii.*$pkg"; then
+                    log "Package $pkg installed successfully"
+                else
+                    warning "Package $pkg may not be installed properly"
+                fi
+            done
             ;;
         centos|rhel|fedora)
             log "Installing packages using yum/dnf..."
@@ -237,6 +296,22 @@ install_packages() {
             else
                 PKG_MGR="yum"
             fi
+            
+            # Install EPEL repository for additional packages
+            if [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
+                info "Installing EPEL repository..."
+                $PKG_MGR install -y epel-release >> "$LOG_FILE" 2>&1 || \
+                    warning "Failed to install EPEL repository"
+            fi
+            
+            # Add NodeSource repository
+            if ! command_exists node || [[ $(node --version | cut -d'.' -f1 | tr -d 'v') -lt 14 ]]; then
+                info "Adding NodeSource repository..."
+                curl -fsSL https://rpm.nodesource.com/setup_14.x | bash - >> "$LOG_FILE" 2>&1 || \
+                    warning "Failed to add NodeSource repository"
+            fi
+            
+            info "Installing packages..."
             $PKG_MGR install -y \
                 gcc \
                 gcc-c++ \
@@ -247,7 +322,6 @@ install_packages() {
                 postgresql-contrib \
                 nginx \
                 nodejs \
-                npm \
                 openssl \
                 openssl-devel \
                 pkgconfig \
@@ -255,17 +329,27 @@ install_packages() {
                 wget \
                 python3 \
                 python3-pip \
-                >> "$LOG_FILE" 2>&1 || error_exit "Failed to install system dependencies"
+                >> "$LOG_FILE" 2>&1 || warning "Some packages failed to install"
             
             # Initialize PostgreSQL if needed
             if [ ! -d /var/lib/pgsql/data ]; then
-                postgresql-setup --initdb >> "$LOG_FILE" 2>&1
+                postgresql-setup --initdb >> "$LOG_FILE" 2>&1 || \
+                    warning "PostgreSQL initialization failed"
             fi
             ;;
         *)
             error_exit "Unsupported OS: $OS"
             ;;
     esac
+    
+    # Final check for critical commands
+    for cmd in node psql nginx; do
+        if command_exists "$cmd"; then
+            log "Command $cmd is available"
+        else
+            warning "Command $cmd is not available after installation"
+        fi
+    done
 }
 
 # Check for --help before root check
@@ -305,18 +389,6 @@ main() {
     # Install system dependencies
     info "Installing system dependencies..."
     install_packages
-    
-    # Install Node.js 14 if not available (for backend compatibility)
-    if ! command_exists node || [[ $(node --version | cut -d'.' -f1 | tr -d 'v') -lt 14 ]]; then
-        info "Installing Node.js 14..."
-        if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
-            curl -fsSL https://deb.nodesource.com/setup_14.x | bash - >> "$LOG_FILE" 2>&1
-            apt-get install -y nodejs >> "$LOG_FILE" 2>&1 || error_exit "Failed to install Node.js"
-        elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
-            curl -fsSL https://rpm.nodesource.com/setup_14.x | bash - >> "$LOG_FILE" 2>&1
-            yum install -y nodejs >> "$LOG_FILE" 2>&1 || error_exit "Failed to install Node.js"
-        fi
-    fi
     
     # Create installation directory
     info "Creating installation directory at $INSTALL_DIR..."
