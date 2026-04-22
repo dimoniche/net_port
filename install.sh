@@ -432,20 +432,21 @@ main() {
     # Set executable permissions
     chmod +x "$INSTALL_DIR/bin/"* 2>/dev/null || warning "Failed to set executable permissions on binaries"
     
+    rm -rf "$INSTALL_DIR/source"
+
     # Database setup
     info "Setting up PostgreSQL database..."
     
     # Start and enable PostgreSQL
     if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
-        systemctl start postgresql >> "$LOG_FILE" 2>&1 || error_exit "Failed to start PostgreSQL"
-        systemctl enable postgresql >> "$LOG_FILE" 2>&1 || error_exit "Failed to enable PostgreSQL"
+        service postgresql start
     elif [ "$OS" = "centos" ] || [ "$OS" = "rhel" ]; then
         systemctl start postgresql >> "$LOG_FILE" 2>&1 || error_exit "Failed to start PostgreSQL"
         systemctl enable postgresql >> "$LOG_FILE" 2>&1 || error_exit "Failed to enable PostgreSQL"
     fi
     
     # Wait for PostgreSQL to start
-    sleep 3
+    sleep 5
     
     # Create database and user
     info "Creating database '$DB_NAME' and user '$DB_USER'..."
