@@ -431,16 +431,15 @@ main() {
     
     # Set executable permissions
     chmod +x "$INSTALL_DIR/bin/"* 2>/dev/null || warning "Failed to set executable permissions on binaries"
-    
+
+    cp "$INSTALL_DIR/source/init_db.sql" /etc/postgresql/init_db.sql
+    chown postgres:postgres /etc/postgresql/init_db.sql
+
     rm -rf "$INSTALL_DIR/source"
 
     # Database setup
     info "Setting up PostgreSQL database..."
-    
-    cp "$INSTALL_DIR/source/init_db.sql" /etc/postgresql/init_db.sql
-    chmod 644 /etc/postgresql/init_db.sql
-    chown postgres:postgres /etc/postgresql/init_db.sql
-
+        
     # Start and enable PostgreSQL
     if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
         service postgresql start
