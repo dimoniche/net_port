@@ -404,31 +404,31 @@ main() {
     info "Building C server and client..."
     cd "$INSTALL_DIR/source"
         
-    # Build if binaries not found
-    if [ "$BUILT_BINARIES" = false ]; then
-        info "Building from source..."
-        mkdir -p build
-        
-        cmake CMakeLists.txt >> "$LOG_FILE" 2>&1 || error_exit "CMake configuration failed"
-        cmake --build . >> "$LOG_FILE" 2>&1 || error_exit "Build failed"
-        
-        cd build
-        
-        # Copy binaries
-        SERVER_BIN=$(find . -name "module_net_port_server*" -type f ! -name "*.dir" | head -1)
-        CLIENT_BIN=$(find . -name "module_net_port_client*" -type f ! -name "*.dir" | head -1)
-        
-        if [ -n "$SERVER_BIN" ]; then
-            cp "$SERVER_BIN" "$INSTALL_DIR/bin/"
-        else
-            warning "Server binary not found after build"
-        fi
-        
-        if [ -n "$CLIENT_BIN" ]; then
-            cp "$CLIENT_BIN" "$INSTALL_DIR/bin/"
-        else
-            warning "Client binary not found after build"
-        fi
+    info "Building from source..."
+    mkdir -p build
+    
+    cmake CMakeLists.txt >> "$LOG_FILE" 2>&1 || error_exit "CMake configuration failed"
+    cmake --build . >> "$LOG_FILE" 2>&1 || error_exit "Build failed"
+    
+    cd build
+
+    # Copy binaries
+    SERVER_BIN=$(find . -name "module_net_port_server*" -type f ! -name "*.dir" | head -1)
+    CLIENT_BIN=$(find . -name "module_net_port_client*" -type f ! -name "*.dir" | head -1)
+    
+    info SERVER_BIN: $SERVER_BIN
+    info CLIENT_BIN: $CLIENT_BIN
+
+    if [ -n "$SERVER_BIN" ]; then
+        cp "$SERVER_BIN" "$INSTALL_DIR/bin/"
+    else
+        warning "Server binary not found after build"
+    fi
+    
+    if [ -n "$CLIENT_BIN" ]; then
+        cp "$CLIENT_BIN" "$INSTALL_DIR/bin/"
+    else
+        warning "Client binary not found after build"
     fi
     
     # Set executable permissions
