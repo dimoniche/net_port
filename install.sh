@@ -448,24 +448,28 @@ main() {
     # Wait for PostgreSQL to start
     sleep 5
     
-    # Create database and user
-    info "Creating database '$DB_NAME' and user '$DB_USER'..."
-    sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';" 2>/dev/null && \
-        info "Created user $DB_USER" || warning "User $DB_USER already exists or error creating user"
-    
-    sudo -u postgres psql -c "CREATE DATABASE $DB_NAME;" 2>/dev/null && \
-        info "Created database $DB_NAME" || warning "Database $DB_NAME already exists or error creating database"
-    
-    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;" >> "$LOG_FILE" 2>&1
-    
-    # Initialize database schema
-    info "Initializing database schema..."
-    if [ -f "$INSTALL_DIR/source/init_db.sql" ]; then
-        sudo -u postgres psql -d "$DB_NAME" -f "$INSTALL_DIR/source/init_db.sql" >> "$LOG_FILE" 2>&1 && \
-            success "Database schema initialized" || error_exit "Failed to initialize database"
+    # Check if database already exists
+    if su - postgres -c "psql -lqt" 2>/dev/null | cut -d \| -f 1 | grep -qw net_port; then
+        echo "Database 'net_port' already exists, skipping initialization."
     else
-        warning "init_db.sql not found, skipping database initialization"
+        echo "Database 'net_port' not found, initializing..."
+        # Initialize database from SQL script
+        su - postgres -c "psql -f /etc/postgresql/init_db.sql"
     fi
+
+    # Check if user already exists
+    if su - postgres -c "psql -c \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1; then
+        echo "User '$DB_USER' already exists, skipping creation."
+    else
+        echo "Creating PostgreSQL user '$DB_USER'..."
+        # Create PostgreSQL user with password from environment
+        su - postgres -c "psql -c \"CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';\""
+    fi
+
+    # Grant privileges (these are idempotent, safe to run multiple times)
+    su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE net_port TO $DB_USER;\""
+    su - postgres -c "psql -d net_port -c \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;\""
+    su - postgres -c "psql -d net_port -c \"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;\""
     
     # Update PostgreSQL configuration to allow connections
     if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
@@ -489,7 +493,7 @@ main() {
     fi
     
     # Restart PostgreSQL
-    systemctl restart postgresql >> "$LOG_FILE" 2>&1 && \
+    service postgresql restart >> "$LOG_FILE" 2>&1 && \
         success "PostgreSQL configured and restarted" || error_exit "Failed to restart PostgreSQL"
     
     # Node.js backend setup
