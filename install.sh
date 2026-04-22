@@ -407,8 +407,8 @@ main() {
     info "Building from source..."
     mkdir -p build
     
-    cmake CMakeLists.txt >> "$LOG_FILE" 2>&1 || error_exit "CMake configuration failed"
-    cmake --build . >> "$LOG_FILE" 2>&1 || error_exit "Build failed"
+    cmake "$INSTALL_DIR/source/CMakeLists.txt" >> "$LOG_FILE" 2>&1 || error_exit "CMake configuration failed"
+    cmake --build "$INSTALL_DIR/source" >> "$LOG_FILE" 2>&1 || error_exit "Build failed"
     
     cd build
 
@@ -416,8 +416,8 @@ main() {
     SERVER_BIN=$(find . -name "module_net_port_server*" -type f ! -name "*.dir" | head -1)
     CLIENT_BIN=$(find . -name "module_net_port_client*" -type f ! -name "*.dir" | head -1)
     
-    info SERVER_BIN: $SERVER_BIN
-    info CLIENT_BIN: $CLIENT_BIN
+    info "SERVER_BIN: $SERVER_BIN"
+    info "CLIENT_BIN: $CLIENT_BIN"
 
     if [ -n "$SERVER_BIN" ]; then
         cp "$SERVER_BIN" "$INSTALL_DIR/bin/"
