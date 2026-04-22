@@ -409,8 +409,6 @@ main() {
     
     cmake "$INSTALL_DIR/source/CMakeLists.txt" >> "$LOG_FILE" 2>&1 || error_exit "CMake configuration failed"
     cmake --build "$INSTALL_DIR/source" >> "$LOG_FILE" 2>&1 || error_exit "Build failed"
-    
-    cd build
 
     # Copy binaries
     SERVER_BIN=$(find . -name "module_net_port_server*" -type f ! -name "*.dir" | head -1)
