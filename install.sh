@@ -503,6 +503,12 @@ DB_PORT=$DB_PORT
 NODE_ENV=production
 EOF
         success "Backend configuration created"
+        
+        # Copy backend to bin folder
+        info "Copying backend to bin folder..."
+        mkdir -p "$INSTALL_DIR/bin/backend"
+        cp -r . "$INSTALL_DIR/bin/backend/" && \
+            success "Backend copied to bin folder" || error_exit "Failed to copy backend to bin folder"
     else
         warning "Backend package.json not found, skipping backend setup"
     fi
@@ -519,6 +525,12 @@ EOF
         info "Building frontend..."
         npm run build >> "$LOG_FILE" 2>&1 && \
             success "Frontend built successfully" || error_exit "Failed to build frontend"
+        
+        # Copy built frontend to bin folder
+        info "Copying frontend build to bin folder..."
+        mkdir -p "$INSTALL_DIR/bin/frontend"
+        cp -r build/* "$INSTALL_DIR/bin/frontend/" && \
+            success "Frontend copied to bin folder" || error_exit "Failed to copy frontend to bin folder"
     else
         warning "Frontend package.json not found, skipping frontend setup"
     fi
@@ -531,7 +543,7 @@ EOF
 server {
     listen 80;
     server_name _;
-    root $INSTALL_DIR/source/web/frontend_net_port/build;
+    root $INSTALL_DIR/bin/frontend;
     index index.html;
 
     # Serve frontend
@@ -628,7 +640,7 @@ Requires=postgresql.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=$INSTALL_DIR/source/web/backend_net_port
+WorkingDirectory=$INSTALL_DIR/bin/backend
 Environment=NODE_ENV=production
 Environment=DB_USER=$DB_USER
 Environment=DB_PASSWORD=$DB_PASSWORD
@@ -795,7 +807,7 @@ EOF
     info "Uninstall: $INSTALL_DIR/uninstall.sh"
     echo ""
     warning "Important: Keep your credentials secure!"
-    warning "Database credentials: $INSTALL_DIR/source/web/backend_net_port/.env"
+    warning "Database credentials: $INSTALL_DIR/bin/backend/.env"
     echo ""
     success "Net Port is now installed and running!"
     log "${GREEN}Installation completed at $(date)${NC}"
