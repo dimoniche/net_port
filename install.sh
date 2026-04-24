@@ -606,7 +606,7 @@ EOF
     systemctl restart nginx >> "$LOG_FILE" 2>&1 && \
         success "Nginx restarted" || error_exit "Failed to restart nginx"
     
-    rm -rf "$INSTALL_DIR/source"
+    #rm -rf "$INSTALL_DIR/source"
 
     # Generate SSL certificates (self-signed for development)
     info "Generating SSL certificates..."
