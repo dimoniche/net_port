@@ -231,11 +231,6 @@ install_packages() {
             info "Installing basic dependencies..."
             apt-get install -y --no-install-recommends \
                 curl \
-                wget \
-                gnupg \
-                ca-certificates \
-                software-properties-common \
-                apt-transport-https \
                 >> "$LOG_FILE" 2>&1 || warning "Some basic packages failed to install"
             
             # Add NodeSource repository for Node.js 14
@@ -251,7 +246,6 @@ install_packages() {
                 build-essential \
                 cmake \
                 git \
-                pkg-config \
                 >> "$LOG_FILE" 2>&1 || warning "Some build tools failed to install"
             
             info "Installing PostgreSQL..."
@@ -277,8 +271,6 @@ install_packages() {
             apt-get install -y --no-install-recommends \
                 openssl \
                 libssl-dev \
-                python3 \
-                python3-pip \
                 >> "$LOG_FILE" 2>&1 || warning "Some additional dependencies failed to install"
             
             # Verify critical packages
@@ -325,11 +317,7 @@ install_packages() {
                 nodejs \
                 openssl \
                 openssl-devel \
-                pkgconfig \
                 curl \
-                wget \
-                python3 \
-                python3-pip \
                 libpq-dev \
                 >> "$LOG_FILE" 2>&1 || warning "Some packages failed to install"
             
