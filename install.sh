@@ -681,67 +681,7 @@ EOF
         success "Backend service started" || error_exit "Failed to start backend service"
     systemctl start net-port-server.service >> "$LOG_FILE" 2>&1 && \
         success "Server service started" || error_exit "Failed to start server service"
-    
-    # Create admin user with provided credentials
-    info "Creating admin user..."
-    cd "$INSTALL_DIR/source/web/backend_net_port"
-    if [ -f "../utils/add_test_user.js" ]; then
-        # Create a temporary script to add user with custom password
-        cat > /tmp/create_admin.js << EOF
-// Script to create admin user with custom password
-const app = require('./src/app');
-const service = app.service('users');
-const crypto = require('crypto');
-
-const hashPassword = (password) => {
-    return crypto.createHash('sha256').update(password).digest('hex');
-};
-
-const main = async () => {
-    try {
-        // Check if admin user already exists
-        const existing = await service.find({
-            query: {
-                login: '$ADMIN_USER'
-            }
-        });
         
-        if (existing.total > 0) {
-            console.log('Admin user already exists, updating password...');
-            const user = existing.data[0];
-            await service.patch(user.id, {
-                password: hashPassword('$ADMIN_PASSWORD')
-            });
-            console.log('Admin password updated');
-        } else {
-            // Create new admin user
-            await service.create({
-                login: '$ADMIN_USER',
-                password: hashPassword('$ADMIN_PASSWORD'),
-                email: 'admin@localhost',
-                role_name: 'admin',
-                username: 'Administrator'
-            });
-            console.log('Admin user created');
-        }
-        process.exit(0);
-    } catch (error) {
-        console.error('Error creating admin user:', error);
-        process.exit(1);
-    }
-};
-
-main();
-EOF
-        
-        # Run the script
-        node /tmp/create_admin.js >> "$LOG_FILE" 2>&1 && \
-            success "Admin user created/updated" || warning "Failed to create admin user"
-        rm -f /tmp/create_admin.js
-    else
-        warning "add_test_user.js not found, skipping admin user creation"
-    fi
-    
     # Set permissions
     chmod -R 755 "$INSTALL_DIR"
     chown -R root:root "$INSTALL_DIR"
