@@ -398,6 +398,19 @@ main() {
     cmake "$INSTALL_DIR/source/CMakeLists.txt" >> "$LOG_FILE" 2>&1 || error_exit "CMake configuration failed"
     cmake --build "$INSTALL_DIR/source" >> "$LOG_FILE" 2>&1 || error_exit "Build failed"
 
+    # Stop existing services if they are running (to avoid "Text file busy" error)
+    info "Checking for running Net Port services..."
+    if systemctl is-active --quiet net-port-server.service 2>/dev/null; then
+        info "Stopping net-port-server.service..."
+        systemctl stop net-port-server.service >> "$LOG_FILE" 2>&1 || warning "Failed to stop net-port-server.service"
+    fi
+    if systemctl is-active --quiet net-port-backend.service 2>/dev/null; then
+        info "Stopping net-port-backend.service..."
+        systemctl stop net-port-backend.service >> "$LOG_FILE" 2>&1 || warning "Failed to stop net-port-backend.service"
+    fi
+    # Give time for processes to release file handles
+    sleep 3
+    
     # Copy binaries
     SERVER_BIN=$(find . -name "module_net_port_server*" -type f ! -name "*.dir" | head -1)
     CLIENT_BIN=$(find . -name "module_net_port_client*" -type f ! -name "*.dir" | head -1)
@@ -406,13 +419,23 @@ main() {
     info "CLIENT_BIN: $CLIENT_BIN"
 
     if [ -n "$SERVER_BIN" ]; then
-        cp "$SERVER_BIN" "$INSTALL_DIR/bin/"
+        # Use install command which can handle busy files better than cp
+        install -m 755 "$SERVER_BIN" "$INSTALL_DIR/bin/" || {
+            # If install fails, try cp with a small delay
+            warning "install failed, trying cp with retry..."
+            sleep 2
+            cp -f "$SERVER_BIN" "$INSTALL_DIR/bin/" || error_exit "Failed to copy server binary (file may be busy)"
+        }
     else
         warning "Server binary not found after build"
     fi
     
     if [ -n "$CLIENT_BIN" ]; then
-        cp "$CLIENT_BIN" "$INSTALL_DIR/bin/"
+        install -m 755 "$CLIENT_BIN" "$INSTALL_DIR/bin/" || {
+            warning "install failed, trying cp with retry..."
+            sleep 2
+            cp -f "$CLIENT_BIN" "$INSTALL_DIR/bin/" || warning "Failed to copy client binary"
+        }
     else
         warning "Client binary not found after build"
     fi
