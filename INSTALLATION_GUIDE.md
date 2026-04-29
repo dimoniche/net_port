@@ -21,7 +21,7 @@ sudo ./install.sh --db-user netport --db-password "secure_db_password" --admin-p
 
 **Using environment variables:**
 ```bash
-sudo DB_USER=netport DB_PASSWORD=secure_db_password ADMIN_PASSWORD=admin_web_password ./install.sh
+sudo DB_USER=netport DB_PASSWORD=secure_db_password APP_PASSWORD=admin_web_password ./install.sh
 ```
 
 **Interactive mode (script will prompt for missing credentials):**

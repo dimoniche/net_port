@@ -63,11 +63,11 @@ Options:
 
 Environment variables (alternative to command-line arguments):
   DB_USER, DB_PASSWORD, DB_NAME, DB_HOST, DB_PORT
-  ADMIN_USER, ADMIN_PASSWORD
+  APP_USER, APP_PASSWORD
 
 Examples:
   $0 --db-user netport --db-password "secure123" --admin-password "admin123"
-  DB_USER=netport DB_PASSWORD=secure123 ADMIN_PASSWORD=admin123 $0
+  DB_USER=netport DB_PASSWORD=secure123 APP_PASSWORD=admin123 $0
 EOF
     exit 0
 }
@@ -77,8 +77,8 @@ parse_args() {
     # Default values
     DB_USER=""
     DB_PASSWORD=""
-    ADMIN_USER="admin"
-    ADMIN_PASSWORD=""
+    APP_USER="admin"
+    APP_PASSWORD=""
     NO_PROMPT=false
     
     while [[ $# -gt 0 ]]; do
@@ -104,11 +104,11 @@ parse_args() {
                 shift 2
                 ;;
             --admin-user)
-                ADMIN_USER="$2"
+                APP_USER="$2"
                 shift 2
                 ;;
             --admin-password)
-                ADMIN_PASSWORD="$2"
+                APP_PASSWORD="$2"
                 shift 2
                 ;;
             --no-prompt)
@@ -131,8 +131,8 @@ parse_args() {
     if [ -z "$DB_PASSWORD" ] && [ -n "$DB_PASSWORD_ENV" ]; then
         DB_PASSWORD="$DB_PASSWORD_ENV"
     fi
-    if [ -z "$ADMIN_PASSWORD" ] && [ -n "$ADMIN_PASSWORD_ENV" ]; then
-        ADMIN_PASSWORD="$ADMIN_PASSWORD_ENV"
+    if [ -z "$APP_PASSWORD" ] && [ -n "$APP_PASSWORD_ENV" ]; then
+        APP_PASSWORD="$APP_PASSWORD_ENV"
     fi
 }
 
@@ -155,10 +155,10 @@ prompt_credentials() {
         fi
         
         # Admin password
-        if [ -z "$ADMIN_PASSWORD" ]; then
-            read -sp "Enter admin password for web interface: " ADMIN_PASSWORD
+        if [ -z "$APP_PASSWORD" ]; then
+            read -sp "Enter admin password for web interface: " APP_PASSWORD
             echo
-            if [ -z "$ADMIN_PASSWORD" ]; then
+            if [ -z "$APP_PASSWORD" ]; then
                 error_exit "Admin password is required"
             fi
         fi
@@ -170,8 +170,8 @@ prompt_credentials() {
         if [ -z "$DB_PASSWORD" ]; then
             error_exit "Database password is required. Use --db-password or DB_PASSWORD environment variable."
         fi
-        if [ -z "$ADMIN_PASSWORD" ]; then
-            error_exit "Admin password is required. Use --admin-password or ADMIN_PASSWORD environment variable."
+        if [ -z "$APP_PASSWORD" ]; then
+            error_exit "Admin password is required. Use --admin-password or APP_PASSWORD environment variable."
         fi
     fi
 }
@@ -184,7 +184,7 @@ validate_credentials() {
     if [ -z "$DB_PASSWORD" ]; then
         error_exit "Database password is not set"
     fi
-    if [ -z "$ADMIN_PASSWORD" ]; then
+    if [ -z "$APP_PASSWORD" ]; then
         error_exit "Admin password is not set"
     fi
     
@@ -192,7 +192,7 @@ validate_credentials() {
     log "Database user: $DB_USER"
     log "Database name: $DB_NAME"
     log "Database host: $DB_HOST:$DB_PORT"
-    log "Admin user: $ADMIN_USER"
+    log "Admin user: $APP_USER"
 }
 
 # Detect OS and package manager
@@ -382,7 +382,7 @@ main() {
     
     # Create installation directory
     info "Creating installation directory at $INSTALL_DIR..."
-    mkdir -p "$INSTALL_DIR"/{bin,config,web,logs,data,ssl}
+    mkdir -p "$INSTALL_DIR"/{bin,logs,ssl}
     
     # Copy source files
     info "Copying source files..."
@@ -544,6 +544,8 @@ EOF
         info "Installing frontend dependencies..."
         npm install >> "$LOG_FILE" 2>&1 && \
             success "Frontend dependencies installed" || error_exit "Failed to install frontend dependencies"
+        npm install bcryptjs >> "$LOG_FILE" 2>&1 && \
+            success "bcryptjs installed" || error_exit "Failed to install bcryptjs"
         
         info "Building frontend..."
         npm run build >> "$LOG_FILE" 2>&1 && \
@@ -628,7 +630,14 @@ EOF
     # Restart nginx
     systemctl restart nginx >> "$LOG_FILE" 2>&1 && \
         success "Nginx restarted" || error_exit "Failed to restart nginx"
-    
+
+    # Add admin user with hashed password from environment
+    info "Adding admin user..."
+    cd "$INSTALL_DIR/source/web/backend_net_port"
+    node ../utils/add_test_user.js >> "$LOG_FILE" 2>&1 && \
+        success "Admin user added" || error_exit "Failed to add admin user"
+    info "Admin user added"
+
     #rm -rf "$INSTALL_DIR/source"
 
     # Generate SSL certificates (self-signed for development)
@@ -809,7 +818,7 @@ EOF
     info "  - Host: $DB_HOST:$DB_PORT"
     echo ""
     info "Web Interface Credentials:"
-    info "  - Username: $ADMIN_USER"
+    info "  - Username: $APP_USER"
     info "  - Password: [provided during installation]"
     echo ""
     info "Web Interface: http://$(hostname -I | awk '{print $1}')"
@@ -839,7 +848,7 @@ EOF
 # Capture environment variables before parsing
 DB_USER_ENV="$DB_USER"
 DB_PASSWORD_ENV="$DB_PASSWORD"
-ADMIN_PASSWORD_ENV="$ADMIN_PASSWORD"
+APP_PASSWORD_ENV="$APP_PASSWORD"
 
 # Run main function
 main "$@"
