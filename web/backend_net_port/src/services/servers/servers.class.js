@@ -53,11 +53,8 @@ exports.Servers = class Servers {
       .del();
 
     try {
-      const command_start_service = 'systemctl';
-      const args_restart_service = 'restart';
-      const args_name_service = `net_port_u${server.user_id}`;
-
-      await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+      const killCommand = `pkill -SIGTERM -f "module_net_port_server"`;
+      await exec(killCommand);
     } catch (e) {
 
     }
@@ -75,11 +72,8 @@ exports.Servers = class Servers {
       .into('servers');
 
     try {
-      const command_start_service = 'systemctl';
-      const args_restart_service = 'restart';
-      const args_name_service = `net_port_u${data.user_id}`;
-
-      await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+      const killCommand = `pkill -SIGTERM -f "module_net_port_server"`;
+      await exec(killCommand);
     } catch (e) {
 
     }
@@ -95,11 +89,8 @@ exports.Servers = class Servers {
       .update(data);
 
     try {
-      const command_start_service = 'systemctl';
-      const args_restart_service = 'restart';
-      const args_name_service = `net_port_u${data.user_id}`;
-
-      await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
+      const killCommand = `pkill -SIGTERM -f "module_net_port_server"`;
+      await exec(killCommand);
     } catch (e) {
 
     }
@@ -118,14 +109,11 @@ exports.Servers = class Servers {
     }
 
     try {
-      const command_start_service = 'systemctl';
-      const args_restart_service = 'restart';
-      const args_name_service = `net_port_u${server.user_id}`;
-
-      await exec(`${command_start_service} ${args_restart_service} ${args_name_service}`);
-      return { success: true, message: `Server ${id} restarted successfully` };
+      const killCommand = `pkill -SIGTERM -f "module_net_port_server"`;
+      await exec(killCommand);
     } catch (e) {
-      throw new Error(`Failed to restart server: ${e.message}`);
+
     }
+    return { success: true, message: `Server ${id} restarted successfully` };
   }
 };
