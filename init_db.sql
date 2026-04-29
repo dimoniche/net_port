@@ -8,14 +8,23 @@ CREATE TABLE role (
     description TEXT
 );
 
+-- Insert default admin role
+INSERT INTO role (id, name, description) VALUES (1, 'admin', '');
+
 CREATE TABLE servers (
+    id SERIAL PRIMARY KEY,
     user_id INTEGER,
     input_port INTEGER,
     output_port INTEGER,
     enable BOOLEAN,
     enable_ssl BOOLEAN,
-    enable_input_ssl BOOLEAN
+    enable_input_ssl BOOLEAN,
+    description TEXT
 );
+
+-- Insert default server for user 1
+INSERT INTO servers (user_id, input_port, output_port, enable, enable_ssl, enable_input_ssl, description)
+VALUES (1, 6000, 6001, true, false, false, 'Default server');
 
 CREATE TABLE statistic (
     id SERIAL PRIMARY KEY,
@@ -32,4 +41,7 @@ CREATE TABLE users (
     password VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     role_name VARCHAR(255),
+    username VARCHAR(255),
+    phone VARCHAR(255)
 );
+

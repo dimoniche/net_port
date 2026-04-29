@@ -2,10 +2,28 @@ version: '3.8'
 
 services:
   net_port:
+    build:
+      context: .
+      args:
+        EXTERNAL_DB: ${EXTERNAL_DB:-false}
     image: net_port:latest
     container_name: net_port_app
     ports:
       - "13080:80"
       - "13880:8080"
-      - "29000-29999:6000-6999"
+      - "49000-49999:6000-6999"
+      - "25432:5432"
+    environment:
+      - DB_USER=admin
+      - DB_PASSWORD=password
+      - DB_HOST=localhost
+      - DB_PORT=5432
+      - APP_USER=admin
+      - APP_PASSWORD=password
+      - THREADS=10
+    volumes:
+      - postgres_data:/var/lib/postgresql
     restart: unless-stopped
+
+volumes:
+  postgres_data:

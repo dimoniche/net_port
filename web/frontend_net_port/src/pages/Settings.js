@@ -7,6 +7,7 @@ import isEmpty from "lodash/isEmpty";
 
 import { UserSettingsData } from "./UsersSettings/UserSettingsData";
 import ServerDisplaySettings from "./ServerSettings/ServerDisplaySettings";
+import ClientDownload from "../components/ClientDownload";
 import { ApiContext } from "../context/ApiContext";
 import { Loader } from "../components/Loader";
 import Main from "./Main";
@@ -97,6 +98,7 @@ const Settings = ({ children, ...rest }) => {
                         >
                             <Tab label="Пользователь" />
                             <Tab label="Отображение серверов" />
+                            <Tab label="Скачать клиент" />
                         </Tabs>
                     </Paper>
                     {activeTab === 0 && (
@@ -110,6 +112,9 @@ const Settings = ({ children, ...rest }) => {
                     )}
                     {activeTab === 1 && (
                         <ServerDisplaySettings ability={rest.ability} />
+                    )}
+                    {activeTab === 2 && (
+                        <ClientDownload />
                     )}
                 </Box>
             </>
