@@ -131,6 +131,9 @@ parse_args() {
     if [ -z "$DB_PASSWORD" ] && [ -n "$DB_PASSWORD_ENV" ]; then
         DB_PASSWORD="$DB_PASSWORD_ENV"
     fi
+    if [ -z "$APP_USER" ] && [ -n "$APP_USER_ENV" ]; then
+        APP_USER="$APP_USER_ENV"
+    fi
     if [ -z "$APP_PASSWORD" ] && [ -n "$APP_PASSWORD_ENV" ]; then
         APP_PASSWORD="$APP_PASSWORD_ENV"
     fi
@@ -154,6 +157,12 @@ prompt_credentials() {
             fi
         fi
         
+        # Admin user (optional prompt, defaults to admin)
+        if [ -z "$APP_USER" ]; then
+            read -p "Enter admin username for web interface [admin]: " APP_USER
+            APP_USER=${APP_USER:-admin}
+        fi
+        
         # Admin password
         if [ -z "$APP_PASSWORD" ]; then
             read -sp "Enter admin password for web interface: " APP_PASSWORD
@@ -169,6 +178,9 @@ prompt_credentials() {
         fi
         if [ -z "$DB_PASSWORD" ]; then
             error_exit "Database password is required. Use --db-password or DB_PASSWORD environment variable."
+        fi
+        if [ -z "$APP_USER" ]; then
+            error_exit "Admin username is required. Use --admin-user or APP_USER environment variable."
         fi
         if [ -z "$APP_PASSWORD" ]; then
             error_exit "Admin password is required. Use --admin-password or APP_PASSWORD environment variable."
@@ -634,7 +646,7 @@ EOF
     # Add admin user with hashed password from environment
     info "Adding admin user..."
     cd "$INSTALL_DIR/source/web/backend_net_port"
-    NODE_PATH=node_modules node ../utils/add_test_user.js >> "$LOG_FILE" 2>&1 && \
+    APP_USER="$APP_USER" APP_PASSWORD="$APP_PASSWORD" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWORD" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_NAME="$DB_NAME" NODE_PATH=node_modules node ../utils/add_test_user.js >> "$LOG_FILE" 2>&1 && \
         success "Admin user added" || error_exit "Failed to add admin user"
     info "Admin user added"
 
@@ -845,10 +857,11 @@ EOF
     log "${GREEN}Installation completed at $(date)${NC}"
 }
 
-# Capture environment variables before parsing
-DB_USER_ENV="$DB_USER"
-DB_PASSWORD_ENV="$DB_PASSWORD"
-APP_PASSWORD_ENV="$APP_PASSWORD"
+# Capture environment variables before parsing (preserve original env vars)
+DB_USER_ENV="${DB_USER:-}"
+DB_PASSWORD_ENV="${DB_PASSWORD:-}"
+APP_USER_ENV="${APP_USER:-}"
+APP_PASSWORD_ENV="${APP_PASSWORD:-}"
 
 # Run main function
 main "$@"
