@@ -650,7 +650,7 @@ EOF
         success "Admin user added" || error_exit "Failed to add admin user"
     info "Admin user added"
 
-    #rm -rf "$INSTALL_DIR/source"
+    rm -rf "$INSTALL_DIR/source"
 
     # Generate SSL certificates (self-signed for development)
     info "Generating SSL certificates..."

@@ -32,7 +32,7 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files from multiple locations
 const possiblefrontendFilesPath = [
   path.join(__dirname, '../../frontend_net_port/src/files'),  // Local development
-  path.join(__dirname, '../../../files'),                     // Docker container
+  path.join(__dirname, '../../frontend/files'),                     // Docker container
 ];
 
 // Try each build path until we find one that exists
@@ -40,7 +40,7 @@ let frontendFilesPath = null;
 for (const possiblePath of possiblefrontendFilesPath) {
   if (fs.existsSync(possiblePath)) {
     frontendFilesPath = possiblePath;
-    console.log(`Using build client path: ${frontendFilesPath}`);
+    console.log(`Using frontend files path: ${frontendFilesPath}`);
     break;
   }
 }
@@ -92,7 +92,7 @@ const possibleSslPaths = [
   path.join(__dirname, '../../../../net_port'),  // Local development
   path.join(__dirname, '../../../..'),           // Docker container (relative from backend to /root/net_port)
   '/root/net_port',                              // Absolute path in Docker
-  '../../../ssl', 
+  '../../ssl', 
 ];
 
 let sslCertPath = null;
