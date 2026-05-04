@@ -30,13 +30,26 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve static files from multiple locations
-const frontendFilesPath = path.join(__dirname, '../../frontend_net_port/src/files');
+const possiblefrontendFilesPath = [
+  path.join(__dirname, '../../frontend_net_port/src/files'),  // Local development
+  path.join(__dirname, '../../../files'),                     // Docker container
+];
+
+// Try each build path until we find one that exists
+let frontendFilesPath = null;
+for (const possiblePath of possiblefrontendFilesPath) {
+  if (fs.existsSync(possiblePath)) {
+    frontendFilesPath = possiblePath;
+    console.log(`Using build client path: ${frontendFilesPath}`);
+    break;
+  }
+}
 
 // Serve pre-built client files
 app.use('/files', express.static(frontendFilesPath, {
   setHeaders: (res, filePath) => {
     const filename = path.basename(filePath);
-    if (filename.includes('.exe') || filename.includes('module_net_port_client')) {
+    if (filename.includes('module_net_port_client')) {
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     }
   }
@@ -47,6 +60,7 @@ const possibleBuildPaths = [
   path.join(__dirname, '../../../../net_port/build/client'),  // Local development
   path.join(__dirname, '../../../client'),                    // Docker container
   path.join(__dirname, '../../../../build/client'),           // Alternative path
+  path.join(__dirname, '../..')                               // Alternative path
 ];
 
 // Try each build path until we find one that exists
@@ -64,7 +78,7 @@ if (buildClientPath) {
   app.use('/files/build', express.static(buildClientPath, {
     setHeaders: (res, filePath) => {
       const filename = path.basename(filePath);
-      if (filename.includes('module_net_port_client')) {
+       if (filename.includes('.exe') || filename.includes('module_net_port_client')) {
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       }
     }
@@ -78,6 +92,7 @@ const possibleSslPaths = [
   path.join(__dirname, '../../../../net_port'),  // Local development
   path.join(__dirname, '../../../..'),           // Docker container (relative from backend to /root/net_port)
   '/root/net_port',                              // Absolute path in Docker
+  '../../../ssl', 
 ];
 
 let sslCertPath = null;

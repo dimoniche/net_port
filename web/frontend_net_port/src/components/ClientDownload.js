@@ -132,7 +132,7 @@ const ClientDownload = () => {
                   fullWidth
                   variant="contained"
                   startIcon={<DownloadIcon />}
-                  onClick={() => handleDownload(client.filename, true)}
+                  onClick={() => handleDownload(client.filename, "build")}
                   sx={{ mx: 1, mb: 1 }}
                 >
                   Скачать
