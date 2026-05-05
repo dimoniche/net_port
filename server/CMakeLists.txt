@@ -40,6 +40,10 @@ link_directories(${PostgreSQL_LIBRARY_DIRS})
 
 find_package(OpenSSL REQUIRED)
 
+# Find jansson via pkg-config
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JANSSON REQUIRED jansson)
+
 # feature checks
 include(CheckLibraryExists)
 check_library_exists(rt clock_gettime "time.h" CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
@@ -60,6 +64,7 @@ include_directories(
         .
         ${PostgreSQL_INCLUDE_DIRS}
         ${OPENSSL_INCLUDE_DIR}
+        ${JANSSON_INCLUDE_DIRS}
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
@@ -74,7 +79,7 @@ add_executable(${EXEC_NAME}
         resources/time_counter.c
         db/db_func.c
         proxy/server/device_manager.c
-        proxy/server/monitoriing_statistics.c
+        proxy/server/monitoring_statistics.c
         proxy/server/security_features.c
         proxy/server/proxy_server_device_integration.c
 )
@@ -83,4 +88,5 @@ target_link_libraries(${EXEC_NAME}
         server_proxy_common
         ${EXTRA_LIBS}
         ${OPENSSL_LIBRARIES}
+        ${JANSSON_LIBRARIES}
 )

@@ -55,7 +55,13 @@ static int parse_json_request(const char *json_str, json_t **root);
 static int process_json_message(int client_fd, const char *json_str);
 static int send_json_response(int client_fd, json_t *response);
 static int create_ssl_context(void);
-static void cleanup_ssl_context(void);
+static void cleanup_device_manager_ssl_context(void);
+
+// Global functions defined in this file
+void* cleanup_expired_sessions_thread(void *arg);
+json_t* process_registration_request(json_t *request);
+json_t* process_heartbeat_request(json_t *request);
+json_t* process_statistics_request(json_t *request);
 
 /**
  * Initialize device manager with configuration
@@ -842,7 +848,7 @@ static int create_ssl_context(void)
 /**
  * Cleanup SSL context
  */
-static void cleanup_ssl_context(void)
+static void cleanup_device_manager_ssl_context(void)
 {
     if (g_ssl_ctx) {
         SSL_CTX_free(g_ssl_ctx);
@@ -878,7 +884,7 @@ int device_manager_stop(void)
     }
     
     // Cleanup SSL
-    cleanup_ssl_context();
+    cleanup_device_manager_ssl_context();
     
     logMsg(LOG_INFO, "Device manager stopped\n");
     return 0;

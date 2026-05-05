@@ -20,6 +20,7 @@
 #include "proxy_server.h"
 #include "hal_time.h"
 #include "time_counter.h"
+#include "device_manager.h"
 
 static uint64_t last_monotonic_time;
 

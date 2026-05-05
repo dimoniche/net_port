@@ -18,6 +18,16 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+// Custom log priority for audit events
+#ifndef LOG_AUDIT
+#define LOG_AUDIT LOG_NOTICE
+#endif
+
+// Custom log priority for security events
+#ifndef LOG_SECURITY
+#define LOG_SECURITY LOG_NOTICE
+#endif
+
 // Rate limiting structures
 typedef struct rate_limit_entry_s {
     char key[64];               // IP address or device_id
@@ -62,6 +72,15 @@ typedef struct security_event_s {
     char device_id[DEVICE_ID_MAX_LEN];
     char description[256];
 } security_event_t;
+
+// Security statistics structure
+typedef struct security_stats_s {
+    size_t rate_limit_entries;
+    size_t whitelist_entries;
+    size_t blacklist_entries;
+    size_t active_penalties;
+    size_t permanent_blocks;
+} security_stats_t;
 
 /**
  * Initialize security features

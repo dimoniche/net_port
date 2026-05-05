@@ -33,6 +33,10 @@ set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 
 find_package(OpenSSL REQUIRED)
 
+# Find jansson via pkg-config
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JANSSON REQUIRED jansson)
+
 # feature checks
 include(CheckLibraryExists)
 check_library_exists(rt clock_gettime "time.h" CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
@@ -52,6 +56,7 @@ add_subdirectory(common)
 include_directories(
         .
         ${OPENSSL_INCLUDE_DIR}
+        ${JANSSON_INCLUDE_DIRS}
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
@@ -71,4 +76,5 @@ target_link_libraries(${EXEC_NAME}
         client_proxy_common
         ${EXTRA_LIBS}
         ${OPENSSL_LIBRARIES}
+        ${JANSSON_LIBRARIES}
 )
