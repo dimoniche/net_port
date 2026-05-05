@@ -9,7 +9,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 0)
-set(VERSION_PATCH 3)
+set(VERSION_PATCH 4)
 set(BUILD_REVISION 0)
 set(SOFT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 set(MODULE_NAME module_net_port_client)
@@ -61,6 +61,8 @@ include_directories(
 add_executable(${EXEC_NAME}
         main.c
         proxy/client/proxy_client.c
+        proxy/client/proxy_client_device_integration.c
+        proxy/client/device_heartbeat.c
         resources/signal_handler.c
         resources/time_counter.c
 )

@@ -7,7 +7,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 0)
-set(VERSION_PATCH 3)
+set(VERSION_PATCH 4)
 set(BUILD_REVISION 0)
 set(SOFT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 set(MODULE_NAME module_net_port_server)
@@ -73,6 +73,10 @@ add_executable(${EXEC_NAME}
         resources/signal_handler.c
         resources/time_counter.c
         db/db_func.c
+        proxy/server/device_manager.c
+        proxy/server/monitoriing_statistics.c
+        proxy/server/security_features.c
+        proxy/server/proxy_server_device_integration.c
 )
 
 target_link_libraries(${EXEC_NAME}
