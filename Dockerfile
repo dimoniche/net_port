@@ -50,7 +50,7 @@ RUN echo "Y" | apt-get install -y build-essential cmake git postgresql postgresq
 
 # Клонирование исходников сервера
 WORKDIR /root/net_port/source
-RUN git clone --branch main https://github.com/dimoniche/net_port.git .
+RUN git clone --branch develop https://github.com/dimoniche/net_port.git .
 
 # Копирование локальных изменений веб-части
 COPY web /root/net_port/source/web
