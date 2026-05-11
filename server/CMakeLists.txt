@@ -24,16 +24,71 @@ generate_product_version(
 
 set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 
-# OS detection
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    set(PostgreSQL_LIBRARY -lpq)
-    set(PostgreSQL_INCLUDE_DIRS "/usr/local/opt/libpq/include")
-    set(PostgreSQL_LIBRARY_DIRS "/usr/local/opt/libpq/lib")
+# PostgreSQL detection with fallback for different installations
+find_package(PostgreSQL)
+
+if(PostgreSQL_FOUND)
+    message(STATUS "Found PostgreSQL via find_package: ${PostgreSQL_INCLUDE_DIRS}")
 else()
-    # Assume Linux
-    set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
-    set(PostgreSQL_INCLUDE_DIRS "/usr/include/postgresql")
-    set(PostgreSQL_LIBRARY_DIRS "/usr/lib/x86_64-linux-gnu")
+    message(STATUS "PostgreSQL not found via find_package, using manual detection")
+    
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        # macOS with Homebrew - try multiple possible locations
+        # Apple Silicon Homebrew
+        if(EXISTS "/opt/homebrew/opt/libpq/include/libpq-fe.h")
+            set(PostgreSQL_INCLUDE_DIRS "/opt/homebrew/opt/libpq/include")
+            set(PostgreSQL_LIBRARY_DIRS "/opt/homebrew/opt/libpq/lib")
+            set(PostgreSQL_LIBRARY -lpq)
+            message(STATUS "Found PostgreSQL at Apple Silicon Homebrew: ${PostgreSQL_INCLUDE_DIRS}")
+        # Intel Homebrew
+        elseif(EXISTS "/usr/local/opt/libpq/include/libpq-fe.h")
+            set(PostgreSQL_INCLUDE_DIRS "/usr/local/opt/libpq/include")
+            set(PostgreSQL_LIBRARY_DIRS "/usr/local/opt/libpq/lib")
+            set(PostgreSQL_LIBRARY -lpq)
+            message(STATUS "Found PostgreSQL at Intel Homebrew: ${PostgreSQL_INCLUDE_DIRS}")
+        # MacPorts
+        elseif(EXISTS "/opt/local/include/postgresql/libpq-fe.h")
+            set(PostgreSQL_INCLUDE_DIRS "/opt/local/include/postgresql")
+            set(PostgreSQL_LIBRARY_DIRS "/opt/local/lib")
+            set(PostgreSQL_LIBRARY -lpq)
+            message(STATUS "Found PostgreSQL at MacPorts: ${PostgreSQL_INCLUDE_DIRS}")
+        else()
+            # Try to use brew --prefix to find libpq
+            find_program(BREW_EXECUTABLE brew)
+            if(BREW_EXECUTABLE)
+                execute_process(
+                    COMMAND ${BREW_EXECUTABLE} --prefix libpq
+                    OUTPUT_VARIABLE BREW_LIBPQ_PREFIX
+                    OUTPUT_STRIP_TRAILING_WHITESPACE
+                )
+                if(EXISTS "${BREW_LIBPQ_PREFIX}/include/libpq-fe.h")
+                    set(PostgreSQL_INCLUDE_DIRS "${BREW_LIBPQ_PREFIX}/include")
+                    set(PostgreSQL_LIBRARY_DIRS "${BREW_LIBPQ_PREFIX}/lib")
+                    set(PostgreSQL_LIBRARY -lpq)
+                    message(STATUS "Found PostgreSQL via brew --prefix: ${PostgreSQL_INCLUDE_DIRS}")
+                else()
+                    message(FATAL_ERROR "PostgreSQL (libpq) not found on macOS. Install with: brew install libpq")
+                endif()
+            else()
+                message(FATAL_ERROR "PostgreSQL (libpq) not found on macOS. Install with: brew install libpq")
+            endif()
+        endif()
+    else()
+        # Linux - standard paths
+        if(EXISTS "/usr/include/postgresql/libpq-fe.h")
+            set(PostgreSQL_INCLUDE_DIRS "/usr/include/postgresql")
+            set(PostgreSQL_LIBRARY_DIRS "/usr/lib/x86_64-linux-gnu")
+            set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
+            message(STATUS "Found PostgreSQL at standard Linux path: ${PostgreSQL_INCLUDE_DIRS}")
+        elseif(EXISTS "/usr/include/libpq-fe.h")
+            set(PostgreSQL_INCLUDE_DIRS "/usr/include")
+            set(PostgreSQL_LIBRARY_DIRS "/usr/lib/x86_64-linux-gnu")
+            set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
+            message(STATUS "Found PostgreSQL at /usr/include: ${PostgreSQL_INCLUDE_DIRS}")
+        else()
+            message(FATAL_ERROR "PostgreSQL (libpq) not found on Linux. Install with: sudo apt-get install libpq-dev (Debian/Ubuntu) or sudo yum install postgresql-devel (RHEL/CentOS)")
+        endif()
+    endif()
 endif()
 
 link_directories(${PostgreSQL_LIBRARY_DIRS})
