@@ -3,6 +3,7 @@
 // This file shows the key modifications needed to integrate device management
 //
 
+#define _XOPEN_SOURCE 700
 #include "proxy_server.h"
 #include "device_manager.h"
 #include "db.h"
@@ -13,6 +14,7 @@
 
 #include <fcntl.h>
 #include <sys/time.h>
+#include <time.h>
 #include <stdlib.h>
 #include <semaphore.h>
 #include <openssl/ssl.h>
