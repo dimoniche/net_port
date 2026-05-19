@@ -147,6 +147,16 @@ int servers_init(uint32_t user_id, const char* cert_file, const char* key_file, 
 int servers_init_with_device_management(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period, uint16_t device_control_port);
 
 /**
+ * \brief Create a dynamic proxy server for a registered device
+ *
+ * \param device_id Device identifier
+ * \param port Port to allocate for the device
+ * \param device_info Device information (already authenticated)
+ * \return Server index on success, -1 on error
+ */
+int create_dynamic_server_for_device(const char *device_id, uint16_t port, const device_info_t *device_info);
+
+/**
  * \brief Запуск прослушивателей портов
  *
  * \return -1 ошибка

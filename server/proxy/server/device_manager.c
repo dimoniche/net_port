@@ -345,6 +345,13 @@ json_t* process_registration_request(json_t *request)
         return response;
     }
     
+    // Create dynamic proxy server for the device
+    if (create_dynamic_server_for_device(device_id, assigned_port, &device_info) < 0) {
+        logMsg(LOG_WARNING, "Failed to create dynamic server for device %s on port %d, but registration succeeded\n",
+               device_id, assigned_port);
+        // Continue anyway - device is registered but no proxy server
+    }
+    
     // Build success response
     json_object_set_new(response, "status", json_string("authenticated"));
     json_object_set_new(response, "assigned_port", json_integer(assigned_port));

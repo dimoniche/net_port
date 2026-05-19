@@ -180,17 +180,16 @@ int servers_init_with_device_management(uint32_t user_id, const char* cert_file,
 }
 
 // Function to dynamically create a server for a device
-int create_dynamic_server_for_device(const char *device_id, uint16_t port)
+int create_dynamic_server_for_device(const char *device_id, uint16_t port, const device_info_t *device_info)
 {
     if (!g_device_manager_enabled) {
         logMsg(LOG_ERR, "Device manager not enabled\n");
         return -1;
     }
     
-    // Check if device exists and is authorized
-    device_info_t device_info;
-    if (device_authenticate(device_id, "", &device_info) != 0) {
-        logMsg(LOG_ERR, "Device %s not authenticated\n", device_id);
+    // Check if device info is provided
+    if (device_info == NULL) {
+        logMsg(LOG_ERR, "Device info is NULL for device %s\n", device_id);
         return -1;
     }
     
@@ -211,7 +210,7 @@ int create_dynamic_server_for_device(const char *device_id, uint16_t port)
     servers[index].id = index;
     servers[index].enable = true;
     servers[index].input_port = port; // Dynamic port assigned to device
-    servers[index].output_port = device_info.internal_port;
+    servers[index].output_port = device_info->internal_port;
     servers[index].is_input_enabled = true;
     servers[index].is_output_enabled = true;
     servers[index].enable_output_ssl = false; // Configurable
