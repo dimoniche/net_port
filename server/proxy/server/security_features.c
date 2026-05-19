@@ -28,6 +28,12 @@
 #define LOG_SECURITY LOG_NOTICE
 #endif
 
+// Forward declarations for security functions
+void log_security_event(const char *event_type, const char *source_ip,
+                        const char *device_id, const char *description);
+void add_temporary_blacklist(const char *ip_address, time_t duration);
+void schedule_blacklist_removal(const char *ip_address, time_t duration);
+
 // Rate limiting structures
 typedef struct rate_limit_entry_s {
     char key[64];               // IP address or device_id

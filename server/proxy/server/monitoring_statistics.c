@@ -17,6 +17,26 @@
 #include <arpa/inet.h>
 #include <math.h>
 
+// Health status enumeration
+typedef enum {
+    HEALTH_STATUS_OK = 0,
+    HEALTH_STATUS_WARNING,
+    HEALTH_STATUS_ERROR
+} health_status_enum_t;
+
+// Health status structure
+typedef struct health_status_s {
+    time_t timestamp;
+    health_status_enum_t database_status;
+    health_status_enum_t device_manager_status;
+    health_status_enum_t port_allocation_status;
+    health_status_enum_t system_resources_status;
+    char system_resources_message[256];
+    health_status_enum_t port_usage_status;
+    char port_usage_message[256];
+    health_status_enum_t overall_status;
+} health_status_t;
+
 // Statistics structures
 typedef struct device_stats_snapshot_s {
     char device_id[DEVICE_ID_MAX_LEN + 1];
@@ -63,6 +83,14 @@ typedef struct performance_metrics_s {
     uint32_t p99_response_time_ms;
     uint32_t max_response_time_ms;
 } performance_metrics_t;
+
+// Forward declarations for internal functions
+void update_system_statistics(void);
+float get_system_cpu_usage(void);
+float get_system_memory_usage(void);
+void update_prometheus_metrics(void);
+void log_performance_metrics(performance_metrics_t *metrics);
+void log_detailed_metric(const char *operation, uint32_t processing_time_ms, int success, time_t timestamp);
 
 // Monitoring state
 static pthread_mutex_t g_monitoring_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -433,14 +461,14 @@ void update_prometheus_metrics(void)
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
         "# HELP net_port_bytes_sent_total Total bytes sent\n"
         "# TYPE net_port_bytes_sent_total counter\n"
-        "net_port_bytes_sent_total %lu\n\n",
-        g_system_stats.total_bytes_sent);
+        "net_port_bytes_sent_total %llu\n\n",
+        (unsigned long long)g_system_stats.total_bytes_sent);
     
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
         "# HELP net_port_bytes_received_total Total bytes received\n"
         "# TYPE net_port_bytes_received_total counter\n"
-        "net_port_bytes_received_total %lu\n\n",
-        g_system_stats.total_bytes_received);
+        "net_port_bytes_received_total %llu\n\n",
+        (unsigned long long)g_system_stats.total_bytes_received);
     
     offset += snprintf(buffer + offset, sizeof(buffer) - offset,
         "# HELP net_port_connections_total Total connections\n"
@@ -689,8 +717,8 @@ int generate_statistics_report(time_t start_time, time_t end_time, char *report,
         "  Online Devices: %u\n"
         "  Offline Devices: %u\n\n"
         "Traffic Statistics:\n"
-        "  Total Bytes Sent: %lu\n"
-        "  Total Bytes Received: %lu\n"
+        "  Total Bytes Sent: %llu\n"
+        "  Total Bytes Received: %llu\n"
         "  Total Connections: %u\n"
         "  Peak Concurrent Connections: %u\n\n"
         "Port Usage:\n"
@@ -714,8 +742,8 @@ int generate_statistics_report(time_t start_time, time_t end_time, char *report,
         stats.active_devices,
         stats.online_devices,
         stats.total_devices - stats.online_devices,
-        stats.total_bytes_sent,
-        stats.total_bytes_received,
+        (unsigned long long)stats.total_bytes_sent,
+        (unsigned long long)stats.total_bytes_received,
         stats.total_connections,
         stats.peak_connections,
         stats.ports_used,

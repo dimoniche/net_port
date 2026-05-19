@@ -12,6 +12,7 @@
 #include <openssl/err.h>
 
 #include "hal_thread.h"
+#include "device_manager.h"
 
 #define SOCKET int
 #include <memory.h>
@@ -81,6 +82,11 @@ typedef struct proxy_server_s
     char cert_file[256]; // Путь к сертификату сервера
     char key_file[256]; // Путь к приватному ключу сервера
     
+    // Device management fields
+    char device_id[DEVICE_ID_MAX_LEN + 1];
+    char session_token[SESSION_TOKEN_MAX_LEN + 1];
+    bool is_dynamic_port; // True if port is dynamically allocated
+    
     // Статистика сервера
     proxy_server_statistics_t statistics;
 
@@ -132,6 +138,13 @@ typedef struct proxy_server_thread_data_s
  * \return -1 ошибка
  */
 int servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period);
+
+/**
+ * \brief Инициализация прослушивателей портов с поддержкой управления устройствами
+ *
+ * \return -1 ошибка
+ */
+int servers_init_with_device_management(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period);
 
 /**
  * \brief Запуск прослушивателей портов

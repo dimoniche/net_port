@@ -14,6 +14,29 @@
 #define DEVICE_ID_MAX_LEN 64
 #define SESSION_TOKEN_MAX_LEN 256
 #define SERVER_HOST_MAX_LEN 256
+#define AUTH_TOKEN_MAX_LEN 256
+
+// Device registration status
+typedef enum {
+    DEVICE_STATUS_DISCONNECTED = 0,
+    DEVICE_STATUS_REGISTERED,
+    DEVICE_STATUS_CONNECTED,
+    DEVICE_STATUS_RECONNECTING
+} device_registration_status_t;
+
+// Device registration state
+typedef struct device_registration_state_s {
+    char device_id[DEVICE_ID_MAX_LEN + 1];
+    char auth_token[AUTH_TOKEN_MAX_LEN + 1];
+    char server_host[SERVER_HOST_MAX_LEN + 1];
+    uint16_t server_port;
+    uint16_t assigned_port;
+    device_registration_status_t status;
+    char session_token[SESSION_TOKEN_MAX_LEN + 1];
+    time_t registered_at;
+    time_t last_heartbeat;
+    uint32_t heartbeat_interval;
+} device_registration_state_t;
 
 // Heartbeat status
 typedef enum {

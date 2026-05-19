@@ -6,6 +6,7 @@
 #include "proxy_server.h"
 #include "device_manager.h"
 #include "db.h"
+#include "db_proc.h"
 #include "db_func.h"
 #include "logMsg.h"
 #include "time_counter.h"
@@ -17,6 +18,18 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <pthread.h>
+
+// Forward declarations for functions from proxy_server.c
+int server_input_init(proxy_server_t *server);
+int server_output_init(proxy_server_t *server);
+int get_session_by_device_id(const char *device_id, device_session_t *session);
+void input_server_stop(proxy_server_t *server);
+void input_server_wait_stop(proxy_server_t *server);
+
+// Global server variables (same as proxy_server.c)
+static proxy_server_t* servers;
+static uint16_t servers_count;
+static proxy_servers_settings_t proxy_settings;
 
 // Global device manager instance
 static device_manager_config_t g_device_config;

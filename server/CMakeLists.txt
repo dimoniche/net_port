@@ -72,6 +72,8 @@ include_directories(
         ${PROJECT_BINARY_DIR}
 )
 
+link_directories(${JANSSON_LIBRARY_DIRS})
+
 add_executable(${EXEC_NAME}
         main.c
         proxy/server/proxy_server.c

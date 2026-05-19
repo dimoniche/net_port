@@ -18,6 +18,9 @@
 #define IP_ADDR_MAX_LEN 45
 #define METADATA_JSON_MAX_LEN 4096
 
+// Global mutex for database access (defined in device_manager.c)
+extern pthread_mutex_t g_db_mutex;
+
 // Device status codes
 typedef enum {
     DEVICE_STATUS_INACTIVE = 0,

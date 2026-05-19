@@ -29,7 +29,7 @@ static pthread_t g_control_thread;
 static volatile bool g_running = false;
 static SSL_CTX *g_ssl_ctx = NULL;
 static int g_control_socket = -1;
-static pthread_mutex_t g_db_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t g_db_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Default configuration
 static const device_manager_config_t DEFAULT_CONFIG = {
@@ -887,5 +887,27 @@ int device_manager_stop(void)
     cleanup_device_manager_ssl_context();
     
     logMsg(LOG_INFO, "Device manager stopped\n");
+    return 0;
+}
+
+// Stub implementation for missing functions
+int free_device_port(uint16_t port)
+{
+    logMsg(LOG_WARNING, "free_device_port called (stub) for port %u\n", port);
+    return 0;
+}
+
+int get_session_by_token(const char *session_token, device_session_t *session)
+{
+    logMsg(LOG_WARNING, "get_session_by_token called (stub) for token %s\n", session_token);
+    return -1; // Not found
+}
+
+int update_device_statistics(const char *session_token,
+                             uint64_t bytes_sent,
+                             uint64_t bytes_received,
+                             uint32_t connections)
+{
+    logMsg(LOG_WARNING, "update_device_statistics called (stub) for token %s\n", session_token);
     return 0;
 }

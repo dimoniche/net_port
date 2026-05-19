@@ -6,6 +6,7 @@
 #include "device_heartbeat.h"
 #include "logMsg.h"
 #include "time_counter.h"
+#include "settings.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -341,8 +342,8 @@ int main_with_device_registration(int argc, char** argv)
         proxy_server_thread_data_t *settings = get_client_settings();
         if (settings) {
             // Set the server host and port to connect to
-            strncpy(settings->host_in, registration_server, sizeof(settings->host_in) - 1);
-            settings->port_in = g_device_state.assigned_port;
+            strncpy(settings->input_address, registration_server, sizeof(settings->input_address) - 1);
+            settings->input_port = g_device_state.assigned_port;
             
             logMsg(LOG_INFO, "Configured to connect to server on port %d\n", g_device_state.assigned_port);
         }
