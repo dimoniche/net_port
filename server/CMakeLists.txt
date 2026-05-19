@@ -27,8 +27,8 @@ set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 # OS detection
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(PostgreSQL_LIBRARY -lpq)
-    set(PostgreSQL_INCLUDE_DIRS "/usr/local/opt/libpq/include")
-    set(PostgreSQL_LIBRARY_DIRS "/usr/local/opt/libpq/lib")
+    set(PostgreSQL_INCLUDE_DIRS "/opt/homebrew/opt/libpq/include")
+    set(PostgreSQL_LIBRARY_DIRS "/opt/homebrew/opt/libpq/lib")
 else()
     # Assume Linux
     set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
