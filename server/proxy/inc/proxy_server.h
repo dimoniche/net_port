@@ -144,7 +144,7 @@ int servers_init(uint32_t user_id, const char* cert_file, const char* key_file, 
  *
  * \return -1 ошибка
  */
-int servers_init_with_device_management(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period);
+int servers_init_with_device_management(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period, uint16_t device_control_port);
 
 /**
  * \brief Запуск прослушивателей портов

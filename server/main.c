@@ -67,6 +67,8 @@ int main(int argc, char** argv) {
         printf("  --enable-output-ssl Enable output SSL for the CLI-provided server (used with --no-db)\n");
         printf("  --enable-input-ssl  Enable input SSL for the CLI-provided server (used with --no-db)\n");
         printf("  --statistics-retention <days> Set statistics retention period in days (default: 90)\n");
+        printf("  --enable-device-management Enable IoT device management with dynamic port allocation\n");
+        printf("  --device-control-port <port> Set control port for device management (default: 8443)\n");
         printf("\nExample:\n");
         printf("  %s %s5 %s 192.168.1.100 %s 5432 %s 100\n",
                argv[0], VERBOSE_KEY, HOST_KEY, PORT_KEY, USER_ID);
@@ -247,7 +249,7 @@ int main(int argc, char** argv) {
 
     // Initialize servers with device management if enabled
     if (enable_device_management) {
-        servers_init_with_device_management(user_id, cert_file, key_file, statistics_retention_period);
+        servers_init_with_device_management(user_id, cert_file, key_file, statistics_retention_period, device_control_port);
     } else {
         if (!no_db_mode) {
             db_init(DB_conn_data.ip, DB_conn_data.port, DB_conn_data.username, DB_conn_data.password);

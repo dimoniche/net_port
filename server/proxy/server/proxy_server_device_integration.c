@@ -55,7 +55,7 @@ typedef struct proxy_server_s
 */
 
 // Function to initialize device manager from server configuration
-static int init_device_manager_from_config(void)
+static int init_device_manager_from_config(uint16_t device_control_port)
 {
     // Check if device management should be enabled
     // This could be based on command line arguments or configuration
@@ -63,7 +63,7 @@ static int init_device_manager_from_config(void)
     memset(&g_device_config, 0, sizeof(g_device_config));
     
     // Set default configuration
-    g_device_config.control_port = 8443;
+    g_device_config.control_port = device_control_port;
     g_device_config.port_range_start = 10000;
     g_device_config.port_range_end = 60000;
     g_device_config.heartbeat_interval = 30;
@@ -94,7 +94,7 @@ static int init_device_manager_from_config(void)
 }
 
 // Modified server initialization to support device management
-int servers_init_with_device_management(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period)
+int servers_init_with_device_management(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period, uint16_t device_control_port)
 {
     int32_t res = get_user_server_ports(user_id, &servers, &servers_count);
     
@@ -106,7 +106,7 @@ int servers_init_with_device_management(uint32_t user_id, const char* cert_file,
     
     // Initialize device manager if not already initialized
     if (!g_device_manager_enabled) {
-        if (init_device_manager_from_config() != 0) {
+        if (init_device_manager_from_config(device_control_port) != 0) {
             logMsg(LOG_WARNING, "Device manager initialization failed, continuing without device management\n");
         }
     }
@@ -460,31 +460,3 @@ void* statistics_saver_thread_with_devices(void* arg)
     
     return NULL;
 }
-
-// Main function integration example
-/*
-int main(int argc, char** argv) {
-    // ... existing initialization ...
-    
-    // Parse command line arguments for device management
-    bool enable_device_management = false;
-    uint16_t device_control_port = 8443;
-    
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--enable-device-management") == 0) {
-            enable_device_management = true;
-        } else if (strcmp(argv[i], "--device-control-port") == 0 && i + 1 < argc) {
-            device_control_port = atoi(argv[++i]);
-        }
-    }
-    
-    // Initialize servers with device management if enabled
-    if (enable_device_management) {
-        servers_init_with_device_management(user_id, cert_file, key_file, statistics_retention_period);
-    } else {
-        servers_init(user_id, cert_file, key_file, statistics_retention_period);
-    }
-    
-    // ... rest of main function ...
-}
-*/
