@@ -42,7 +42,7 @@ ENV NVM_DIR=/root/.nvm
 RUN bash -c "source $NVM_DIR/nvm.sh && nvm install $NODE_VERSION"
 
 # Настройка часового пояса
-RUN ln -fs /usr/sshare/zoneinfo/UTC /etc/localtime && \
+RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata
 
 # Автоматическое соглашение с лицензией
