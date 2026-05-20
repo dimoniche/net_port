@@ -85,6 +85,12 @@ module.exports = {
           if (data.device_id && (data.device_id.length < 3 || data.device_id.length > 64)) {
             throw new Error('device_id must be between 3 and 64 characters');
           }
+          // Validate internal_port if provided
+          if (data.internal_port !== undefined && data.internal_port !== null) {
+            if (typeof data.internal_port !== 'number' || data.internal_port < 6000 || data.internal_port > 7000) {
+              throw new Error('internal_port must be a number between 6000 and 7000');
+            }
+          }
         }
         
         return context;
@@ -196,17 +202,24 @@ module.exports = {
         const { result, params } = context;
         const { user } = params;
         
-        // Log event
-        await context.app.service('events').create({
-          type: 'device_created',
-          device_id: result.id,
-          user_id: user.id,
-          data: {
-            device_id: result.device_id,
-            name: result.name
-          },
-          timestamp: new Date()
-        });
+        // Log event if events service exists
+        try {
+          await context.app.service('events').create({
+            type: 'device_created',
+            device_id: result.id,
+            user_id: user.id,
+            data: {
+              device_id: result.device_id,
+              name: result.name
+            },
+            timestamp: new Date()
+          });
+        } catch (e) {
+          // Silently ignore if events service doesn't exist
+          if (!e.message.includes('Can not find service') && !e.message.includes('events')) {
+            console.error('Failed to log device creation event:', e);
+          }
+        }
         
         return context;
       }
@@ -217,12 +230,19 @@ module.exports = {
         const { result, params } = context;
         const { user } = params;
         
-        await context.app.service('events').create({
-          type: 'device_updated',
-          device_id: result.id,
-          user_id: user.id,
-          timestamp: new Date()
-        });
+        try {
+          await context.app.service('events').create({
+            type: 'device_updated',
+            device_id: result.id,
+            user_id: user.id,
+            timestamp: new Date()
+          });
+        } catch (e) {
+          // Silently ignore if events service doesn't exist
+          if (!e.message.includes('Can not find service') && !e.message.includes('events')) {
+            console.error('Failed to log device update event:', e);
+          }
+        }
         
         return context;
       }
@@ -233,12 +253,19 @@ module.exports = {
         const { result, params } = context;
         const { user } = params;
         
-        await context.app.service('events').create({
-          type: 'device_updated',
-          device_id: result.id,
-          user_id: user.id,
-          timestamp: new Date()
-        });
+        try {
+          await context.app.service('events').create({
+            type: 'device_updated',
+            device_id: result.id,
+            user_id: user.id,
+            timestamp: new Date()
+          });
+        } catch (e) {
+          // Silently ignore if events service doesn't exist
+          if (!e.message.includes('Can not find service') && !e.message.includes('events')) {
+            console.error('Failed to log device patch event:', e);
+          }
+        }
         
         return context;
       }
@@ -249,12 +276,19 @@ module.exports = {
         const { result, params } = context;
         const { user } = params;
         
-        await context.app.service('events').create({
-          type: 'device_deleted',
-          device_id: result.id,
-          user_id: user.id,
-          timestamp: new Date()
-        });
+        try {
+          await context.app.service('events').create({
+            type: 'device_deleted',
+            device_id: result.id,
+            user_id: user.id,
+            timestamp: new Date()
+          });
+        } catch (e) {
+          // Silently ignore if events service doesn't exist
+          if (!e.message.includes('Can not find service') && !e.message.includes('events')) {
+            console.error('Failed to log device deletion event:', e);
+          }
+        }
         
         return context;
       }
@@ -269,10 +303,11 @@ module.exports = {
         
         // Log error event if events service exists
         try {
-          // Check if events service exists
-          const serviceNames = Object.keys(context.app.services);
-          if (serviceNames.includes('events')) {
-            await context.app.service('events').create({
+          // Check if events service exists by trying to get it
+          // Feathers throws an error if service doesn't exist
+          const eventsService = context.app.service('events');
+          if (eventsService) {
+            await eventsService.create({
               type: 'device_error',
               error: context.error.message,
               stack: context.error.stack,
@@ -280,7 +315,11 @@ module.exports = {
             });
           }
         } catch (e) {
-          console.error('Failed to log error event:', e);
+          // Silently ignore if events service doesn't exist
+          // Only log if it's a different error
+          if (!e.message.includes('Can not find service') && !e.message.includes('events')) {
+            console.error('Failed to log error event:', e);
+          }
         }
         
         return context;
