@@ -1,31 +1,84 @@
 /* eslint-disable eqeqeq */
-import React, { useContext, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useContext, useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
 import { ApiContext } from "../../context/ApiContext";
+import { useNavigate } from "react-router-dom";
+import { useFormik } from "formik";
 import { useCookies } from "react-cookie";
+import * as Yup from "yup";
 import Button from "@mui/material/Button";
 import Box from "@mui/material/Box";
+import Divider from "@mui/material/Divider";
 import Grid from "@mui/material/Grid";
 import TextField from "@mui/material/TextField";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Paper from "@mui/material/Paper";
-import isEmpty from "lodash/isEmpty";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import updateAbility from "../../config/permission";
 
-const NewDeviceSettingsData = ({ children, ...rest }) => {
+const InputFieldWidth = { width: "100%" };
+
+const DeviceSettingsEdit = ({ children, ...rest }) => {
+    const deviceId = useParams();
     const { api } = useContext(ApiContext);
     const history = useNavigate();
-    const [cookies] = useCookies();
+    const [cookies, , removeCookie] = useCookies();
 
-    const [isSubmitting, setSubmitting] = useState(false);
+    const [, setSubmitting] = useState(false);
+    const [isChangedData, setChangedData] = useState(false);
     const [addError, setAddError] = useState(false);
-    const [errorMessage, setErrorMessage] = useState("");
+    const [deviceData, setDeviceData] = useState();
+
+    const [error, setError] = useState(null);
+    if (error) {
+        throw error;
+    }
+
+    useEffect(() => {
+        const abortController = new AbortController();
+
+        async function fetchData(abortController) {
+            let response_error = false;
+            setChangedData(false);
+
+            const device = await api
+                .get(`/devices/${deviceId.id}`, {
+                    signal: abortController.signal,
+                })
+                .catch((err) => {
+                    if (err.response?.status === 401) {
+                        handleLogout();
+                    } else {
+                        setError(err);
+                    }
+                    response_error = true;
+                });
+
+            if (response_error) return;
+            if (abortController.signal.aborted) return;
+
+            setDeviceData(device);
+        }
+
+        fetchData(abortController);
+
+        return () => {
+            abortController.abort();
+        };
+    }, [deviceId.id]);
+
+    const handleLogout = () => {
+        removeCookie("user", { path: "/" });
+        removeCookie("accessToken", { path: "/" });
+        history("/");
+    };
 
     const handleSubmit = async (event) => {
         event.preventDefault();
         setSubmitting(true);
         setAddError(false);
-        setErrorMessage("");
 
         const formData = new FormData(event.target);
         const internalPortRaw = formData.get("internal_port");
@@ -36,29 +89,25 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                 internalPort = parsed;
             }
         }
-        const deviceData = {
-            device_id: formData.get("device_id"),
+        const updatedDeviceData = {
             name: formData.get("name"),
             description: formData.get("description"),
-            type: formData.get("type") || "iot_gateway",
-            status: "inactive",
-            internal_address: formData.get("internal_address") || '127.0.0.1',
+            type: formData.get("type"),
+            status: formData.get("status") || "inactive",
+            internal_address: formData.get("internal_address"),
             internal_port: internalPort,
-            protocol: formData.get("protocol") || 'tcp',
-            user_id: cookies.user?.id,
+            protocol: formData.get("protocol"),
         };
 
         try {
-            const response = await api.post("/devices", deviceData);
-            if (response.status === 201) {
+            const response = await api.patch(`/devices/${deviceId.id}`, updatedDeviceData);
+            if (response.status === 200) {
                 history("/devices");
             } else {
                 setAddError(true);
-                setErrorMessage(response.data?.message || "Failed to create device");
             }
         } catch (error) {
             setAddError(true);
-            setErrorMessage(error.response?.data?.message || error.message);
         } finally {
             setSubmitting(false);
         }
@@ -68,14 +117,18 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
         history("/devices");
     };
 
+    if (!deviceData) {
+        return <div>Загрузка...</div>;
+    }
+
     return (
         <Box sx={{ p: 3 }}>
             <Paper sx={{ p: 3 }}>
-                <h2>Добавить новое устройство</h2>
+                <h2>Редактировать устройство</h2>
                 {addError && (
                     <Alert severity="error" sx={{ mb: 2 }}>
                         <AlertTitle>Ошибка</AlertTitle>
-                        {errorMessage}
+                        Не удалось обновить устройство
                     </Alert>
                 )}
                 <form onSubmit={handleSubmit}>
@@ -87,7 +140,11 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 label="ID устройства"
                                 name="device_id"
                                 variant="outlined"
-                                helperText="Уникальный идентификатор устройства"
+                                defaultValue={deviceData.device_id}
+                                InputProps={{
+                                    readOnly: true,
+                                }}
+                                helperText="Уникальный идентификатор устройства (нельзя изменить)"
                             />
                         </Grid>
                         <Grid item xs={12} md={6}>
@@ -96,6 +153,7 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 label="Название"
                                 name="name"
                                 variant="outlined"
+                                defaultValue={deviceData.name}
                                 helperText="Название устройства"
                             />
                         </Grid>
@@ -107,6 +165,7 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 variant="outlined"
                                 multiline
                                 rows={2}
+                                defaultValue={deviceData.description}
                                 helperText="Описание устройства"
                             />
                         </Grid>
@@ -116,7 +175,7 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 label="Тип"
                                 name="type"
                                 variant="outlined"
-                                defaultValue="iot_gateway"
+                                defaultValue={deviceData.type || "iot_gateway"}
                                 select
                                 SelectProps={{ native: true }}
                                 helperText="Тип устройства"
@@ -129,9 +188,27 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                         <Grid item xs={12} md={6}>
                             <TextField
                                 fullWidth
+                                label="Статус"
+                                name="status"
+                                variant="outlined"
+                                defaultValue={deviceData.status || "inactive"}
+                                select
+                                SelectProps={{ native: true }}
+                                helperText="Статус устройства"
+                            >
+                                <option value="active">Активно</option>
+                                <option value="inactive">Неактивно</option>
+                                <option value="pending">Ожидание</option>
+                                <option value="error">Ошибка</option>
+                            </TextField>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <TextField
+                                fullWidth
                                 label="Внутренний адрес"
                                 name="internal_address"
                                 variant="outlined"
+                                defaultValue={deviceData.internal_address}
                                 helperText="IP или хост устройства внутри сети"
                             />
                         </Grid>
@@ -143,6 +220,7 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 variant="outlined"
                                 type="number"
                                 inputProps={{ min: 1, max: 65535 }}
+                                defaultValue={deviceData.internal_port}
                                 helperText="Порт устройства внутри сети"
                             />
                         </Grid>
@@ -152,7 +230,7 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 label="Протокол"
                                 name="protocol"
                                 variant="outlined"
-                                defaultValue="tcp"
+                                defaultValue={deviceData.protocol || "tcp"}
                                 select
                                 SelectProps={{ native: true }}
                                 helperText="Протокол устройства"
@@ -161,28 +239,22 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 <option value="udp">UDP</option>
                             </TextField>
                         </Grid>
+                        <Grid item xs={12}>
+                            <Divider sx={{ my: 2 }} />
+                            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2 }}>
+                                <Button variant="outlined" onClick={handleCancel}>
+                                    Отмена
+                                </Button>
+                                <Button type="submit" variant="contained" color="primary">
+                                    Сохранить
+                                </Button>
+                            </Box>
+                        </Grid>
                     </Grid>
-                    <Box sx={{ mt: 3, display: "flex", gap: 2 }}>
-                        <Button
-                            variant="contained"
-                            color="primary"
-                            type="submit"
-                            disabled={isSubmitting}
-                        >
-                            {isSubmitting ? "Создание..." : "Создать устройство"}
-                        </Button>
-                        <Button
-                            variant="outlined"
-                            color="secondary"
-                            onClick={handleCancel}
-                        >
-                            Отмена
-                        </Button>
-                    </Box>
                 </form>
             </Paper>
         </Box>
     );
 };
 
-export default NewDeviceSettingsData;
+export default DeviceSettingsEdit;

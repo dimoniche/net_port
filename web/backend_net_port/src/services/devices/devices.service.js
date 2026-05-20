@@ -398,6 +398,35 @@ exports.Devices = class Devices extends Service {
     };
   }
 
+  async connect(id, params) {
+    const { user } = params;
+    
+    // Check permissions
+    const device = await this.Model.where('id', id).first();
+    if (!device) {
+      throw new Error('Device not found');
+    }
+    
+    if (user.role !== 'admin' && device.user_id !== user.id) {
+      throw new Error('Permission denied');
+    }
+    
+    // Update device status to connecting
+    await this.Model.where('id', id).update({
+      status: 'connecting',
+      updated_at: new Date()
+    });
+    
+    // In a real implementation, this would send a command to the device manager
+    // to initiate a connection to the device
+    
+    return {
+      device_id: device.device_id,
+      message: 'Device connection initiated',
+      timestamp: new Date()
+    };
+  }
+
   async restart(id, params) {
     const { user } = params;
     

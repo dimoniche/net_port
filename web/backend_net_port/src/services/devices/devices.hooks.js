@@ -9,7 +9,7 @@ const deviceSchema = {
     description: { type: 'string' },
     type: { type: 'string', enum: ['iot_gateway', 'sensor', 'camera', 'router', 'other'] },
     internal_address: { type: 'string', format: 'ipv4' },
-    internal_port: { type: 'integer', minimum: 6000, maximum: 7000 },
+    internal_port: { type: ['integer', 'null'], minimum: 6000, maximum: 7000 },
     protocol: { type: 'string', enum: ['tcp', 'udp'] },
     capabilities: { type: 'array' },
     metadata: { type: 'object' },

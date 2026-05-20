@@ -268,11 +268,11 @@ const Devices = ({ children, ...rest }) => {
             </Grid>
 
             <Grid item xs={12}>
-                <Paper sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="h6" gutterBottom>
+                <Paper sx={{ p: 1, mb: 1.5 }}>
+                    <Typography variant="subtitle1" sx={{ fontSize: '0.95rem', mb: 1 }}>
                         Фильтры
                     </Typography>
-                    <Grid container spacing={2}>
+                    <Grid container spacing={1}>
                         <Grid item xs={12} sm={3}>
                             <TextField
                                 fullWidth
@@ -280,6 +280,7 @@ const Devices = ({ children, ...rest }) => {
                                 value={deviceIdFilter}
                                 onChange={(e) => setDeviceIdFilter(e.target.value)}
                                 size="small"
+                                sx={{ '& .MuiInputBase-root': { fontSize: '0.875rem' } }}
                             />
                         </Grid>
                         <Grid item xs={12} sm={3}>
@@ -289,38 +290,41 @@ const Devices = ({ children, ...rest }) => {
                                 value={nameFilter}
                                 onChange={(e) => setNameFilter(e.target.value)}
                                 size="small"
+                                sx={{ '& .MuiInputBase-root': { fontSize: '0.875rem' } }}
                             />
                         </Grid>
                         <Grid item xs={12} sm={3}>
                             <FormControl fullWidth size="small">
-                                <InputLabel>Статус</InputLabel>
+                                <InputLabel sx={{ fontSize: '0.875rem' }}>Статус</InputLabel>
                                 <Select
                                     value={statusFilter}
                                     label="Статус"
                                     onChange={(e) => setStatusFilter(e.target.value)}
+                                    sx={{ fontSize: '0.875rem' }}
                                 >
-                                    <MenuItem value="">Все</MenuItem>
-                                    <MenuItem value="active">Активен</MenuItem>
-                                    <MenuItem value="inactive">Неактивен</MenuItem>
-                                    <MenuItem value="connecting">Подключается</MenuItem>
-                                    <MenuItem value="error">Ошибка</MenuItem>
+                                    <MenuItem value="" sx={{ fontSize: '0.875rem' }}>Все</MenuItem>
+                                    <MenuItem value="active" sx={{ fontSize: '0.875rem' }}>Активен</MenuItem>
+                                    <MenuItem value="inactive" sx={{ fontSize: '0.875rem' }}>Неактивен</MenuItem>
+                                    <MenuItem value="connecting" sx={{ fontSize: '0.875rem' }}>Подключается</MenuItem>
+                                    <MenuItem value="error" sx={{ fontSize: '0.875rem' }}>Ошибка</MenuItem>
                                 </Select>
                             </FormControl>
                         </Grid>
                         <Grid item xs={12} sm={3}>
                             <FormControl fullWidth size="small">
-                                <InputLabel>Тип</InputLabel>
+                                <InputLabel sx={{ fontSize: '0.875rem' }}>Тип</InputLabel>
                                 <Select
                                     value={typeFilter}
                                     label="Тип"
                                     onChange={(e) => setTypeFilter(e.target.value)}
+                                    sx={{ fontSize: '0.875rem' }}
                                 >
-                                    <MenuItem value="">Все</MenuItem>
-                                    <MenuItem value="iot_gateway">IoT Шлюз</MenuItem>
-                                    <MenuItem value="sensor">Датчик</MenuItem>
-                                    <MenuItem value="camera">Камера</MenuItem>
-                                    <MenuItem value="router">Роутер</MenuItem>
-                                    <MenuItem value="other">Другое</MenuItem>
+                                    <MenuItem value="" sx={{ fontSize: '0.875rem' }}>Все</MenuItem>
+                                    <MenuItem value="iot_gateway" sx={{ fontSize: '0.875rem' }}>IoT Шлюз</MenuItem>
+                                    <MenuItem value="sensor" sx={{ fontSize: '0.875rem' }}>Датчик</MenuItem>
+                                    <MenuItem value="camera" sx={{ fontSize: '0.875rem' }}>Камера</MenuItem>
+                                    <MenuItem value="router" sx={{ fontSize: '0.875rem' }}>Роутер</MenuItem>
+                                    <MenuItem value="other" sx={{ fontSize: '0.875rem' }}>Другое</MenuItem>
                                 </Select>
                             </FormControl>
                         </Grid>
@@ -338,6 +342,7 @@ const Devices = ({ children, ...rest }) => {
                                 <TableCell>Тип</TableCell>
                                 <TableCell>Статус</TableCell>
                                 <TableCell>Назначенный порт</TableCell>
+                                <TableCell>Внутренний порт</TableCell>
                                 <TableCell>Последняя активность</TableCell>
                                 <TableCell>Действия</TableCell>
                             </TableRow>
@@ -345,7 +350,7 @@ const Devices = ({ children, ...rest }) => {
                         <TableBody>
                             {filteredDevices.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} align="center">
+                                    <TableCell colSpan={8} align="center">
                                         Нет устройств
                                     </TableCell>
                                 </TableRow>
@@ -364,6 +369,9 @@ const Devices = ({ children, ...rest }) => {
                                         </TableCell>
                                         <TableCell>
                                             {device.assigned_port || device.session_port || "Не назначен"}
+                                        </TableCell>
+                                        <TableCell>
+                                            {device.internal_port || "-"}
                                         </TableCell>
                                         <TableCell>
                                             {formatDate(device.last_heartbeat || device.last_activity)}
