@@ -98,18 +98,26 @@ exports.Devices = class Devices extends Service {
     });
     
     // Get total count for pagination
-    const countQuery = this.Model.count('* as count');
+    const countQuery = this.Model('devices').count('* as count');
     
     if (query.status) {
-      countQuery.where('status', query.status);
+      countQuery.where('devices.status', query.status);
     }
     
     if (query.type) {
-      countQuery.where('type', query.type);
+      countQuery.where('devices.type', query.type);
     }
     
     if (query.user_id) {
-      countQuery.where('user_id', query.user_id);
+      countQuery.where('devices.user_id', query.user_id);
+    }
+    
+    if (query.search) {
+      countQuery.where(function() {
+        this.where('devices.device_id', 'ilike', `%${query.search}%`)
+          .orWhere('devices.name', 'ilike', `%${query.search}%`)
+          .orWhere('devices.description', 'ilike', `%${query.search}%`);
+      });
     }
     
     const total = await countQuery.first();
