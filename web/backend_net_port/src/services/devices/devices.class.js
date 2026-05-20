@@ -48,7 +48,7 @@ exports.Devices = class Devices extends Service {
         table.index('assigned_port');
         
         table.check('assigned_port IS NULL OR (assigned_port >= 6000 AND assigned_port <= 7000)', 'valid_port_range');
-        table.check('internal_port IS NULL OR (internal_port >= 1 AND internal_port <= 65535)', 'valid_internal_port');
+        table.check('internal_port IS NULL OR (internal_port >= 6000 AND internal_port <= 7000)', 'valid_internal_port');
       });
       
       console.log('Created devices table');

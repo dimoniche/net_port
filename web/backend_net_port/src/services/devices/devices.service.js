@@ -200,7 +200,7 @@ exports.Devices = class Devices extends Service {
       status: 'inactive',
       auth_token_hash: authTokenHash,
       internal_address: data.internal_address || '127.0.0.1',
-      internal_port: data.internal_port || 22,
+      internal_port: data.internal_port || null,
       protocol: data.protocol || 'tcp',
       capabilities: JSON.stringify(data.capabilities || ['tcp']),
       metadata: JSON.stringify(data.metadata || {}),

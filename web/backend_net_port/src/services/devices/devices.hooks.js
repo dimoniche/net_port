@@ -9,7 +9,7 @@ const deviceSchema = {
     description: { type: 'string' },
     type: { type: 'string', enum: ['iot_gateway', 'sensor', 'camera', 'router', 'other'] },
     internal_address: { type: 'string', format: 'ipv4' },
-    internal_port: { type: 'integer', minimum: 1, maximum: 65535 },
+    internal_port: { type: 'integer', minimum: 6000, maximum: 7000 },
     protocol: { type: 'string', enum: ['tcp', 'udp'] },
     capabilities: { type: 'array' },
     metadata: { type: 'object' },
@@ -58,6 +58,11 @@ module.exports = {
         const { data } = context;
         const { user } = context.params;
         
+        // Ensure data exists
+        if (!data) {
+          throw new Error('Device data is required');
+        }
+        
         // Set user_id if not provided
         if (!data.user_id && user) {
           data.user_id = user.id;
@@ -90,6 +95,11 @@ module.exports = {
       async context => {
         const { id, data, params } = context;
         const { user } = params;
+        
+        // Ensure data exists
+        if (!data) {
+          throw new Error('Update data is required');
+        }
         
         // Check permissions
         if (user && user.role !== 'admin') {
@@ -127,6 +137,11 @@ module.exports = {
       async context => {
         const { id, data, params } = context;
         const { user } = params;
+        
+        // Ensure data exists
+        if (!data) {
+          throw new Error('Patch data is required');
+        }
         
         if (user && user.role !== 'admin') {
           const device = await context.app.service('devices').get(id);
