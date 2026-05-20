@@ -47,7 +47,7 @@ exports.Devices = class Devices extends Service {
         table.index('last_heartbeat');
         table.index('assigned_port');
         
-        table.check('assigned_port IS NULL OR (assigned_port >= 10000 AND assigned_port <= 60000)', 'valid_port_range');
+        table.check('assigned_port IS NULL OR (assigned_port >= 6000 AND assigned_port <= 7000)', 'valid_port_range');
         table.check('internal_port IS NULL OR (internal_port >= 1 AND internal_port <= 65535)', 'valid_internal_port');
       });
       
@@ -84,7 +84,7 @@ exports.Devices = class Devices extends Service {
         table.index('expires_at');
         table.index('status');
         
-        table.check('assigned_port >= 10000 AND assigned_port <= 60000', 'valid_session_port');
+        table.check('assigned_port >= 6000 AND assigned_port <= 7000', 'valid_session_port');
       });
       
       console.log('Created device_sessions table');
@@ -105,7 +105,7 @@ exports.Devices = class Devices extends Service {
         table.index('status');
         table.index('expires_at');
         
-        table.check('port >= 10000 AND port <= 60000', 'valid_port_range');
+        table.check('port >= 6000 AND port <= 7000', 'valid_port_range');
       });
       
       console.log('Created port_allocations table');
@@ -159,10 +159,10 @@ exports.Devices = class Devices extends Service {
   }
 
   async initializePortAllocations(knex) {
-    // Insert free ports (10000-60000)
+    // Insert free ports (6000-7000)
     const batchSize = 1000;
-    const startPort = 10000;
-    const endPort = 60000;
+    const startPort = 6000;
+    const endPort = 7000;
     
     console.log(`Initializing port allocations (${startPort}-${endPort})...`);
     

@@ -14,6 +14,7 @@ import NewServerSettingsData from "../pages/ServerSettings/NewServerSettingsData
 import Servers from "../pages/Servers";
 import Statistics from "../pages/Statistics";
 import Devices from "../pages/Devices";
+import NewDeviceSettingsData from "../pages/DevicesSettings/NewDeviceSettingsData";
 
 import { Route, Routes, Navigate } from "react-router-dom";
 
@@ -99,6 +100,17 @@ const AppRoutes = (props) => {
                         <RequireAuth>
                             <MainLayout ability={props.ability}>
                                 <Devices ability={props.ability} />
+                            </MainLayout>
+                        </RequireAuth>
+                    }
+                />
+
+                <Route
+                    path="/devices/new"
+                    element={
+                        <RequireAuth>
+                            <MainLayout ability={props.ability}>
+                                <NewDeviceSettingsData ability={props.ability} />
                             </MainLayout>
                         </RequireAuth>
                     }
