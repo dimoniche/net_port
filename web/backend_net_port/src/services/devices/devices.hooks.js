@@ -55,7 +55,8 @@ module.exports = {
     create: [
       // Validate input
       async context => {
-        const { data, user } = context.params;
+        const { data } = context;
+        const { user } = context.params;
         
         // Set user_id if not provided
         if (!data.user_id && user) {
@@ -236,14 +237,18 @@ module.exports = {
       async context => {
         console.error('Device service error:', context.error);
         
-        // Log error event
+        // Log error event if events service exists
         try {
-          await context.app.service('events').create({
-            type: 'device_error',
-            error: context.error.message,
-            stack: context.error.stack,
-            timestamp: new Date()
-          });
+          // Check if events service exists
+          const serviceNames = Object.keys(context.app.services);
+          if (serviceNames.includes('events')) {
+            await context.app.service('events').create({
+              type: 'device_error',
+              error: context.error.message,
+              stack: context.error.stack,
+              timestamp: new Date()
+            });
+          }
         } catch (e) {
           console.error('Failed to log error event:', e);
         }
