@@ -63,12 +63,23 @@ module.exports = {
           data.user_id = user.id;
         }
         
-        // Validate against schema
-        const validate = context.app.get('validator').compile(deviceSchema);
-        const valid = validate(data);
-        
-        if (!valid) {
-          throw new Error(`Validation failed: ${validate.errors.map(e => e.message).join(', ')}`);
+        // Validate against schema if validator is available
+        const validator = context.app.get('validator');
+        if (validator && typeof validator.compile === 'function') {
+          const validate = validator.compile(deviceSchema);
+          const valid = validate(data);
+          
+          if (!valid) {
+            throw new Error(`Validation failed: ${validate.errors.map(e => e.message).join(', ')}`);
+          }
+        } else {
+          // Basic validation if no validator is configured
+          if (!data.device_id) {
+            throw new Error('device_id is required');
+          }
+          if (data.device_id && (data.device_id.length < 3 || data.device_id.length > 64)) {
+            throw new Error('device_id must be between 3 and 64 characters');
+          }
         }
         
         return context;
@@ -93,16 +104,20 @@ module.exports = {
           delete data.device_id;
         }
         
-        // Validate update data
-        const updateSchema = { ...deviceSchema };
-        delete updateSchema.required; // No required fields for update
-        
-        const validate = context.app.get('validator').compile(updateSchema);
-        const valid = validate(data);
-        
-        if (!valid) {
-          throw new Error(`Validation failed: ${validate.errors.map(e => e.message).join(', ')}`);
+        // Validate update data if validator is available
+        const validator = context.app.get('validator');
+        if (validator && typeof validator.compile === 'function') {
+          const updateSchema = { ...deviceSchema };
+          delete updateSchema.required; // No required fields for update
+          
+          const validate = validator.compile(updateSchema);
+          const valid = validate(data);
+          
+          if (!valid) {
+            throw new Error(`Validation failed: ${validate.errors.map(e => e.message).join(', ')}`);
+          }
         }
+        // If no validator, skip schema validation for updates
         
         return context;
       }
