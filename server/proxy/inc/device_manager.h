@@ -150,11 +150,11 @@ typedef struct device_statistics_update_s {
 // Device manager configuration
 typedef struct device_manager_config_s {
     uint16_t control_port;           // Port for device registration (default: 8443)
-    uint16_t port_range_start;       // Start of dynamic port range (default: 10000)
-    uint16_t port_range_end;         // End of dynamic port range (default: 60000)
+    uint16_t port_range_start;       // Start of dynamic port range (default: 6000)
+    uint16_t port_range_end;         // End of dynamic port range (default: 7000)
     uint32_t heartbeat_interval;     // Default heartbeat interval in seconds (default: 30)
     uint32_t session_timeout;        // Session timeout in seconds (default: 3600)
-    uint32_t max_devices;            // Maximum number of devices (default: 50000)
+    uint32_t max_devices;            // Maximum number of devices (default: 1001)
     bool enable_ssl;                 // Enable SSL for control channel
     char ssl_cert_file[256];         // SSL certificate file
     char ssl_key_file[256];          // SSL private key file

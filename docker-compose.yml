@@ -1,9 +1,6 @@
 services:
   net_port:
     build:
-      context: .
-      args:
-        EXTERNAL_DB: ${EXTERNAL_DB:-false}
     image: net_port:latest
     container_name: net_port_app
     ports:

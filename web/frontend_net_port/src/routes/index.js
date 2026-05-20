@@ -13,6 +13,7 @@ import ServerSettingsEdit from "../pages/ServerSettings/ServerSettingsEdit";
 import NewServerSettingsData from "../pages/ServerSettings/NewServerSettingsData";
 import Servers from "../pages/Servers";
 import Statistics from "../pages/Statistics";
+import Devices from "../pages/Devices";
 
 import { Route, Routes, Navigate } from "react-router-dom";
 
@@ -93,6 +94,17 @@ const AppRoutes = (props) => {
                 />
 
                 <Route
+                    path="/devices"
+                    element={
+                        <RequireAuth>
+                            <MainLayout ability={props.ability}>
+                                <Devices ability={props.ability} />
+                            </MainLayout>
+                        </RequireAuth>
+                    }
+                />
+
+                <Route
                     path="/statistics"
                     element={
                         <RequireAuth>
@@ -121,6 +133,7 @@ const mainNavSection = [{ title: "Главная", href: "/main", name: "MainTit
 const minorNavSection = [
     { title: "Настройки", href: "/settings", name: "Config" },
     { title: "Серверы", href: "/servers", name: "Config" },
+    { title: "Устройства", href: "/devices", name: "Config" },
     { title: "Статистика", href: "/statistics", name: "Config" },
 ];
 

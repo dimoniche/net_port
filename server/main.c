@@ -247,12 +247,16 @@ int main(int argc, char** argv) {
     logMsgSetPriority(verbose_level);
     logMsg(LOG_DEBUG, "Start logger...");
 
+    // Initialize database if not in no-db mode
+    if (!no_db_mode) {
+        db_init(DB_conn_data.ip, DB_conn_data.port, DB_conn_data.username, DB_conn_data.password);
+    }
+    
     // Initialize servers with device management if enabled
     if (enable_device_management) {
         servers_init_with_device_management(user_id, cert_file, key_file, statistics_retention_period, device_control_port);
     } else {
         if (!no_db_mode) {
-            db_init(DB_conn_data.ip, DB_conn_data.port, DB_conn_data.username, DB_conn_data.password);
             servers_init(user_id, cert_file, key_file, statistics_retention_period);
         } else {
             if (cli_input_port == 0 || cli_output_port == 0) {

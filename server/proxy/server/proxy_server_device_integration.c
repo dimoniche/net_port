@@ -64,11 +64,11 @@ static int init_device_manager_from_config(uint16_t device_control_port)
     
     // Set default configuration
     g_device_config.control_port = device_control_port;
-    g_device_config.port_range_start = 10000;
-    g_device_config.port_range_end = 60000;
+    g_device_config.port_range_start = 6000;
+    g_device_config.port_range_end = 7000;
     g_device_config.heartbeat_interval = 30;
     g_device_config.session_timeout = 3600;
-    g_device_config.max_devices = 50000;
+    g_device_config.max_devices = 1001;
     g_device_config.enable_ssl = true;
     
     // These should be loaded from configuration

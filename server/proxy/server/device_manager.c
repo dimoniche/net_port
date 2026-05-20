@@ -34,11 +34,11 @@ pthread_mutex_t g_db_mutex = PTHREAD_MUTEX_INITIALIZER;
 // Default configuration
 static const device_manager_config_t DEFAULT_CONFIG = {
     .control_port = 8443,
-    .port_range_start = 10000,
-    .port_range_end = 60000,
+    .port_range_start = 6000,
+    .port_range_end = 7000,
     .heartbeat_interval = 30,
     .session_timeout = 3600,
-    .max_devices = 50000,
+    .max_devices = 1001,
     .enable_ssl = true,
     .ssl_cert_file = "",
     .ssl_key_file = "",

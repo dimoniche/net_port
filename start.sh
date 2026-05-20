@@ -65,9 +65,80 @@ if [ "$USE_LOCAL_DB" = "true" ]; then
     su - postgres -c "psql -d net_port -c \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;\""
     su - postgres -c "psql -d net_port -c \"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;\""
 else
-    echo "Using external PostgreSQL at $DB_HOST:$DB_PORT, skipping local PostgreSQL initialization."
-    # Wait a moment for external DB to be reachable (optional)
-    sleep 2
+    echo "Using external PostgreSQL at $DB_HOST:$DB_PORT, initializing database if needed."
+    
+    # Wait for external PostgreSQL to be reachable
+    echo "Waiting for PostgreSQL to be reachable at $DB_HOST:$DB_PORT..."
+    for i in {1..30}; do
+        if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+            echo "PostgreSQL is reachable."
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            echo "Warning: Could not connect to PostgreSQL after 30 attempts. Database initialization may fail."
+        fi
+        sleep 2
+    done
+    
+    # Check if net_port database exists
+    if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "SELECT 1 FROM pg_database WHERE datname='net_port';" 2>/dev/null | grep -q 1; then
+        echo "Database 'net_port' already exists."
+    else
+        echo "Database 'net_port' not found, attempting to create..."
+        # Try to create database (requires CREATEDB privilege)
+        if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "CREATE DATABASE net_port;" 2>/dev/null; then
+            echo "Database 'net_port' created successfully."
+        else
+            echo "Warning: Could not create database 'net_port'. It may already exist or user lacks privileges."
+            echo "Assuming database exists or will be created manually."
+        fi
+    fi
+    
+    # Initialize database schema if database exists
+    if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
+        echo "Initializing database schema..."
+        
+        # Check if main tables already exist
+        if ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1 FROM information_schema.tables WHERE table_name='users';" 2>/dev/null | grep -q 1; then
+            echo "Running init_db.sql..."
+            PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f /etc/postgresql/init_db.sql 2>/dev/null || echo "Warning: Failed to run init_db.sql"
+        else
+            echo "Main tables already exist, skipping init_db.sql."
+        fi
+        
+        # Check if device tables already exist
+        if ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1 FROM information_schema.tables WHERE table_name='devices';" 2>/dev/null | grep -q 1; then
+            echo "Running init_device_db.sql..."
+            # Try multiple possible locations for init_device_db.sql
+            if [ -f /etc/postgresql/init_device_db.sql ]; then
+                PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f /etc/postgresql/init_device_db.sql 2>/dev/null || echo "Warning: Failed to run init_device_db.sql"
+            elif [ -f /root/net_port/source/init_device_db.sql ]; then
+                PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f /root/net_port/source/init_device_db.sql 2>/dev/null || echo "Warning: Failed to run init_device_db.sql"
+            else
+                echo "Warning: init_device_db.sql not found. Device tables may not be created."
+            fi
+        else
+            echo "Device tables already exist, skipping init_device_db.sql."
+        fi
+        
+        # Try to create user if it doesn't exist (requires superuser privileges, may fail)
+        echo "Checking if user '$DB_USER' exists..."
+        if ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER';" 2>/dev/null | grep -q 1; then
+            echo "User '$DB_USER' not found, attempting to create..."
+            PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';" 2>/dev/null || echo "Warning: Could not create user (may lack privileges)"
+        else
+            echo "User '$DB_USER' already exists."
+        fi
+        
+        # Ensure user has privileges
+        echo "Ensuring user '$DB_USER' has proper privileges..."
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+    else
+        echo "Warning: Cannot connect to database 'net_port'. Schema initialization skipped."
+    fi
+    
+    echo "External PostgreSQL initialization completed."
 fi
 
 # Add admin user with hashed password from environment
@@ -97,7 +168,7 @@ start_server() {
     while true; do
         echo "Starting net_port server..."
         cd /root/net_port
-        ./module_net_port_server* --user 1 -v1 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT &
+        ./module_net_port_server* --user 1 -v7 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management &
         server_pid=$!
         wait $server_pid || true
         server_exit_code=$?

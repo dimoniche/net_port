@@ -288,7 +288,7 @@ void update_system_statistics(void)
     
     // Get port usage (would query database in real implementation)
     g_system_stats.ports_used = g_system_stats.active_devices;
-    g_system_stats.ports_available = 50000 - g_system_stats.ports_used; // 10000-60000 range
+    g_system_stats.ports_available = 1001 - g_system_stats.ports_used; // 6000-7000 range
     
     // Get system resource usage (would use system calls in real implementation)
     g_system_stats.system_cpu_usage = get_system_cpu_usage();
@@ -623,7 +623,7 @@ int get_health_status(health_status_t *health)
     
     // Check port usage
     uint32_t ports_used = g_system_stats.ports_used;
-    uint32_t ports_total = 50000; // 10000-60000 range
+    uint32_t ports_total = 1001; // 6000-7000 range
     
     if (ports_used > ports_total * 0.9) {
         health->port_usage_status = HEALTH_STATUS_WARNING;

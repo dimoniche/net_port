@@ -16,6 +16,7 @@
 #include "proxy_client.h"
 #include "hal_time.h"
 #include "time_counter.h"
+#include "proxy_client_device_integration.h"
 
 static uint64_t last_monotonic_time;
 
@@ -65,6 +66,7 @@ int main(int argc, char** argv) {
     settings->enable_ssl = false; // SSL по умолчанию выключен
     settings->enable_output_ssl = false; // Output SSL по умолчанию выключен
     settings->ca_file[0] = '\0'; // Путь к CA файлу по умолчанию пустой
+    bool has_device_args = false;
 
     bool show_help = true;
 
@@ -180,6 +182,10 @@ int main(int argc, char** argv) {
                 i++; // Skip next argument
             }
         }
+        if (strcmp(argv[i], "--device-id") == 0) {
+            has_device_args = true;
+            show_help = false;
+        }
     }
 
     if(show_help) {
@@ -187,7 +193,12 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    switcher_servers_start();
+    if (has_device_args) {
+        // Use device registration mode
+        main_with_device_registration(argc, argv);
+    } else {
+        switcher_servers_start();
+    }
 
     while (1) {
         proxy_server_thread_data_t* settings = get_client_settings();

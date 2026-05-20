@@ -17,6 +17,8 @@ RUN apt-get update && \
             wget \
             mc \
             systemd \
+            pkg-config \
+            libjansson-dev \
             openssl ; \
     else \
         apt-get install -y \
@@ -31,6 +33,8 @@ RUN apt-get update && \
             wget \
             mc \
             systemd \
+            pkg-config \
+            libjansson-dev \
             openssl ; \
     fi && \
     rm -rf /var/lib/apt/lists/*
@@ -50,7 +54,7 @@ RUN echo "Y" | apt-get install -y build-essential cmake git postgresql postgresq
 
 # Клонирование исходников сервера
 WORKDIR /root/net_port/source
-RUN git clone --branch develop https://github.com/dimoniche/net_port.git .
+RUN git clone --branch feature/version4 https://github.com/dimoniche/net_port.git .
 
 # Копирование локальных изменений веб-части
 COPY web /root/net_port/source/web
@@ -88,6 +92,10 @@ COPY nginx.conf /etc/nginx/sites-available/default
 COPY init_db.sql /etc/postgresql/init_db.sql
 RUN chown postgres:postgres /etc/postgresql/init_db.sql
 
+# Copy init_device_db.sql for device management tables
+COPY init_device_db.sql /etc/postgresql/init_device_db.sql
+RUN chown postgres:postgres /etc/postgresql/init_device_db.sql
+
 # Создание скрипта для запуска сервера
 COPY start.sh /root/net_port/start.sh
 RUN chmod +x /root/net_port/start.sh
@@ -96,5 +104,6 @@ EXPOSE 80
 EXPOSE 6000-6999
 EXPOSE 8080
 EXPOSE 5432
+EXPOSE 8443
 
 CMD ["/root/net_port/start.sh"]

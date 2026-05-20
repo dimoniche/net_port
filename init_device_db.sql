@@ -27,8 +27,8 @@ CREATE TABLE devices (
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     
     -- Indexes for performance
-    CONSTRAINT valid_port_range CHECK (assigned_port IS NULL OR (assigned_port >= 10000 AND assigned_port <= 60000)),
-    CONSTRAINT valid_internal_port CHECK (internal_port IS NULL OR (internal_port >= 1 AND internal_port <= 65535))
+    CONSTRAINT valid_port_range CHECK (assigned_port IS NULL OR (assigned_port >= 6000 AND assigned_port <= 7000)),
+    CONSTRAINT valid_internal_port CHECK (internal_port IS NULL OR (internal_port >= 6000 AND internal_port <= 7000))
 );
 
 -- Indexes for devices table
@@ -55,7 +55,7 @@ CREATE TABLE device_sessions (
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'expired', 'terminated', 'error')),
     
     -- Indexes for performance
-    CONSTRAINT valid_session_port CHECK (assigned_port >= 10000 AND assigned_port <= 60000)
+    CONSTRAINT valid_session_port CHECK (assigned_port >= 6000 AND assigned_port <= 7000)
 );
 
 -- Indexes for device_sessions table
@@ -67,7 +67,7 @@ CREATE INDEX idx_device_sessions_status ON device_sessions(status);
 
 -- Table for port allocations tracking
 CREATE TABLE port_allocations (
-    port INTEGER PRIMARY KEY CHECK (port >= 10000 AND port <= 60000),
+    port INTEGER PRIMARY KEY CHECK (port >= 6000 AND port <= 7000),
     device_id UUID REFERENCES devices(id) ON DELETE SET NULL,
     session_id UUID REFERENCES device_sessions(id) ON DELETE SET NULL,
     allocated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -298,9 +298,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Initialize port allocations table with free ports (10000-60000)
+-- Initialize port allocations table with free ports (6000-7000)
 INSERT INTO port_allocations (port, status)
-SELECT generate_series(10000, 60000) as port, 'free'
+SELECT generate_series(6000, 7000) as port, 'free'
 ON CONFLICT (port) DO NOTHING;
 
 -- Create a view for active device sessions with details
