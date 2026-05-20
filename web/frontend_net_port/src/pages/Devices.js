@@ -100,7 +100,9 @@ const Devices = ({ children, ...rest }) => {
         if (abortController?.signal?.aborted) return;
 
         if (devices.status === 200) {
-            setDevicesData(devices.data);
+            // Handle paginated response (data is { data: [], limit, skip, total })
+            const devicesArray = devices.data.data || devices.data;
+            setDevicesData(devicesArray);
             setIsLoaded(true);
         }
     };
