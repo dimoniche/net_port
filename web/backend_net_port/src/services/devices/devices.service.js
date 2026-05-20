@@ -7,7 +7,8 @@ exports.Devices = class Devices extends Service {
   constructor(options) {
     super({
       ...options,
-      name: 'devices'
+      name: 'devices',
+      table: 'devices'
     });
   }
 
