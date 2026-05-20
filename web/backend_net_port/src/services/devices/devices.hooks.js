@@ -26,7 +26,7 @@ module.exports = {
       async context => {
         const { user } = context.params;
         
-        if (user.role !== 'admin') {
+        if (user && user.role !== 'admin') {
           context.params.query = {
             ...context.params.query,
             user_id: user.id
@@ -42,7 +42,7 @@ module.exports = {
         const { user } = context.params;
         const { id } = context;
         
-        if (user.role !== 'admin') {
+        if (user && user.role !== 'admin') {
           const device = await context.app.service('devices').get(id);
           if (device.user_id !== user.id) {
             throw new Error('Permission denied');
@@ -80,7 +80,7 @@ module.exports = {
         const { user } = params;
         
         // Check permissions
-        if (user.role !== 'admin') {
+        if (user && user.role !== 'admin') {
           const device = await context.app.service('devices').get(id);
           if (device.user_id !== user.id) {
             throw new Error('Permission denied');
@@ -112,7 +112,7 @@ module.exports = {
         const { id, data, params } = context;
         const { user } = params;
         
-        if (user.role !== 'admin') {
+        if (user && user.role !== 'admin') {
           const device = await context.app.service('devices').get(id);
           if (device.user_id !== user.id) {
             throw new Error('Permission denied');
@@ -133,7 +133,7 @@ module.exports = {
         const { id, params } = context;
         const { user } = params;
         
-        if (user.role !== 'admin') {
+        if (user && user.role !== 'admin') {
           const device = await context.app.service('devices').get(id);
           if (device.user_id !== user.id) {
             throw new Error('Permission denied');
