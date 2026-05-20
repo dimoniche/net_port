@@ -13,9 +13,10 @@ exports.Devices = class Devices extends Service {
 
   async find(params) {
     const { query = {} } = params;
+    const knex = this.Model;
     
     // Build base query
-    let knexQuery = this.Model.select(
+    let knexQuery = knex('devices').select(
       'devices.*',
       'users.username as owner_username',
       'device_sessions.assigned_port as session_port',
@@ -27,8 +28,8 @@ exports.Devices = class Devices extends Service {
     .leftJoin('users', 'devices.user_id', 'users.id')
     .leftJoin('device_sessions', function() {
       this.on('devices.id', '=', 'device_sessions.device_id')
-        .andOn('device_sessions.status', '=', this.knex.raw("'active'"))
-        .andOn('device_sessions.expires_at', '>', this.knex.raw('NOW()'));
+        .andOn('device_sessions.status', '=', knex.raw("'active'"))
+        .andOn('device_sessions.expires_at', '>', knex.raw('NOW()'));
     });
     
     // Apply filters

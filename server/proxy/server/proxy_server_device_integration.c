@@ -55,7 +55,7 @@ typedef struct proxy_server_s
 */
 
 // Function to initialize device manager from server configuration
-static int init_device_manager_from_config(uint16_t device_control_port)
+static int init_device_manager_from_config(uint16_t device_control_port, const char* cert_file, const char* key_file)
 {
     // Check if device management should be enabled
     // This could be based on command line arguments or configuration
@@ -71,9 +71,20 @@ static int init_device_manager_from_config(uint16_t device_control_port)
     g_device_config.max_devices = 1001;
     g_device_config.enable_ssl = true;
     
-    // These should be loaded from configuration
-    strncpy(g_device_config.ssl_cert_file, "/path/to/cert.pem", sizeof(g_device_config.ssl_cert_file));
-    strncpy(g_device_config.ssl_key_file, "/path/to/key.pem", sizeof(g_device_config.ssl_key_file));
+    // Use provided certificate files or default paths
+    if (cert_file && cert_file[0] != '\0') {
+        strncpy(g_device_config.ssl_cert_file, cert_file, sizeof(g_device_config.ssl_cert_file));
+    } else {
+        // Default certificate path
+        strncpy(g_device_config.ssl_cert_file, "/root/net_port/server.crt", sizeof(g_device_config.ssl_cert_file));
+    }
+    
+    if (key_file && key_file[0] != '\0') {
+        strncpy(g_device_config.ssl_key_file, key_file, sizeof(g_device_config.ssl_key_file));
+    } else {
+        // Default key path
+        strncpy(g_device_config.ssl_key_file, "/root/net_port/server.key", sizeof(g_device_config.ssl_key_file));
+    }
     
     // Database configuration (should match main server config)
     strncpy(g_device_config.db_host, "127.0.0.1", sizeof(g_device_config.db_host));
@@ -88,7 +99,8 @@ static int init_device_manager_from_config(uint16_t device_control_port)
     }
     
     g_device_manager_enabled = true;
-    logMsg(LOG_INFO, "Device manager initialized\n");
+    logMsg(LOG_INFO, "Device manager initialized with SSL cert: %s, key: %s\n",
+           g_device_config.ssl_cert_file, g_device_config.ssl_key_file);
     
     return 0;
 }
@@ -106,7 +118,7 @@ int servers_init_with_device_management(uint32_t user_id, const char* cert_file,
     
     // Initialize device manager if not already initialized
     if (!g_device_manager_enabled) {
-        if (init_device_manager_from_config(device_control_port) != 0) {
+        if (init_device_manager_from_config(device_control_port, cert_file, key_file) != 0) {
             logMsg(LOG_WARNING, "Device manager initialization failed, continuing without device management\n");
         }
     }
