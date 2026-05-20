@@ -210,7 +210,7 @@ exports.Devices = class Devices extends Service {
     };
     
     // Insert device
-    await this.Model.insert(deviceData);
+    await this.Model('devices').insert(deviceData);
     
     // Return device with auth token (only shown once)
     return {
