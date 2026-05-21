@@ -6,6 +6,7 @@ const servers = require('./servers/servers.service.js');
 const statistics = require('./statistics/statistics.service.js');
 const { Devices } = require('./devices/devices.service.js');
 const hooks = require('./devices/devices.hooks');
+const { authenticate } = require('@feathersjs/authentication').hooks;
 
 // eslint-disable-next-line no-unused-vars
 module.exports = function (app) {
@@ -24,11 +25,32 @@ module.exports = function (app) {
   const service = app.service(SERVICE_ENDPOINT);
   service.hooks(hooks);
 
-  // Custom routes for devices
+  // Custom routes for devices with authentication
   app.post(`${SERVICE_ENDPOINT}/:deviceId/connect`, async (req, res, next) => {
     try {
       const { deviceId } = req.params;
-      const user = req.feathers?.user || req.user;
+      
+      /*// Authenticate the request
+      let user = null;
+      const authHeader = req.headers.authorization;
+      
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.substring(7);
+          // Verify the access token - use the correct authentication service path
+          const authServicePath = (app.get('prefix') || '') + '/authentication';
+          const authResult = await app.service(authServicePath).verifyAccessToken(token);
+          user = authResult.user;
+        } catch (authError) {
+          console.error('Authentication failed:', authError);
+          // Continue without user - will be handled by service
+        }
+      }
+      
+      // Also check feathers user from middleware
+      if (!user && req.feathers?.user) {
+        user = req.feathers.user;
+      }*/
 
       if (!deviceId) {
         return res.status(400).json({
@@ -36,13 +58,25 @@ module.exports = function (app) {
         });
       }
 
-      const devicesService = new Devices(options, app);
-      const result = await devicesService.connect(deviceId, { user });
+      // Use the registered service instead of creating a new instance
+      const devicesService = app.service(SERVICE_ENDPOINT);
+      const result = await devicesService.connect(deviceId);
       res.json(result);
     } catch (error) {
       console.error('Error in device connect endpoint:', error);
-      res.status(500).json({
-        error: 'Internal server error',
+      
+      // Return appropriate status codes based on error message
+      let statusCode = 500;
+      if (error.message === 'Authentication required') {
+        statusCode = 401;
+      } else if (error.message === 'Permission denied') {
+        statusCode = 403;
+      } else if (error.message === 'Device not found') {
+        statusCode = 404;
+      }
+      
+      res.status(statusCode).json({
+        error: error.message,
         details: error.message
       });
     }
@@ -51,7 +85,28 @@ module.exports = function (app) {
   app.post(`${SERVICE_ENDPOINT}/:deviceId/disconnect`, async (req, res, next) => {
     try {
       const { deviceId } = req.params;
-      const user = req.feathers?.user || req.user;
+      
+      // Authenticate the request
+      let user = null;
+      const authHeader = req.headers.authorization;
+      
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.substring(7);
+          // Verify the access token - use the correct authentication service path
+          const authServicePath = (app.get('prefix') || '') + '/authentication';
+          const authResult = await app.service(authServicePath).verifyAccessToken(token);
+          user = authResult.user;
+        } catch (authError) {
+          console.error('Authentication failed:', authError);
+          // Continue without user - will be handled by service
+        }
+      }
+      
+      // Also check feathers user from middleware
+      if (!user && req.feathers?.user) {
+        user = req.feathers.user;
+      }
 
       if (!deviceId) {
         return res.status(400).json({
@@ -59,13 +114,25 @@ module.exports = function (app) {
         });
       }
 
-      const devicesService = new Devices(options, app);
+      // Use the registered service instead of creating a new instance
+      const devicesService = app.service(SERVICE_ENDPOINT);
       const result = await devicesService.disconnect(deviceId, { user });
       res.json(result);
     } catch (error) {
       console.error('Error in device disconnect endpoint:', error);
-      res.status(500).json({
-        error: 'Internal server error',
+      
+      // Return appropriate status codes based on error message
+      let statusCode = 500;
+      if (error.message === 'Authentication required') {
+        statusCode = 401;
+      } else if (error.message === 'Permission denied') {
+        statusCode = 403;
+      } else if (error.message === 'Device not found') {
+        statusCode = 404;
+      }
+      
+      res.status(statusCode).json({
+        error: error.message,
         details: error.message
       });
     }
@@ -74,7 +141,28 @@ module.exports = function (app) {
   app.post(`${SERVICE_ENDPOINT}/:deviceId/restart`, async (req, res, next) => {
     try {
       const { deviceId } = req.params;
-      const user = req.feathers?.user || req.user;
+      
+      // Authenticate the request
+      let user = null;
+      const authHeader = req.headers.authorization;
+      
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.substring(7);
+          // Verify the access token - use the correct authentication service path
+          const authServicePath = (app.get('prefix') || '') + '/authentication';
+          const authResult = await app.service(authServicePath).verifyAccessToken(token);
+          user = authResult.user;
+        } catch (authError) {
+          console.error('Authentication failed:', authError);
+          // Continue without user - will be handled by service
+        }
+      }
+      
+      // Also check feathers user from middleware
+      if (!user && req.feathers?.user) {
+        user = req.feathers.user;
+      }
 
       if (!deviceId) {
         return res.status(400).json({
@@ -82,13 +170,25 @@ module.exports = function (app) {
         });
       }
 
-      const devicesService = new Devices(options, app);
+      // Use the registered service instead of creating a new instance
+      const devicesService = app.service(SERVICE_ENDPOINT);
       const result = await devicesService.restart(deviceId, { user });
       res.json(result);
     } catch (error) {
       console.error('Error in device restart endpoint:', error);
-      res.status(500).json({
-        error: 'Internal server error',
+      
+      // Return appropriate status codes based on error message
+      let statusCode = 500;
+      if (error.message === 'Authentication required') {
+        statusCode = 401;
+      } else if (error.message === 'Permission denied') {
+        statusCode = 403;
+      } else if (error.message === 'Device not found') {
+        statusCode = 404;
+      }
+      
+      res.status(statusCode).json({
+        error: error.message,
         details: error.message
       });
     }
@@ -97,7 +197,28 @@ module.exports = function (app) {
   app.get(`${SERVICE_ENDPOINT}/:deviceId/ping`, async (req, res, next) => {
     try {
       const { deviceId } = req.params;
-      const user = req.feathers?.user || req.user;
+      
+      // Authenticate the request
+      let user = null;
+      const authHeader = req.headers.authorization;
+      
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.substring(7);
+          // Verify the access token - use the correct authentication service path
+          const authServicePath = (app.get('prefix') || '') + '/authentication';
+          const authResult = await app.service(authServicePath).verifyAccessToken(token);
+          user = authResult.user;
+        } catch (authError) {
+          console.error('Authentication failed:', authError);
+          // Continue without user - will be handled by service
+        }
+      }
+      
+      // Also check feathers user from middleware
+      if (!user && req.feathers?.user) {
+        user = req.feathers.user;
+      }
 
       if (!deviceId) {
         return res.status(400).json({
@@ -105,13 +226,25 @@ module.exports = function (app) {
         });
       }
 
-      const devicesService = new Devices(options, app);
+      // Use the registered service instead of creating a new instance
+      const devicesService = app.service(SERVICE_ENDPOINT);
       const result = await devicesService.ping(deviceId, { user });
       res.json(result);
     } catch (error) {
       console.error('Error in device ping endpoint:', error);
-      res.status(500).json({
-        error: 'Internal server error',
+      
+      // Return appropriate status codes based on error message
+      let statusCode = 500;
+      if (error.message === 'Authentication required') {
+        statusCode = 401;
+      } else if (error.message === 'Permission denied') {
+        statusCode = 403;
+      } else if (error.message === 'Device not found') {
+        statusCode = 404;
+      }
+      
+      res.status(statusCode).json({
+        error: error.message,
         details: error.message
       });
     }

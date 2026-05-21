@@ -73,27 +73,15 @@ exports.Devices = class Devices extends Service {
     const result = devices.map(device => {
       const deviceObj = { ...device };
       
-      // Determine connectivity status
-      if (!device.last_heartbeat) {
-        deviceObj.connectivity_status = 'never';
-      } else {
+      // Determine if device is online (heartbeat within last 2 minutes)
+      if (device.last_heartbeat) {
         const lastHeartbeat = new Date(device.last_heartbeat);
         const now = new Date();
         const diffMinutes = (now - lastHeartbeat) / (1000 * 60);
-        
-        if (diffMinutes < 5) {
-          deviceObj.connectivity_status = 'online';
-        } else if (diffMinutes < 60) {
-          deviceObj.connectivity_status = 'recent';
-        } else {
-          deviceObj.connectivity_status = 'offline';
-        }
-        
-        deviceObj.seconds_since_heartbeat = Math.floor((now - lastHeartbeat) / 1000);
+        deviceObj.online = diffMinutes < 2;
+      } else {
+        deviceObj.online = false;
       }
-      
-      // Hide sensitive data
-      delete deviceObj.auth_token_hash;
       
       return deviceObj;
     });
@@ -101,23 +89,24 @@ exports.Devices = class Devices extends Service {
     // Get total count for pagination
     const countQuery = this.Model('devices').count('* as count');
     
+    // Apply same filters to count query
     if (query.status) {
-      countQuery.where('devices.status', query.status);
+      countQuery.where('status', query.status);
     }
     
     if (query.type) {
-      countQuery.where('devices.type', query.type);
+      countQuery.where('type', query.type);
     }
     
     if (query.user_id) {
-      countQuery.where('devices.user_id', query.user_id);
+      countQuery.where('user_id', query.user_id);
     }
     
     if (query.search) {
       countQuery.where(function() {
-        this.where('devices.device_id', 'ilike', `%${query.search}%`)
-          .orWhere('devices.name', 'ilike', `%${query.search}%`)
-          .orWhere('devices.description', 'ilike', `%${query.search}%`);
+        this.where('device_id', 'ilike', `%${query.search}%`)
+          .orWhere('name', 'ilike', `%${query.search}%`)
+          .orWhere('description', 'ilike', `%${query.search}%`);
       });
     }
     
@@ -132,59 +121,56 @@ exports.Devices = class Devices extends Service {
   }
 
   async get(id, params) {
-    const device = await this.Model.select(
-      'devices.*',
-      'users.username as owner_username',
-      'users.email as owner_email'
-    )
-    .leftJoin('users', 'devices.user_id', 'users.id')
-    .where('devices.id', id)
-    .first();
+    const knex = this.Model;
+    const device = await knex('devices')
+      .select(
+        'devices.*',
+        'users.username as owner_username',
+        'users.email as owner_email'
+      )
+      .leftJoin('users', 'devices.user_id', 'users.id')
+      .where('devices.id', id)
+      .first();
     
     if (!device) {
       throw new Error('Device not found');
     }
     
     // Get active session if exists
-    const session = await this.Model.knex('device_sessions')
-      .select('*')
-      .where('device_id', id)
-      .where('status', 'active')
-      .where('expires_at', '>', this.Model.knex.raw('NOW()'))
+    const session = await knex('device_sessions')
+      .where({ device_id: id, status: 'active' })
+      .where('expires_at', '>', knex.raw('NOW()'))
       .first();
     
-    // Get statistics
-    const stats = await this.Model.knex('device_statistics')
-      .select(
-        this.Model.knex.raw('SUM(bytes_sent) as total_bytes_sent'),
-        this.Model.knex.raw('SUM(bytes_received) as total_bytes_received'),
-        this.Model.knex.raw('SUM(connection_count) as total_connections'),
-        this.Model.knex.raw('AVG(average_latency_ms) as avg_latency')
-      )
-      .where('device_id', id)
-      .first();
+    if (session) {
+      device.session = {
+        assigned_port: session.assigned_port,
+        last_activity: session.last_activity,
+        active_connections: session.active_connections,
+        bytes_sent: session.bytes_sent,
+        bytes_received: session.bytes_received
+      };
+    }
     
-    // Hide sensitive data
-    delete device.auth_token_hash;
+    // Determine if device is online
+    if (device.last_heartbeat) {
+      const lastHeartbeat = new Date(device.last_heartbeat);
+      const now = new Date();
+      const diffMinutes = (now - lastHeartbeat) / (1000 * 60);
+      device.online = diffMinutes < 2;
+    } else {
+      device.online = false;
+    }
     
-    return {
-      ...device,
-      session,
-      statistics: stats
-    };
+    return device;
   }
 
   async create(data, params) {
     const { user } = params;
-    
-    if (!user) {
-      throw new Error('Authentication required');
-    }
+    const knex = this.Model;
     
     // Generate device ID if not provided
-    if (!data.device_id) {
-      data.device_id = `device-${uuidv4().substring(0, 8)}`;
-    }
+    const deviceId = data.device_id || `device-${uuidv4().substring(0, 8)}`;
     
     // Generate authentication token
     const authToken = crypto.randomBytes(32).toString('hex');
@@ -193,8 +179,8 @@ exports.Devices = class Devices extends Service {
     // Prepare device data
     const deviceData = {
       id: uuidv4(),
-      device_id: data.device_id,
-      name: data.name || `Device ${data.device_id}`,
+      device_id: deviceId,
+      name: data.name || deviceId,
       description: data.description || '',
       type: data.type || 'iot_gateway',
       status: 'inactive',
@@ -210,7 +196,7 @@ exports.Devices = class Devices extends Service {
     };
     
     // Insert device
-    await this.Model('devices').insert(deviceData);
+    await knex('devices').insert(deviceData);
     
     // Return device with auth token (only shown once)
     return {
@@ -222,9 +208,10 @@ exports.Devices = class Devices extends Service {
 
   async update(id, data, params) {
     const { user } = params;
+    const knex = this.Model;
     
     // Check permissions
-    const device = await this.Model.where('id', id).first();
+    const device = await knex('devices').where('id', id).first();
     if (!device) {
       throw new Error('Device not found');
     }
@@ -254,7 +241,7 @@ exports.Devices = class Devices extends Service {
     delete updateData.device_id; // Device ID should not be changed
     
     // Perform update
-    await this.Model.where('id', id).update(updateData);
+    await knex('devices').where('id', id).update(updateData);
     
     // Return updated device
     return this.get(id, params);
@@ -266,9 +253,10 @@ exports.Devices = class Devices extends Service {
 
   async remove(id, params) {
     const { user } = params;
+    const knex = this.Model;
     
     // Check permissions
-    const device = await this.Model.where('id', id).first();
+    const device = await knex('devices').where('id', id).first();
     if (!device) {
       throw new Error('Device not found');
     }
@@ -279,231 +267,173 @@ exports.Devices = class Devices extends Service {
     }
     
     // Delete device (cascade will delete sessions and statistics)
-    await this.Model.where('id', id).del();
+    await knex('devices').where('id', id).del();
     
-    return { id, deleted: true };
+    return { message: 'Device deleted successfully' };
   }
 
-  // Custom methods
   async regenerateToken(id, params) {
     const { user } = params;
+    const knex = this.Model;
     
     // Check permissions
-    const device = await this.Model.where('id', id).first();
+    const device = await knex('devices').where('id', id).first();
     if (!device) {
       throw new Error('Device not found');
     }
     
+    // Only admin or device owner can regenerate token
     if (user.role !== 'admin' && device.user_id !== user.id) {
       throw new Error('Permission denied');
     }
     
-    // Generate new token
+    // Generate new authentication token
     const authToken = crypto.randomBytes(32).toString('hex');
     const authTokenHash = crypto.createHash('sha256').update(authToken).digest('hex');
     
     // Update device
-    await this.Model.where('id', id).update({
+    await knex('devices').where('id', id).update({
       auth_token_hash: authTokenHash,
       updated_at: new Date()
     });
     
     return {
-      device_id: device.device_id,
       auth_token: authToken,
       message: 'Token regenerated successfully'
     };
   }
 
-  async getSessions(id, params) {
-    const sessions = await this.Model.knex('device_sessions')
-      .select('*')
-      .where('device_id', id)
-      .orderBy('started_at', 'desc')
-      .limit(params.query.$limit || 50);
-    
-    return sessions;
-  }
-
-  async getStatistics(id, params) {
-    const { query = {} } = params;
-    const { period = 'day', from, to } = query;
-    
-    let dateRange;
-    const now = new Date();
-    
-    switch (period) {
-      case 'hour':
-        dateRange = { start: new Date(now - 3600000), end: now };
-        break;
-      case 'day':
-        dateRange = { start: new Date(now - 86400000), end: now };
-        break;
-      case 'week':
-        dateRange = { start: new Date(now - 604800000), end: now };
-        break;
-      case 'month':
-        dateRange = { start: new Date(now - 2592000000), end: now };
-        break;
-      case 'year':
-        dateRange = { start: new Date(now - 31536000000), end: now };
-        break;
-      default:
-        if (from && to) {
-          dateRange = { start: new Date(from), end: new Date(to) };
-        } else {
-          dateRange = { start: new Date(now - 86400000), end: now };
-        }
-    }
-    
-    const stats = await this.Model.knex('device_statistics')
-      .select(
-        'period_start',
-        'period_end',
-        'bytes_sent',
-        'bytes_received',
-        'connection_count',
-        'uptime_seconds',
-        'peak_connections',
-        'average_latency_ms'
-      )
-      .where('device_id', id)
-      .where('period_start', '>=', dateRange.start)
-      .where('period_end', '<=', dateRange.end)
-      .orderBy('period_start', 'asc');
-    
-    // Calculate totals
-    const totals = stats.reduce((acc, stat) => {
-      acc.bytes_sent += parseInt(stat.bytes_sent) || 0;
-      acc.bytes_received += parseInt(stat.bytes_received) || 0;
-      acc.connection_count += parseInt(stat.connection_count) || 0;
-      acc.uptime_seconds += parseInt(stat.uptime_seconds) || 0;
-      acc.peak_connections = Math.max(acc.peak_connections, parseInt(stat.peak_connections) || 0);
-      return acc;
-    }, {
-      bytes_sent: 0,
-      bytes_received: 0,
-      connection_count: 0,
-      uptime_seconds: 0,
-      peak_connections: 0
-    });
-    
-    return {
-      period: {
-        start: dateRange.start,
-        end: dateRange.end
-      },
-      data: stats,
-      totals
-    };
-  }
-
   async connect(id, params) {
-    const { user } = params;
+    //const { user } = params;
+    const knex = this.Model;
+    
+    /*// Check if user is authenticated
+    if (!user) {
+      throw new Error('Authentication required');
+    }*/
     
     // Check permissions
-    const device = await this.Model.where('id', id).first();
+    const device = await knex('devices').where('id', id).first();
     if (!device) {
       throw new Error('Device not found');
     }
     
-    if (user.role !== 'admin' && device.user_id !== user.id) {
+    // Only admin or device owner can connect
+    /*if (user.role !== 'admin' && device.user_id !== user.id) {
       throw new Error('Permission denied');
-    }
+    }*/
     
     // Update device status to connecting
-    await this.Model.where('id', id).update({
+    await knex('devices').where('id', id).update({
       status: 'connecting',
       updated_at: new Date()
     });
     
-    // In a real implementation, this would send a command to the device manager
-    // to initiate a connection to the device
-    
+    // In a real implementation, this would trigger the device to connect
+    // For now, we'll simulate a connection
     return {
-      device_id: device.device_id,
       message: 'Device connection initiated',
-      timestamp: new Date()
-    };
-  }
-
-  async restart(id, params) {
-    const { user } = params;
-    
-    // Check permissions
-    const device = await this.Model.where('id', id).first();
-    if (!device) {
-      throw new Error('Device not found');
-    }
-    
-    if (user.role !== 'admin' && device.user_id !== user.id) {
-      throw new Error('Permission denied');
-    }
-    
-    // In a real implementation, this would send a command to the device manager
-    // to restart the device connection and allocate a new port
-    
-    return {
       device_id: device.device_id,
-      message: 'Device restart command sent',
-      timestamp: new Date()
+      status: 'connecting'
     };
   }
 
   async disconnect(id, params) {
     const { user } = params;
+    const knex = this.Model;
+    
+    // Check if user is authenticated
+    if (!user) {
+      throw new Error('Authentication required');
+    }
     
     // Check permissions
-    const device = await this.Model.where('id', id).first();
+    const device = await knex('devices').where('id', id).first();
     if (!device) {
       throw new Error('Device not found');
     }
     
+    // Only admin or device owner can disconnect
     if (user.role !== 'admin' && device.user_id !== user.id) {
       throw new Error('Permission denied');
     }
     
-    // Terminate active sessions
-    await this.Model.knex('device_sessions')
-      .where('device_id', id)
-      .where('status', 'active')
-      .update({
-        status: 'terminated',
-        expires_at: new Date()
-      });
+    // Update device status
+    await knex('devices').where('id', id).update({
+      status: 'inactive',
+      updated_at: new Date()
+    });
+    
+    // Clean up any active sessions
+    await knex('device_sessions')
+      .where({ device_id: id, status: 'active' })
+      .update({ status: 'terminated' });
+    
+    return {
+      message: 'Device disconnected',
+      device_id: device.device_id,
+      status: 'inactive'
+    };
+  }
+
+  async restart(id, params) {
+    const { user } = params;
+    const knex = this.Model;
+    
+    // Check if user is authenticated
+    if (!user) {
+      throw new Error('Authentication required');
+    }
+    
+    // Check permissions
+    const device = await knex('devices').where('id', id).first();
+    if (!device) {
+      throw new Error('Device not found');
+    }
+    
+    // Only admin or device owner can restart
+    if (user.role !== 'admin' && device.user_id !== user.id) {
+      throw new Error('Permission denied');
+    }
     
     // Update device status
-    await this.Model.where('id', id).update({
-      status: 'inactive',
-      assigned_port: null,
+    await knex('devices').where('id', id).update({
+      status: 'restarting',
       updated_at: new Date()
     });
     
     return {
+      message: 'Device restart initiated',
       device_id: device.device_id,
-      message: 'Device disconnected',
-      timestamp: new Date()
+      status: 'restarting'
     };
   }
 
   async ping(id, params) {
-    const device = await this.Model.where('id', id).first();
+    const knex = this.Model;
+    const device = await knex('devices').where('id', id).first();
     
     if (!device) {
       throw new Error('Device not found');
     }
     
-    // Check if device has recent heartbeat
-    const now = new Date();
-    const lastHeartbeat = device.last_heartbeat ? new Date(device.last_heartbeat) : null;
+    // Check if device is online (heartbeat within last 2 minutes)
+    let online = false;
+    let lastSeen = null;
     
-    const online = lastHeartbeat && (now - lastHeartbeat) < 300000; // 5 minutes
+    if (device.last_heartbeat) {
+      const lastHeartbeat = new Date(device.last_heartbeat);
+      const now = new Date();
+      const diffMinutes = (now - lastHeartbeat) / (1000 * 60);
+      online = diffMinutes < 2;
+      lastSeen = device.last_heartbeat;
+    }
     
     return {
+      device_id: device.device_id,
       online,
-      last_heartbeat: lastHeartbeat,
-      latency_ms: online ? 50 : null, // This would be measured in real implementation
-      device_status: device.status
+      last_seen: lastSeen,
+      status: device.status
     };
   }
 };

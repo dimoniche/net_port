@@ -13,7 +13,7 @@ CREATE TABLE devices (
     name VARCHAR(255),
     description TEXT,
     type VARCHAR(50) DEFAULT 'iot_gateway',
-    status VARCHAR(20) DEFAULT 'inactive' CHECK (status IN ('active', 'inactive', 'pending', 'blocked')),
+    status VARCHAR(20) DEFAULT 'inactive' CHECK (status IN ('active', 'inactive', 'pending', 'blocked', 'connecting', 'restarting', 'error')),
     auth_token_hash VARCHAR(255) NOT NULL,
     assigned_port INTEGER,
     internal_address VARCHAR(45),

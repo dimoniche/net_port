@@ -59,7 +59,8 @@ const DeviceSettingsEdit = ({ children, ...rest }) => {
             if (response_error) return;
             if (abortController.signal.aborted) return;
 
-            setDeviceData(device);
+            setDeviceData(device.data);
+            console.log(device);
         }
 
         fetchData(abortController);
