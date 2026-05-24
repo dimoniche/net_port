@@ -1,5 +1,5 @@
 import React, { useState, useContext, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import isEmpty from "lodash/isEmpty";
 import { useCookies } from "react-cookie";
 
@@ -26,6 +26,8 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Switch from "@mui/material/Switch";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 
@@ -46,6 +48,8 @@ const Devices = ({ children, ...rest }) => {
     const [isLoaded, setIsLoaded] = useState(false);
     const [devicesData, setDevicesData] = useState([]);
     const history = useNavigate();
+    const location = useLocation();
+    const [tokenNotice, setTokenNotice] = useState(null);
 
     // Filter states
     const [deviceIdFilter, setDeviceIdFilter] = useState("");
@@ -106,6 +110,16 @@ const Devices = ({ children, ...rest }) => {
             setIsLoaded(true);
         }
     };
+
+    useEffect(() => {
+        if (location.state?.authToken && location.state?.newDevice) {
+            setTokenNotice({
+                deviceId: location.state.newDevice,
+                token: location.state.authToken,
+            });
+            history(location.pathname, { replace: true, state: {} });
+        }
+    }, [location.state, location.pathname, history]);
 
     useEffect(() => {
         const abortController = new AbortController();
@@ -216,6 +230,15 @@ const Devices = ({ children, ...rest }) => {
     return (
         <Grid container spacing={3}>
             <Grid item xs={12}>
+                {tokenNotice && (
+                    <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setTokenNotice(null)}>
+                        <AlertTitle>Токен устройства {tokenNotice.deviceId}</AlertTitle>
+                        Сохраните токен — он показывается один раз: <strong>{tokenNotice.token}</strong>
+                        <Box sx={{ mt: 1, fontFamily: "monospace", fontSize: "0.85rem" }}>
+                            {`./module_net_port_client --device-id ${tokenNotice.deviceId} --device-token ${tokenNotice.token} --registration-server SERVER_IP --registration-port 8443 --host_out 127.0.0.1 -p_out 22`}
+                        </Box>
+                    </Alert>
+                )}
                 <Box display="flex" justifyContent="space-between" alignItems="center">
                     <Typography variant="h4">Устройства</Typography>
                     <Box>
@@ -366,6 +389,9 @@ const Devices = ({ children, ...rest }) => {
                                                 color={getStatusColor(device.status)}
                                                 size="small"
                                             />
+                                            {device.online && (
+                                                <Chip label="online" color="success" size="small" sx={{ ml: 1 }} />
+                                            )}
                                         </TableCell>
                                         <TableCell>
                                             {device.assigned_port || device.session_port || "Не назначен"}
@@ -395,8 +421,11 @@ const Devices = ({ children, ...rest }) => {
                                                         size="small"
                                                         startIcon={<PowerSettingsNewIcon />}
                                                         onClick={() => handleConnectDevice(device.id)}
+                                                        disabled={device.status === "pending" && !device.auth_token}
                                                     >
-                                                        Подключить
+                                                        {device.status === "inactive" || device.status === "pending"
+                                                            ? "Разрешить"
+                                                            : "Подключить"}
                                                     </Button>
                                                 )}
                                                 <Tooltip title="Редактировать">

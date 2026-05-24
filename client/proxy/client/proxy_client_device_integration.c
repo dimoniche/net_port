@@ -55,8 +55,8 @@ int device_registration_init(const char *device_id, const char *auth_token,
     g_heartbeat_config.heartbeat_timeout = 90;
     g_heartbeat_config.connection_timeout = 10;
     g_heartbeat_config.max_failures = 3;
-    g_heartbeat_config.enable_ssl = true;
-    g_heartbeat_config.ssl_ctx = NULL; // Will be set later
+    g_heartbeat_config.enable_ssl = false;
+    g_heartbeat_config.ssl_ctx = NULL;
     
     g_device_registration_enabled = true;
     
@@ -79,7 +79,6 @@ int device_register_with_server(void)
     logMsg(LOG_INFO, "Registering device %s with server...\n", g_device_state.device_id);
     
     int sock = -1;
-    SSL *ssl = NULL;
     int result = -1;
     
     // Create socket
@@ -112,32 +111,6 @@ int device_register_with_server(void)
         return -1;
     }
     
-    // Setup SSL
-    SSL_CTX *ssl_ctx = create_client_ssl_context(NULL); // Use default CA
-    if (!ssl_ctx) {
-        logMsg(LOG_ERR, "Failed to create SSL context\n");
-        close(sock);
-        return -1;
-    }
-    
-    ssl = SSL_new(ssl_ctx);
-    if (!ssl) {
-        logMsg(LOG_ERR, "Failed to create SSL object\n");
-        SSL_CTX_free(ssl_ctx);
-        close(sock);
-        return -1;
-    }
-    
-    SSL_set_fd(ssl, sock);
-    
-    if (SSL_connect(ssl) != 1) {
-        logMsg(LOG_ERR, "SSL connection failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
-        SSL_free(ssl);
-        SSL_CTX_free(ssl_ctx);
-        close(sock);
-        return -1;
-    }
-    
     // Build registration request
     json_t *request = json_object();
     json_object_set_new(request, "action", json_string("register"));
@@ -164,34 +137,28 @@ int device_register_with_server(void)
     
     if (!json_str) {
         logMsg(LOG_ERR, "Failed to serialize registration request\n");
-        SSL_free(ssl);
-        SSL_CTX_free(ssl_ctx);
         close(sock);
         return -1;
     }
     
     // Send request
     size_t len = strlen(json_str);
-    ssize_t sent = SSL_write(ssl, json_str, len);
+    ssize_t sent = send(sock, json_str, len, 0);
     
     free(json_str);
     
     if (sent != (ssize_t)len) {
         logMsg(LOG_ERR, "Failed to send registration request\n");
-        SSL_free(ssl);
-        SSL_CTX_free(ssl_ctx);
         close(sock);
         return -1;
     }
     
     // Receive response
     char buffer[4096];
-    ssize_t received = SSL_read(ssl, buffer, sizeof(buffer) - 1);
+    ssize_t received = recv(sock, buffer, sizeof(buffer) - 1, 0);
     
     if (received <= 0) {
         logMsg(LOG_ERR, "No response from registration server\n");
-        SSL_free(ssl);
-        SSL_CTX_free(ssl_ctx);
         close(sock);
         return -1;
     }
@@ -204,8 +171,6 @@ int device_register_with_server(void)
     
     if (!response) {
         logMsg(LOG_ERR, "Failed to parse registration response: %s\n", error.text);
-        SSL_free(ssl);
-        SSL_CTX_free(ssl_ctx);
         close(sock);
         return -1;
     }
@@ -215,8 +180,6 @@ int device_register_with_server(void)
     if (!json_is_string(status_obj)) {
         logMsg(LOG_ERR, "Invalid registration response format\n");
         json_decref(response);
-        SSL_free(ssl);
-        SSL_CTX_free(ssl_ctx);
         close(sock);
         return -1;
     }
@@ -226,30 +189,36 @@ int device_register_with_server(void)
     if (strcmp(status, "authenticated") == 0) {
         // Registration successful
         json_t *port_obj = json_object_get(response, "assigned_port");
+        json_t *tunnel_obj = json_object_get(response, "tunnel_port");
         json_t *token_obj = json_object_get(response, "session_token");
         json_t *interval_obj = json_object_get(response, "heartbeat_interval");
         
         if (json_is_integer(port_obj) && json_is_string(token_obj)) {
-            g_device_state.assigned_port = json_integer_value(port_obj);
+            g_device_state.assigned_port = (uint16_t)json_integer_value(port_obj);
+            if (json_is_integer(tunnel_obj)) {
+                g_device_state.tunnel_port = (uint16_t)json_integer_value(tunnel_obj);
+            } else {
+                g_device_state.tunnel_port = (uint16_t)(g_device_state.assigned_port + 1);
+            }
             strncpy(g_device_state.session_token, json_string_value(token_obj), SESSION_TOKEN_MAX_LEN);
             
             if (json_is_integer(interval_obj)) {
-                g_device_state.heartbeat_interval = json_integer_value(interval_obj);
+                g_device_state.heartbeat_interval = (uint32_t)json_integer_value(interval_obj);
             }
             
             g_device_state.status = DEVICE_STATUS_REGISTERED;
             g_device_state.registered_at = time(NULL);
             
-            // Update heartbeat configuration
             strncpy(g_heartbeat_config.session_token, g_device_state.session_token, SESSION_TOKEN_MAX_LEN);
             g_heartbeat_config.assigned_port = g_device_state.assigned_port;
             g_heartbeat_config.heartbeat_interval = g_device_state.heartbeat_interval;
-            g_heartbeat_config.ssl_ctx = ssl_ctx; // Reuse SSL context
+            g_heartbeat_config.enable_ssl = false;
             
             result = 0;
             
             logMsg(LOG_INFO, "Device registered successfully\n");
-            logMsg(LOG_INFO, "  Assigned port: %d\n", g_device_state.assigned_port);
+            logMsg(LOG_INFO, "  External port: %d\n", g_device_state.assigned_port);
+            logMsg(LOG_INFO, "  Tunnel port: %d\n", g_device_state.tunnel_port);
             logMsg(LOG_INFO, "  Heartbeat interval: %d seconds\n", g_device_state.heartbeat_interval);
         } else {
             logMsg(LOG_ERR, "Missing required fields in registration response\n");
@@ -262,10 +231,6 @@ int device_register_with_server(void)
     }
     
     json_decref(response);
-    
-    // Cleanup (keep SSL context for heartbeat)
-    SSL_shutdown(ssl);
-    SSL_free(ssl);
     close(sock);
     
     return result;
@@ -337,25 +302,24 @@ int main_with_device_registration(int argc, char** argv)
             return -1;
         }
         
-        // Update proxy client settings with assigned port
-        // This would modify the global threads_data structure
         proxy_server_thread_data_t *settings = get_client_settings();
         if (settings) {
-            // Set the server host and port to connect to
             strncpy(settings->input_address, registration_server, sizeof(settings->input_address) - 1);
-            settings->input_port = g_device_state.assigned_port;
+            settings->input_port = g_device_state.tunnel_port;
             
-            logMsg(LOG_INFO, "Configured to connect to server on port %d\n", g_device_state.assigned_port);
+            logMsg(LOG_INFO, "Configured proxy tunnel to %s:%d (external port %d)\n",
+                   registration_server, g_device_state.tunnel_port, g_device_state.assigned_port);
         }
         
-        // Start heartbeat
         if (start_device_heartbeat() != 0) {
             logMsg(LOG_WARNING, "Failed to start heartbeat, continuing without it\n");
         }
+        
+        return switcher_servers_start();
     }
     
-    // Start the proxy client
-    return switcher_servers_start();
+    logMsg(LOG_ERR, "Device registration mode requires --device-id, --device-token, --registration-server\n");
+    return -1;
 }
 
 /**
@@ -364,15 +328,7 @@ int main_with_device_registration(int argc, char** argv)
 void device_registration_cleanup(void)
 {
     if (g_device_registration_enabled) {
-        // Stop heartbeat
         heartbeat_manager_stop();
-        
-        // Cleanup SSL context
-        if (g_heartbeat_config.ssl_ctx) {
-            SSL_CTX_free(g_heartbeat_config.ssl_ctx);
-            g_heartbeat_config.ssl_ctx = NULL;
-        }
-        
         g_device_registration_enabled = false;
         g_device_state.status = DEVICE_STATUS_DISCONNECTED;
         
@@ -407,6 +363,11 @@ int reconnect_device(void)
     // Update heartbeat configuration with new session token
     strncpy(g_heartbeat_config.session_token, g_device_state.session_token, SESSION_TOKEN_MAX_LEN);
     g_heartbeat_config.assigned_port = g_device_state.assigned_port;
+    
+    proxy_server_thread_data_t *settings = get_client_settings();
+    if (settings && g_device_state.tunnel_port) {
+        settings->input_port = g_device_state.tunnel_port;
+    }
     
     // Restart heartbeat
     heartbeat_manager_stop();

@@ -183,7 +183,7 @@ exports.Devices = class Devices extends Service {
       name: data.name || deviceId,
       description: data.description || '',
       type: data.type || 'iot_gateway',
-      status: 'inactive',
+      status: 'pending',
       auth_token_hash: authTokenHash,
       internal_address: data.internal_address || '127.0.0.1',
       internal_port: data.internal_port || null,
@@ -304,37 +304,24 @@ exports.Devices = class Devices extends Service {
   }
 
   async connect(id, params) {
-    //const { user } = params;
     const knex = this.Model;
     
-    /*// Check if user is authenticated
-    if (!user) {
-      throw new Error('Authentication required');
-    }*/
-    
-    // Check permissions
     const device = await knex('devices').where('id', id).first();
     if (!device) {
       throw new Error('Device not found');
     }
     
-    // Only admin or device owner can connect
-    /*if (user.role !== 'admin' && device.user_id !== user.id) {
-      throw new Error('Permission denied');
-    }*/
-    
-    // Update device status to connecting
     await knex('devices').where('id', id).update({
-      status: 'connecting',
+      status: 'active',
       updated_at: new Date()
     });
     
-    // In a real implementation, this would trigger the device to connect
-    // For now, we'll simulate a connection
     return {
-      message: 'Device connection initiated',
+      message: 'Device enabled for connection. Start the client with device credentials.',
       device_id: device.device_id,
-      status: 'connecting'
+      status: 'active',
+      control_port: 8443,
+      port_range: '6000-7000'
     };
   }
 
@@ -361,13 +348,24 @@ exports.Devices = class Devices extends Service {
     // Update device status
     await knex('devices').where('id', id).update({
       status: 'inactive',
+      assigned_port: null,
       updated_at: new Date()
     });
     
-    // Clean up any active sessions
+    const sessions = await knex('device_sessions')
+      .where({ device_id: id, status: 'active' })
+      .select('assigned_port');
+    
     await knex('device_sessions')
       .where({ device_id: id, status: 'active' })
       .update({ status: 'terminated' });
+    
+    for (const session of sessions) {
+      if (session.assigned_port) {
+        await knex.raw('SELECT free_device_port(?)', [session.assigned_port]);
+        await knex.raw('SELECT free_device_port(?)', [session.assigned_port + 1]);
+      }
+    }
     
     return {
       message: 'Device disconnected',

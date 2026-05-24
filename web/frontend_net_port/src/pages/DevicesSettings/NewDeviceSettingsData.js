@@ -51,7 +51,19 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
         try {
             const response = await api.post("/devices", deviceData);
             if (response.status === 201) {
-                history("/devices");
+                const created = response.data;
+                if (created.auth_token) {
+                    sessionStorage.setItem(
+                        `device_token_${created.device_id}`,
+                        created.auth_token
+                    );
+                }
+                history("/devices", {
+                    state: {
+                        newDevice: created.device_id,
+                        authToken: created.auth_token,
+                    },
+                });
             } else {
                 setAddError(true);
                 setErrorMessage(response.data?.message || "Failed to create device");

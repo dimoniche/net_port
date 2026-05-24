@@ -5,6 +5,7 @@
 
 -- Enable UUID extension if not already enabled
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Table for IoT devices
 CREATE TABLE devices (
@@ -116,11 +117,10 @@ CREATE TABLE device_events (
     event_data JSONB,
     ip_address VARCHAR(45),
     user_agent TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Index for event querying
-    INDEX idx_device_events_device_id_event_type (device_id, event_type)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_device_events_device_id_event_type ON device_events(device_id, event_type);
 
 -- Table for device configuration templates
 CREATE TABLE device_templates (
@@ -287,14 +287,14 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     SELECT 
-        CASE WHEN d.auth_token_hash = crypt(p_auth_token, d.auth_token_hash) THEN TRUE ELSE FALSE END as valid,
+        (d.auth_token_hash = encode(digest(p_auth_token, 'sha256'), 'hex')) as valid,
         d.id as device_uuid,
         d.name as device_name,
         d.type as device_type,
         d.user_id
     FROM devices d
     WHERE d.device_id = p_device_id
-      AND d.status IN ('active', 'pending');
+      AND d.status IN ('active', 'pending', 'connecting');
 END;
 $$ LANGUAGE plpgsql;
 

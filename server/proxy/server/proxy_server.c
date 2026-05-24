@@ -13,6 +13,7 @@
 
 #include "db_func.h"
 #include "time_counter.h"
+#include "device_manager.h"
 
 // Глобальное определение переменной количества потоков
 int COUNT_SOCKET_THREAD = 25;
@@ -1609,4 +1610,112 @@ SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file) 
     }
 
     return ctx;
+}
+
+static int start_server_listening_threads(proxy_server_t *server)
+{
+    proxy_server_thread_data_t *connections_data;
+
+    connections_data = (proxy_server_thread_data_t *) malloc(sizeof(proxy_server_thread_data_t));
+    if (!connections_data) {
+        return -1;
+    }
+
+    memset(connections_data, 0, sizeof(proxy_server_thread_data_t));
+    connections_data->local_sockets = (proxy_server_local_socket_data_t *) malloc(
+        COUNT_SOCKET_THREAD * sizeof(proxy_server_local_socket_data_t));
+    if (!connections_data->local_sockets) {
+        free(connections_data);
+        return -1;
+    }
+
+    memset(connections_data->local_sockets, 0,
+           COUNT_SOCKET_THREAD * sizeof(proxy_server_local_socket_data_t));
+    memcpy(&connections_data->data, server, sizeof(proxy_server_t));
+    connections_data->data.ssl_ctx = server->ssl_ctx;
+
+    for (int i = 0; i < COUNT_SOCKET_THREAD; i++) {
+        connections_data->local_sockets[i].data = &connections_data->data;
+        connections_data->local_sockets[i].is_input_connected = false;
+        connections_data->local_sockets[i].is_output_connected = false;
+        connections_data->local_sockets[i].close_output_socket = false;
+    }
+
+    if (server->is_input_enabled) {
+        server_input_start(connections_data);
+        if (!server_input_is_running(server)) {
+            logMsg(LOG_ERR, "Failed to start input listener for dynamic server\n");
+            free(connections_data->local_sockets);
+            free(connections_data);
+            return -1;
+        }
+    }
+
+    if (server->is_output_enabled) {
+        server_output_start(connections_data);
+        if (!server_output_is_running(server)) {
+            logMsg(LOG_ERR, "Failed to start output listener for dynamic server\n");
+            free(connections_data->local_sockets);
+            free(connections_data);
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+int create_dynamic_server_for_device(const char *device_id, uint16_t input_port,
+                                     uint16_t tunnel_port, const device_info_t *device_info)
+{
+    (void)device_info;
+
+    if (!device_id || input_port == 0 || tunnel_port == 0) {
+        return -1;
+    }
+
+    proxy_server_t *new_servers = realloc(servers, (servers_count + 1) * sizeof(proxy_server_t));
+    if (!new_servers) {
+        logMsg(LOG_ERR, "Failed to allocate memory for dynamic server\n");
+        return -1;
+    }
+
+    servers = new_servers;
+    int index = servers_count;
+    servers_count++;
+
+    memset(&servers[index], 0, sizeof(proxy_server_t));
+    servers[index].id = (uint16_t)index;
+    servers[index].enable = true;
+    servers[index].input_port = input_port;
+    servers[index].output_port = tunnel_port;
+    servers[index].is_input_enabled = true;
+    servers[index].is_output_enabled = true;
+    servers[index].enable_output_ssl = false;
+    servers[index].enable_input_ssl = false;
+    servers[index].is_dynamic_port = true;
+    strncpy(servers[index].device_id, device_id, DEVICE_ID_MAX_LEN);
+    servers[index].device_id[DEVICE_ID_MAX_LEN] = '\0';
+    servers[index].statistics.last_update = time(NULL);
+
+    if (server_input_init(&servers[index]) < 0) {
+        servers[index].is_input_enabled = false;
+        logMsg(LOG_ERR, "Failed to init input socket for device %s on port %u\n",
+               device_id, input_port);
+        return -1;
+    }
+
+    if (server_output_init(&servers[index]) < 0) {
+        servers[index].is_output_enabled = false;
+        logMsg(LOG_ERR, "Failed to init output socket for device %s on port %u\n",
+               device_id, tunnel_port);
+        return -1;
+    }
+
+    if (start_server_listening_threads(&servers[index]) != 0) {
+        return -1;
+    }
+
+    logMsg(LOG_INFO, "Dynamic server started for device %s: input=%u tunnel=%u\n",
+           device_id, input_port, tunnel_port);
+    return index;
 }

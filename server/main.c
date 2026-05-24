@@ -296,6 +296,9 @@ int main(int argc, char** argv) {
         // Проверяем, не запрошено ли завершение работы
         if (is_stop_requested()) {
             logMsg(LOG_INFO, "Stopping server...");
+            if (enable_device_management) {
+                device_management_shutdown();
+            }
             switcher_servers_stop();
             logMsg(LOG_INFO, "Server stopped successfully");
             if (!no_db_mode) {

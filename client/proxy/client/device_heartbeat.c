@@ -521,14 +521,18 @@ int reconnect_to_server(void)
             
             if (json_is_string(session_token_obj) && json_is_integer(assigned_port_obj)) {
                 const char *new_session_token = json_string_value(session_token_obj);
-                uint16_t new_port = json_integer_value(assigned_port_obj);
+                uint16_t new_port = (uint16_t)json_integer_value(assigned_port_obj);
+                json_t *tunnel_obj = json_object_get(response, "tunnel_port");
+                uint16_t new_tunnel = json_is_integer(tunnel_obj)
+                    ? (uint16_t)json_integer_value(tunnel_obj)
+                    : (uint16_t)(new_port + 1);
                 
                 pthread_mutex_lock(&g_heartbeat_mutex);
                 strncpy(g_heartbeat_manager.config.session_token, new_session_token, SESSION_TOKEN_MAX_LEN);
                 g_heartbeat_manager.config.assigned_port = new_port;
                 pthread_mutex_unlock(&g_heartbeat_mutex);
                 
-                logMsg(LOG_INFO, "Reconnected successfully, new port: %d\n", new_port);
+                logMsg(LOG_INFO, "Reconnected successfully, tunnel port: %d\n", new_tunnel);
                 result = 0;
             }
         }

@@ -39,7 +39,10 @@ static void print_usage(void)
     fprintf(stderr, "         -e, --ssl         - enable SSL encryption for input connection\n");
     fprintf(stderr, "         -o, --ssl-output  - enable SSL encryption for output connection\n");
     fprintf(stderr, "         -a, --ca-file     - path to CA certificate file\n");
-    fprintf(stderr, "\n");
+    fprintf(stderr, "         --device-id           - enable device registration mode\n");
+    fprintf(stderr, "         --device-token        - device authentication token\n");
+    fprintf(stderr, "         --registration-server - device control server address\n");
+    fprintf(stderr, "         --registration-port   - device control server port (default 8443)\n");
     fprintf(stderr, "\nExamples:\n");
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --connections 5 --timeout 60\n", progname);
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --disable-timeout\n", progname);

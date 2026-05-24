@@ -31,6 +31,7 @@ typedef struct device_registration_state_s {
     char server_host[SERVER_HOST_MAX_LEN + 1];
     uint16_t server_port;
     uint16_t assigned_port;
+    uint16_t tunnel_port;
     device_registration_status_t status;
     char session_token[SESSION_TOKEN_MAX_LEN + 1];
     time_t registered_at;

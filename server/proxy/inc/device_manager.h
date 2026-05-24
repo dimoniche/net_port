@@ -67,6 +67,7 @@ typedef struct device_info_s {
     uint16_t assigned_port;
     char internal_address[IP_ADDR_MAX_LEN + 1];
     uint16_t internal_port;
+    uint16_t tunnel_port;
     char protocol[16];
     uint32_t capabilities;
     char metadata[METADATA_JSON_MAX_LEN + 1];

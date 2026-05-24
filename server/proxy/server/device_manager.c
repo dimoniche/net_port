@@ -22,6 +22,9 @@
 #include <openssl/err.h>
 #include <jansson.h>
 
+#include <openssl/sha.h>
+#include <ctype.h>
+
 // Global device manager state
 static device_manager_config_t g_config;
 static bool g_initialized = false;
@@ -39,7 +42,7 @@ static const device_manager_config_t DEFAULT_CONFIG = {
     .heartbeat_interval = 30,
     .session_timeout = 3600,
     .max_devices = 1001,
-    .enable_ssl = true,
+    .enable_ssl = false,
     .ssl_cert_file = "",
     .ssl_key_file = "",
     .db_host = "127.0.0.1",
@@ -48,6 +51,32 @@ static const device_manager_config_t DEFAULT_CONFIG = {
     .db_password = ""
 };
 
+static int sha256_hex(const char *input, char *output_hex, size_t output_len);
+static int register_device_session(const char *device_id, const char *client_ip,
+                                     char *session_token, size_t token_len,
+                                     uint16_t *input_port, uint16_t *tunnel_port);
+
+/**
+ * Compute SHA256 hex digest (matches web backend token hashing).
+ */
+static int sha256_hex(const char *input, char *output_hex, size_t output_len)
+{
+    unsigned char digest[SHA256_DIGEST_LENGTH];
+
+    if (!input || !output_hex || output_len < (SHA256_DIGEST_LENGTH * 2 + 1)) {
+        return -1;
+    }
+
+    if (!SHA256((const unsigned char *)input, strlen(input), digest)) {
+        return -1;
+    }
+
+    for (size_t i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        snprintf(output_hex + (i * 2), 3, "%02x", digest[i]);
+    }
+    output_hex[SHA256_DIGEST_LENGTH * 2] = '\0';
+    return 0;
+}
 // Forward declarations
 static void* control_server_thread(void *arg);
 static int handle_device_connection(int client_fd, struct sockaddr_in *client_addr);
@@ -303,12 +332,8 @@ json_t* process_registration_request(json_t *request)
 {
     json_t *response = json_object();
     
-    // Extract fields
     json_t *device_id_obj = json_object_get(request, "device_id");
     json_t *auth_token_obj = json_object_get(request, "auth_token");
-    json_t *version_obj = json_object_get(request, "version");
-    json_t *capabilities_obj = json_object_get(request, "capabilities");
-    json_t *metadata_obj = json_object_get(request, "metadata");
     
     if (!json_is_string(device_id_obj) || !json_is_string(auth_token_obj)) {
         json_object_set_new(response, "status", json_string("error"));
@@ -321,7 +346,6 @@ json_t* process_registration_request(json_t *request)
     
     logMsg(LOG_INFO, "Device registration request: %s\n", device_id);
     
-    // Authenticate device
     device_info_t device_info;
     if (device_authenticate(device_id, auth_token, &device_info) != 0) {
         json_object_set_new(response, "status", json_string("error"));
@@ -329,37 +353,32 @@ json_t* process_registration_request(json_t *request)
         return response;
     }
     
-    // Create session
-    device_session_t session;
-    if (device_create_session(device_id, &session) != 0) {
+    char session_token[SESSION_TOKEN_MAX_LEN + 1];
+    uint16_t input_port = 0;
+    uint16_t tunnel_port = 0;
+    
+    if (register_device_session(device_id, NULL, session_token, sizeof(session_token),
+                                &input_port, &tunnel_port) != 0) {
         json_object_set_new(response, "status", json_string("error"));
         json_object_set_new(response, "message", json_string("Failed to create session"));
         return response;
     }
     
-    // Allocate port
-    uint16_t assigned_port = allocate_port_for_device(device_id, session.session_token, 0);
-    if (assigned_port == 0) {
-        json_object_set_new(response, "status", json_string("error"));
-        json_object_set_new(response, "message", json_string("No ports available"));
-        return response;
+    device_info.tunnel_port = tunnel_port;
+    device_info.assigned_port = input_port;
+    
+    if (create_dynamic_server_for_device(device_id, input_port, tunnel_port, &device_info) < 0) {
+        logMsg(LOG_WARNING, "Failed to create dynamic server for device %s (input=%u tunnel=%u)\n",
+               device_id, input_port, tunnel_port);
     }
     
-    // Create dynamic proxy server for the device
-    if (create_dynamic_server_for_device(device_id, assigned_port, &device_info) < 0) {
-        logMsg(LOG_WARNING, "Failed to create dynamic server for device %s on port %d, but registration succeeded\n",
-               device_id, assigned_port);
-        // Continue anyway - device is registered but no proxy server
-    }
-    
-    // Build success response
     json_object_set_new(response, "status", json_string("authenticated"));
-    json_object_set_new(response, "assigned_port", json_integer(assigned_port));
-    json_object_set_new(response, "session_token", json_string(session.session_token));
+    json_object_set_new(response, "assigned_port", json_integer(input_port));
+    json_object_set_new(response, "tunnel_port", json_integer(tunnel_port));
+    json_object_set_new(response, "session_token", json_string(session_token));
     json_object_set_new(response, "heartbeat_interval", json_integer(g_config.heartbeat_interval));
     json_object_set_new(response, "server_time", json_integer(time(NULL)));
     
-    // Add device info if available
     if (device_info.internal_address[0] != '\0') {
         json_object_set_new(response, "internal_address", json_string(device_info.internal_address));
     }
@@ -367,7 +386,7 @@ json_t* process_registration_request(json_t *request)
         json_object_set_new(response, "internal_port", json_integer(device_info.internal_port));
     }
     
-    logMsg(LOG_INFO, "Device %s registered, assigned port %d\n", device_id, assigned_port);
+    logMsg(LOG_INFO, "Device %s registered: input=%u tunnel=%u\n", device_id, input_port, tunnel_port);
     
     return response;
 }
@@ -491,72 +510,180 @@ static int send_json_response(int client_fd, json_t *response)
  */
 int device_authenticate(const char *device_id, const char *auth_token, device_info_t *device_info)
 {
+    char token_hash[SHA256_DIGEST_LENGTH * 2 + 1];
+
+    if (!device_id || !auth_token) {
+        return -1;
+    }
+
+    if (sha256_hex(auth_token, token_hash, sizeof(token_hash)) != 0) {
+        return -1;
+    }
+
     pthread_mutex_lock(&g_db_mutex);
-    
+
     PGconn *conn = get_db_connection();
     if (!conn) {
         logMsg(LOG_ERR, "Failed to get database connection\n");
         pthread_mutex_unlock(&g_db_mutex);
         return -1;
     }
-    
-    // Call PostgreSQL function to validate device auth
-    char query[512];
-    snprintf(query, sizeof(query),
-             "SELECT * FROM validate_device_auth('%s', '%s')",
-             device_id, auth_token);
-    
-    PGresult *res = PQexec(conn, query);
+
+    const char *params[2] = { device_id, token_hash };
+    PGresult *res = PQexecParams(conn,
+        "SELECT id::text, name, type, user_id, internal_address, internal_port, status "
+        "FROM devices "
+        "WHERE device_id = $1 AND auth_token_hash = $2 "
+        "AND status IN ('active', 'pending', 'connecting')",
+        2, NULL, params, NULL, NULL, 0);
+
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
         logMsg(LOG_ERR, "Database query failed: %s\n", PQerrorMessage(conn));
         PQclear(res);
         pthread_mutex_unlock(&g_db_mutex);
         return -1;
     }
-    
-    // Check if authentication succeeded
+
     if (PQntuples(res) == 0) {
         logMsg(LOG_WARNING, "Authentication failed for device %s\n", device_id);
         PQclear(res);
         pthread_mutex_unlock(&g_db_mutex);
         return -1;
     }
-    
-    // Parse result
-    char *valid_str = PQgetvalue(res, 0, 0);
-    if (strcmp(valid_str, "t") != 0) {
-        logMsg(LOG_WARNING, "Invalid credentials for device %s\n", device_id);
-        PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
-        return -1;
-    }
-    
-    // Get device information
+
     if (device_info) {
         memset(device_info, 0, sizeof(*device_info));
         strncpy(device_info->device_id, device_id, DEVICE_ID_MAX_LEN);
-        
-        char *device_uuid = PQgetvalue(res, 0, 1);
-        char *device_name = PQgetvalue(res, 0, 2);
-        char *device_type = PQgetvalue(res, 0, 3);
-        char *user_id_str = PQgetvalue(res, 0, 4);
-        
+
+        char *device_name = PQgetvalue(res, 0, 1);
+        char *device_type = PQgetvalue(res, 0, 2);
+        char *user_id_str = PQgetvalue(res, 0, 3);
+        char *internal_address = PQgetvalue(res, 0, 4);
+        char *internal_port_str = PQgetvalue(res, 0, 5);
+        char *status_str = PQgetvalue(res, 0, 6);
+
         if (device_name) strncpy(device_info->name, device_name, DEVICE_NAME_MAX_LEN);
         if (device_type) strncpy(device_info->type, device_type, 64);
         if (user_id_str) device_info->user_id = atoi(user_id_str);
-        
-        device_info->status = DEVICE_STATUS_ACTIVE;
+        if (internal_address) strncpy(device_info->internal_address, internal_address, IP_ADDR_MAX_LEN);
+        if (internal_port_str && internal_port_str[0] != '\0') {
+            device_info->internal_port = (uint16_t)atoi(internal_port_str);
+        }
+        if (status_str && strcmp(status_str, "active") == 0) {
+            device_info->status = DEVICE_STATUS_ACTIVE;
+        } else {
+            device_info->status = DEVICE_STATUS_PENDING;
+        }
     }
-    
+
     PQclear(res);
     pthread_mutex_unlock(&g_db_mutex);
-    
+
     logMsg(LOG_INFO, "Device %s authenticated successfully\n", device_id);
     return 0;
 }
 
 /**
- * Create device session
+ * Register device session and allocate input/tunnel port pair in one transaction.
+ */
+static int register_device_session(const char *device_id, const char *client_ip,
+                                   char *session_token, size_t token_len,
+                                   uint16_t *input_port, uint16_t *tunnel_port)
+{
+    if (!device_id || !session_token || token_len < 32 || !input_port || !tunnel_port) {
+        return -1;
+    }
+
+    if (generate_session_token(device_id, session_token, token_len) != 0) {
+        return -1;
+    }
+
+    char timeout_str[16];
+    snprintf(timeout_str, sizeof(timeout_str), "%u", g_config.session_timeout);
+
+    const char *client_ip_param = client_ip ? client_ip : "0.0.0.0";
+    const char *params[4] = { device_id, session_token, client_ip_param, timeout_str };
+
+    pthread_mutex_lock(&g_db_mutex);
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        pthread_mutex_unlock(&g_db_mutex);
+        return -1;
+    }
+
+    PGresult *res = PQexecParams(conn,
+        "WITH dev AS ("
+        "  SELECT id FROM devices WHERE device_id = $1 "
+        "  AND status IN ('active', 'pending', 'connecting')"
+        "), "
+        "pair AS ("
+        "  SELECT pa1.port AS input_port, pa2.port AS tunnel_port "
+        "  FROM port_allocations pa1 "
+        "  JOIN port_allocations pa2 ON pa2.port = pa1.port + 1 AND pa2.status = 'free' "
+        "  WHERE pa1.status = 'free' "
+        "    AND pa1.port >= 6000 AND pa1.port < 7000 "
+        "  ORDER BY pa1.port "
+        "  LIMIT 1 "
+        "  FOR UPDATE OF pa1 SKIP LOCKED"
+        "), "
+        "ins AS ("
+        "  INSERT INTO device_sessions (device_id, session_token, assigned_port, client_ip, expires_at, status) "
+        "  SELECT dev.id, $2, pair.input_port, $3, NOW() + ($4 || ' seconds')::interval, 'active' "
+        "  FROM dev, pair "
+        "  RETURNING id, assigned_port"
+        "), "
+        "upd AS ("
+        "  UPDATE port_allocations pa "
+        "  SET device_id = (SELECT id FROM dev), "
+        "      session_id = ins.id, "
+        "      allocated_at = NOW(), "
+        "      expires_at = NOW() + ($4 || ' seconds')::interval, "
+        "      status = 'allocated' "
+        "  FROM ins, pair "
+        "  WHERE pa.port IN (pair.input_port, pair.tunnel_port) "
+        "  RETURNING pa.port"
+        ") "
+        "SELECT pair.input_port, pair.tunnel_port FROM pair, ins",
+        4, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0) {
+        logMsg(LOG_ERR, "Failed to register device session: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        pthread_mutex_unlock(&g_db_mutex);
+        return -1;
+    }
+
+    *input_port = (uint16_t)atoi(PQgetvalue(res, 0, 0));
+    *tunnel_port = (uint16_t)atoi(PQgetvalue(res, 0, 1));
+
+    PQclear(res);
+
+    char input_port_str[8];
+    char tunnel_port_str[8];
+    snprintf(input_port_str, sizeof(input_port_str), "%u", *input_port);
+    snprintf(tunnel_port_str, sizeof(tunnel_port_str), "%u", *tunnel_port);
+
+    const char *update_params[2] = { input_port_str, device_id };
+    res = PQexecParams(conn,
+        "UPDATE devices SET assigned_port = $1::integer, status = 'active', updated_at = NOW() "
+        "WHERE device_id = $2",
+        2, NULL, update_params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_ERR, "Failed to update device after registration: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        pthread_mutex_unlock(&g_db_mutex);
+        return -1;
+    }
+    PQclear(res);
+
+    pthread_mutex_unlock(&g_db_mutex);
+    return 0;
+}
+
+/**
+ * Create device session (legacy helper, kept for compatibility)
  */
 int device_create_session(const char *device_id, device_session_t *session)
 {
@@ -897,17 +1024,62 @@ int device_manager_stop(void)
     return 0;
 }
 
-// Stub implementation for missing functions
-int free_device_port(uint16_t port)
-{
-    logMsg(LOG_WARNING, "free_device_port called (stub) for port %u\n", port);
-    return 0;
-}
 
 int get_session_by_token(const char *session_token, device_session_t *session)
 {
-    logMsg(LOG_WARNING, "get_session_by_token called (stub) for token %s\n", session_token);
-    return -1; // Not found
+    if (!session_token || !session) {
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_db_mutex);
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        pthread_mutex_unlock(&g_db_mutex);
+        return -1;
+    }
+
+    const char *params[1] = { session_token };
+    PGresult *res = PQexecParams(conn,
+        "SELECT ds.session_token, d.device_id, ds.assigned_port, "
+        "EXTRACT(EPOCH FROM ds.expires_at)::bigint, ds.status, "
+        "ds.bytes_sent, ds.bytes_received, ds.active_connections "
+        "FROM device_sessions ds "
+        "JOIN devices d ON ds.device_id = d.id "
+        "WHERE ds.session_token = $1 AND ds.status = 'active'",
+        1, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0) {
+        PQclear(res);
+        pthread_mutex_unlock(&g_db_mutex);
+        return -1;
+    }
+
+    memset(session, 0, sizeof(*session));
+
+    char *token = PQgetvalue(res, 0, 0);
+    char *device_id = PQgetvalue(res, 0, 1);
+    char *assigned_port_str = PQgetvalue(res, 0, 2);
+    char *expires_at_str = PQgetvalue(res, 0, 3);
+    char *status_str = PQgetvalue(res, 0, 4);
+
+    if (token) strncpy(session->session_token, token, SESSION_TOKEN_MAX_LEN);
+    if (device_id) strncpy(session->device_id, device_id, DEVICE_ID_MAX_LEN);
+    if (assigned_port_str) session->assigned_port = (uint16_t)atoi(assigned_port_str);
+    if (expires_at_str) session->expires_at = (time_t)atoll(expires_at_str);
+    session->bytes_sent = (uint64_t)atoll(PQgetvalue(res, 0, 5));
+    session->bytes_received = (uint64_t)atoll(PQgetvalue(res, 0, 6));
+    session->active_connections = (uint32_t)atoi(PQgetvalue(res, 0, 7));
+
+    if (status_str && strcmp(status_str, "active") == 0) {
+        session->status = SESSION_STATUS_ACTIVE;
+    } else {
+        session->status = SESSION_STATUS_EXPIRED;
+    }
+
+    PQclear(res);
+    pthread_mutex_unlock(&g_db_mutex);
+    return 0;
 }
 
 int update_device_statistics(const char *session_token,
@@ -915,6 +1087,71 @@ int update_device_statistics(const char *session_token,
                              uint64_t bytes_received,
                              uint32_t connections)
 {
-    logMsg(LOG_WARNING, "update_device_statistics called (stub) for token %s\n", session_token);
+    if (!session_token) {
+        return -1;
+    }
+
+    pthread_mutex_lock(&g_db_mutex);
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        pthread_mutex_unlock(&g_db_mutex);
+        return -1;
+    }
+
+    char bytes_sent_str[32];
+    char bytes_received_str[32];
+    char connections_str[16];
+    snprintf(bytes_sent_str, sizeof(bytes_sent_str), "%llu", (unsigned long long)bytes_sent);
+    snprintf(bytes_received_str, sizeof(bytes_received_str), "%llu", (unsigned long long)bytes_received);
+    snprintf(connections_str, sizeof(connections_str), "%u", connections);
+
+    const char *params[4] = { bytes_sent_str, bytes_received_str, connections_str, session_token };
+    PGresult *res = PQexecParams(conn,
+        "UPDATE device_sessions SET "
+        "bytes_sent = bytes_sent + $1::bigint, "
+        "bytes_received = bytes_received + $2::bigint, "
+        "active_connections = $3::integer, "
+        "last_activity = NOW() "
+        "WHERE session_token = $4 AND status = 'active'",
+        4, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_ERR, "Failed to update device statistics: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        pthread_mutex_unlock(&g_db_mutex);
+        return -1;
+    }
+
+    PQclear(res);
+    pthread_mutex_unlock(&g_db_mutex);
+    return 0;
+}
+
+int free_device_port(uint16_t port)
+{
+    pthread_mutex_lock(&g_db_mutex);
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        pthread_mutex_unlock(&g_db_mutex);
+        return -1;
+    }
+
+    char port_str[8];
+    snprintf(port_str, sizeof(port_str), "%u", port);
+
+    const char *params[1] = { port_str };
+    PGresult *res = PQexecParams(conn, "SELECT free_device_port($1::integer)", 1, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+        logMsg(LOG_ERR, "Failed to free port %u: %s\n", port, PQerrorMessage(conn));
+        PQclear(res);
+        pthread_mutex_unlock(&g_db_mutex);
+        return -1;
+    }
+
+    PQclear(res);
+    pthread_mutex_unlock(&g_db_mutex);
     return 0;
 }
