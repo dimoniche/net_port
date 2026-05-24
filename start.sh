@@ -64,6 +64,16 @@ if [ "$USE_LOCAL_DB" = "true" ]; then
     su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE net_port TO $DB_USER;\""
     su - postgres -c "psql -d net_port -c \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;\""
     su - postgres -c "psql -d net_port -c \"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;\""
+
+    # Device management schema (tables, functions, port pool 6000-7000)
+    if ! su - postgres -c "psql -d net_port -tAc \"SELECT 1 FROM information_schema.tables WHERE table_name='devices'\"" 2>/dev/null | grep -q 1; then
+        echo "Running init_device_db.sql..."
+        su - postgres -c "psql -d net_port -f /etc/postgresql/init_device_db.sql" || echo "Warning: init_device_db.sql failed"
+        su - postgres -c "psql -d net_port -c \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;\""
+        su - postgres -c "psql -d net_port -c \"GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO $DB_USER;\""
+    else
+        echo "Device tables already exist, skipping init_device_db.sql."
+    fi
 else
     echo "Using external PostgreSQL at $DB_HOST:$DB_PORT, initializing database if needed."
     
@@ -168,7 +178,7 @@ start_server() {
     while true; do
         echo "Starting net_port server..."
         cd /root/net_port
-        ./module_net_port_server* --user 1 -v7 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management &
+        ./module_net_port_server* --user 1 -v7 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443 &
         server_pid=$!
         wait $server_pid || true
         server_exit_code=$?

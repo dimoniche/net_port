@@ -367,9 +367,7 @@ LEFT JOIN device_sessions ds ON d.id = ds.device_id
 --     'iot_gateway'
 -- );
 
--- Grant permissions (adjust based on your security requirements)
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO net_port_user;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO net_port_user;
+-- Grant permissions are applied by start.sh for the configured DB user
 
 COMMENT ON TABLE devices IS 'IoT devices that can connect to the net_port system';
 COMMENT ON TABLE device_sessions IS 'Active sessions for connected devices';
