@@ -367,8 +367,8 @@ json_t* process_registration_request(json_t *request)
     device_info.tunnel_port = tunnel_port;
     device_info.assigned_port = input_port;
     
-    if (create_dynamic_server_for_device(device_id, input_port, tunnel_port, &device_info) < 0) {
-        logMsg(LOG_WARNING, "Failed to create dynamic server for device %s (input=%u tunnel=%u)\n",
+    if (ensure_dynamic_server_for_device(device_id, input_port, tunnel_port) < 0) {
+        logMsg(LOG_WARNING, "Failed to ensure dynamic server for device %s (input=%u tunnel=%u)\n",
                device_id, input_port, tunnel_port);
     }
     
@@ -543,7 +543,7 @@ int device_authenticate(const char *device_id, const char *auth_token, device_in
         "SELECT id::text, name, type, user_id, internal_address, internal_port, status "
         "FROM devices "
         "WHERE device_id = $1 AND auth_token_hash = $2 "
-        "AND status IN ('active', 'pending', 'connecting')",
+        "AND status IN ('active', 'pending', 'connecting', 'inactive')",
         2, NULL, params, NULL, NULL, 0);
 
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
@@ -639,7 +639,7 @@ static int register_device_session(const char *device_id, const char *client_ip,
     PGresult *res = PQexecParams(conn,
         "WITH dev AS ("
         "  SELECT id FROM devices WHERE device_id = $1 "
-        "  AND status IN ('active', 'pending', 'connecting')"
+        "  AND status IN ('active', 'pending', 'connecting', 'inactive')"
         "), "
         "pair AS ("
         "  SELECT pa1.port AS input_port, pa2.port AS tunnel_port "

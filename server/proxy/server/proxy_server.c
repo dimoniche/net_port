@@ -1711,6 +1711,7 @@ int create_dynamic_server_for_device(const char *device_id, uint16_t input_port,
         servers[index].is_input_enabled = false;
         logMsg(LOG_ERR, "Failed to init input socket for device %s on port %u\n",
                device_id, input_port);
+        servers_count--;
         return -1;
     }
 
@@ -1718,10 +1719,24 @@ int create_dynamic_server_for_device(const char *device_id, uint16_t input_port,
         servers[index].is_output_enabled = false;
         logMsg(LOG_ERR, "Failed to init output socket for device %s on port %u\n",
                device_id, tunnel_port);
+        if (servers[index].input >= 0) {
+            close(servers[index].input);
+            servers[index].input = -1;
+        }
+        servers_count--;
         return -1;
     }
 
     if (start_server_listening_threads(&servers[index]) != 0) {
+        if (servers[index].input >= 0) {
+            close(servers[index].input);
+            servers[index].input = -1;
+        }
+        if (servers[index].output >= 0) {
+            close(servers[index].output);
+            servers[index].output = -1;
+        }
+        servers_count--;
         return -1;
     }
 
@@ -1743,12 +1758,12 @@ int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port,
         if (servers[i].input_port != input_port || servers[i].output_port != tunnel_port) {
             continue;
         }
-        if (server_input_is_running(&servers[i]) && server_output_is_running(&servers[i])) {
-            return i;
-        }
+        logMsg(LOG_DEBUG, "Reusing dynamic server for device %s on input=%u tunnel=%u\n",
+               device_id, input_port, tunnel_port);
+        return i;
     }
 
-    logMsg(LOG_INFO, "Recreating dynamic server for device %s: input=%u tunnel=%u\n",
+    logMsg(LOG_INFO, "Creating dynamic server for device %s: input=%u tunnel=%u\n",
            device_id, input_port, tunnel_port);
     return create_dynamic_server_for_device(device_id, input_port, tunnel_port, NULL);
 }

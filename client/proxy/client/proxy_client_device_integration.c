@@ -110,6 +110,9 @@ int device_register_with_server(void)
         close(sock);
         return -1;
     }
+
+    struct timeval recv_timeout = {30, 0};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &recv_timeout, sizeof(recv_timeout));
     
     // Build registration request
     json_t *request = json_object();

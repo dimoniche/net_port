@@ -397,14 +397,6 @@ const Devices = ({ children, ...rest }) => {
                                             {device.assigned_port || device.session_port ? (
                                                 <>
                                                     {device.assigned_port || device.session_port}
-                                                    {(device.assigned_port || device.session_port) >= 6000 && (
-                                                        <Typography variant="caption" display="block" color="text.secondary">
-                                                            SSH: {49000 + ((device.assigned_port || device.session_port) - 6000)}
-                                                            {(device.assigned_port || device.session_port) > 6099 && (
-                                                                " (не опубликован в Docker)"
-                                                            )}
-                                                        </Typography>
-                                                    )}
                                                 </>
                                             ) : (
                                                 "Не назначен"

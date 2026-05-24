@@ -270,7 +270,6 @@ BEGIN
 
     UPDATE devices d
     SET assigned_port = NULL,
-        status = CASE WHEN d.status = 'active' THEN 'inactive' ELSE d.status END,
         updated_at = NOW()
     WHERE d.device_id = p_device_id
       AND NOT EXISTS (
