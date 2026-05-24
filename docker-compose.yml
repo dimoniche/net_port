@@ -1,24 +1,19 @@
 services:
   net_port:
-    build:
-    image: net_port:latest
+    image: docker.io/library/net_port:latest
     container_name: net_port_app
     ports:
       - "13080:80"
       - "13880:8080"
-      - "49000-49999:6000-6999"
-      - "25432:5432"
+      - "49000-49099:6000-6099"
+      - "15432:5432"
+      - "8443:8443"
     environment:
       - DB_USER=admin
-      - DB_PASSWORD=password
-      - DB_HOST=localhost
+      - DB_PASSWORD=lbvsx123
+      - DB_HOST=192.168.0.132
       - DB_PORT=5432
       - APP_USER=admin
-      - APP_PASSWORD=password
+      - APP_PASSWORD=lbvsx123
       - THREADS=10
-    volumes:
-      - postgres_data:/var/lib/postgresql
     restart: unless-stopped
-
-volumes:
-  postgres_data:

@@ -22,9 +22,9 @@ CREATE TABLE servers (
     description TEXT
 );
 
--- Insert default server for user 1
+-- Default server disabled: ports 6000-7000 are reserved for dynamic device allocation
 INSERT INTO servers (user_id, input_port, output_port, enable, enable_ssl, enable_input_ssl, description)
-VALUES (1, 6000, 6001, true, false, false, 'Default server');
+VALUES (1, 5998, 5999, false, false, false, 'Legacy placeholder (disabled)');
 
 CREATE TABLE statistic (
     id SERIAL PRIMARY KEY,

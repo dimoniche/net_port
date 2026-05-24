@@ -235,7 +235,7 @@ const Devices = ({ children, ...rest }) => {
                         <AlertTitle>Токен устройства {tokenNotice.deviceId}</AlertTitle>
                         Сохраните токен — он показывается один раз: <strong>{tokenNotice.token}</strong>
                         <Box sx={{ mt: 1, fontFamily: "monospace", fontSize: "0.85rem" }}>
-                            {`./module_net_port_client --device-id ${tokenNotice.deviceId} --device-token ${tokenNotice.token} --registration-server SERVER_IP --registration-port 8443 --host_out 127.0.0.1 -p_out 22`}
+                            {`./module_net_port_client --device-id ${tokenNotice.deviceId} --device-token ${tokenNotice.token} --registration-server SERVER_IP --registration-port 8443 --port-host-base 49000 --host_out 127.0.0.1 -p_out 22`}
                         </Box>
                     </Alert>
                 )}
@@ -394,7 +394,21 @@ const Devices = ({ children, ...rest }) => {
                                             )}
                                         </TableCell>
                                         <TableCell>
-                                            {device.assigned_port || device.session_port || "Не назначен"}
+                                            {device.assigned_port || device.session_port ? (
+                                                <>
+                                                    {device.assigned_port || device.session_port}
+                                                    {(device.assigned_port || device.session_port) >= 6000 && (
+                                                        <Typography variant="caption" display="block" color="text.secondary">
+                                                            SSH: {49000 + ((device.assigned_port || device.session_port) - 6000)}
+                                                            {(device.assigned_port || device.session_port) > 6099 && (
+                                                                " (не опубликован в Docker)"
+                                                            )}
+                                                        </Typography>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                "Не назначен"
+                                            )}
                                         </TableCell>
                                         <TableCell>
                                             {device.internal_port || "-"}

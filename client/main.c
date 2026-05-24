@@ -18,6 +18,8 @@
 #include "time_counter.h"
 #include "proxy_client_device_integration.h"
 
+#include <sys/stat.h>
+
 static uint64_t last_monotonic_time;
 
 static char *progname;
@@ -43,6 +45,8 @@ static void print_usage(void)
     fprintf(stderr, "         --device-token        - device authentication token\n");
     fprintf(stderr, "         --registration-server - device control server address\n");
     fprintf(stderr, "         --registration-port   - device control server port (default 8443)\n");
+    fprintf(stderr, "         --port-host-base N    - map server ports to host (Docker: 49000)\n");
+    fprintf(stderr, "         --tunnel-port N       - override tunnel connect port (e.g. 49003)\n");
     fprintf(stderr, "\nExamples:\n");
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --connections 5 --timeout 60\n", progname);
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --disable-timeout\n", progname);
@@ -52,6 +56,7 @@ static void print_usage(void)
 int main(int argc, char** argv) {
 
     logMsgInit();
+    mkdir("logs", 0755);
     logMsgOpen("logs/module_net_port.log");
     logMsg(LOG_DEBUG, "Start logger (on folder logs/module_net_port.log) ...");
 

@@ -47,6 +47,7 @@ bool server_output_is_running(proxy_server_t * server);
 void input_server_stop(proxy_server_t * server);
 void input_server_wait_stop(proxy_server_t * server);
 int get_free_input_socket(proxy_server_thread_data_t * data);
+int get_input_socket_with_output(proxy_server_thread_data_t * data);
 int get_free_output_socket(proxy_server_thread_data_t * data);
 
 // Функция для периодического сохранения статистики
@@ -1268,21 +1269,14 @@ serverInputThread (void* parameter)
 
                 logMsg(LOG_INFO, "Connection accepted on input_port %d\n", server->input_port);
 
-                int current_free_socket_input = get_free_input_socket(connections_data);
+                int current_free_socket_input = get_input_socket_with_output(connections_data);
 
                 if(current_free_socket_input == -1) {
-                    logMsg(LOG_INFO, "Count input connection is full) - close it\n");
-                    close(socket_local);
-                    continue;
-                }
-
-                if(!connections_data->local_sockets[current_free_socket_input].is_output_connected) {
                     logMsg(LOG_INFO, "Not output socket - close input");
                     close(socket_local);
                     continue;
                 }
 
-             
                 if(connections_data != NULL) {
 
                     // локальный входящий сокет для нового потока
@@ -1482,6 +1476,18 @@ int get_free_input_socket(proxy_server_thread_data_t * data)
     return -1;
 }
 
+int get_input_socket_with_output(proxy_server_thread_data_t *data)
+{
+    for (int i = 0; i < COUNT_SOCKET_THREAD; i++) {
+        if (data->local_sockets[i].is_output_connected &&
+            !data->local_sockets[i].is_input_connected) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
 int get_free_output_socket(proxy_server_thread_data_t * data)
 {
     for(int i = 0; i < COUNT_SOCKET_THREAD; i++) {
@@ -1633,17 +1639,18 @@ static int start_server_listening_threads(proxy_server_t *server)
            COUNT_SOCKET_THREAD * sizeof(proxy_server_local_socket_data_t));
     memcpy(&connections_data->data, server, sizeof(proxy_server_t));
     connections_data->data.ssl_ctx = server->ssl_ctx;
+    proxy_server_t *runtime = &connections_data->data;
 
     for (int i = 0; i < COUNT_SOCKET_THREAD; i++) {
-        connections_data->local_sockets[i].data = &connections_data->data;
+        connections_data->local_sockets[i].data = runtime;
         connections_data->local_sockets[i].is_input_connected = false;
         connections_data->local_sockets[i].is_output_connected = false;
         connections_data->local_sockets[i].close_output_socket = false;
     }
 
-    if (server->is_input_enabled) {
+    if (runtime->is_input_enabled) {
         server_input_start(connections_data);
-        if (!server_input_is_running(server)) {
+        if (!server_input_is_running(runtime)) {
             logMsg(LOG_ERR, "Failed to start input listener for dynamic server\n");
             free(connections_data->local_sockets);
             free(connections_data);
@@ -1651,15 +1658,18 @@ static int start_server_listening_threads(proxy_server_t *server)
         }
     }
 
-    if (server->is_output_enabled) {
+    if (runtime->is_output_enabled) {
         server_output_start(connections_data);
-        if (!server_output_is_running(server)) {
+        if (!server_output_is_running(runtime)) {
             logMsg(LOG_ERR, "Failed to start output listener for dynamic server\n");
             free(connections_data->local_sockets);
             free(connections_data);
             return -1;
         }
     }
+
+    server->is_input_running = runtime->is_input_running;
+    server->is_output_running = runtime->is_output_running;
 
     return 0;
 }
@@ -1718,4 +1728,27 @@ int create_dynamic_server_for_device(const char *device_id, uint16_t input_port,
     logMsg(LOG_INFO, "Dynamic server started for device %s: input=%u tunnel=%u\n",
            device_id, input_port, tunnel_port);
     return index;
+}
+
+int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
+{
+    if (!device_id || input_port == 0 || tunnel_port == 0) {
+        return -1;
+    }
+
+    for (int i = 0; i < servers_count; i++) {
+        if (!servers[i].enable || !servers[i].is_dynamic_port) {
+            continue;
+        }
+        if (servers[i].input_port != input_port || servers[i].output_port != tunnel_port) {
+            continue;
+        }
+        if (server_input_is_running(&servers[i]) && server_output_is_running(&servers[i])) {
+            return i;
+        }
+    }
+
+    logMsg(LOG_INFO, "Recreating dynamic server for device %s: input=%u tunnel=%u\n",
+           device_id, input_port, tunnel_port);
+    return create_dynamic_server_for_device(device_id, input_port, tunnel_port, NULL);
 }

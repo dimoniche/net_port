@@ -15,6 +15,14 @@ exports.Devices = class Devices extends Service {
   async find(params) {
     const { query = {} } = params;
     const knex = this.Model;
+
+    const latestSessions = knex('device_sessions')
+      .select(knex.raw('DISTINCT ON (device_id) device_id, assigned_port, last_activity, active_connections, bytes_sent, bytes_received'))
+      .where('status', 'active')
+      .where('expires_at', '>', knex.fn.now())
+      .orderBy('device_id')
+      .orderBy('started_at', 'desc')
+      .as('device_sessions');
     
     // Build base query
     let knexQuery = knex('devices').select(
@@ -27,11 +35,7 @@ exports.Devices = class Devices extends Service {
       'device_sessions.bytes_received'
     )
     .leftJoin('users', 'devices.user_id', 'users.id')
-    .leftJoin('device_sessions', function() {
-      this.on('devices.id', '=', 'device_sessions.device_id')
-        .andOn('device_sessions.status', '=', knex.raw("'active'"))
-        .andOn('device_sessions.expires_at', '>', knex.raw('NOW()'));
-    });
+    .leftJoin(latestSessions, 'devices.id', 'device_sessions.device_id');
     
     // Apply filters
     if (query.status) {
@@ -362,8 +366,7 @@ exports.Devices = class Devices extends Service {
     
     for (const session of sessions) {
       if (session.assigned_port) {
-        await knex.raw('SELECT free_device_port(?)', [session.assigned_port]);
-        await knex.raw('SELECT free_device_port(?)', [session.assigned_port + 1]);
+        await knex.raw('SELECT free_device_port_pair(?)', [session.assigned_port]);
       }
     }
     

@@ -274,6 +274,9 @@ int main_with_device_registration(int argc, char** argv)
     char *auth_token = NULL;
     char *registration_server = NULL;
     uint16_t registration_port = 8443;
+    uint16_t tunnel_port_override = 0;
+    uint16_t port_host_base = 0;
+    uint16_t port_range_start = 6000;
     bool enable_device_registration = false;
     
     for (int i = 1; i < argc; i++) {
@@ -285,7 +288,15 @@ int main_with_device_registration(int argc, char** argv)
         } else if (strcmp(argv[i], "--registration-server") == 0 && i + 1 < argc) {
             registration_server = argv[++i];
         } else if (strcmp(argv[i], "--registration-port") == 0 && i + 1 < argc) {
-            registration_port = atoi(argv[++i]);
+            registration_port = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--tunnel-port") == 0 && i + 1 < argc) {
+            tunnel_port_override = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--port-host-base") == 0 && i + 1 < argc) {
+            port_host_base = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--port-range-start") == 0 && i + 1 < argc) {
+            port_range_start = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "-p_in") == 0 && i + 1 < argc) {
+            tunnel_port_override = (uint16_t)atoi(argv[++i]);
         }
     }
     
@@ -304,11 +315,25 @@ int main_with_device_registration(int argc, char** argv)
         
         proxy_server_thread_data_t *settings = get_client_settings();
         if (settings) {
+            uint16_t tunnel_connect_port = g_device_state.tunnel_port;
+
+            if (tunnel_port_override != 0) {
+                tunnel_connect_port = tunnel_port_override;
+            } else if (port_host_base != 0) {
+                tunnel_connect_port = (uint16_t)(port_host_base +
+                    (g_device_state.tunnel_port - port_range_start));
+            }
+
             strncpy(settings->input_address, registration_server, sizeof(settings->input_address) - 1);
-            settings->input_port = g_device_state.tunnel_port;
-            
-            logMsg(LOG_INFO, "Configured proxy tunnel to %s:%d (external port %d)\n",
-                   registration_server, g_device_state.tunnel_port, g_device_state.assigned_port);
+            settings->input_port = tunnel_connect_port;
+
+            logMsg(LOG_INFO, "Configured proxy tunnel to %s:%d (server tunnel %d, external %d)\n",
+                   registration_server, tunnel_connect_port,
+                   g_device_state.tunnel_port, g_device_state.assigned_port);
+            if (port_host_base != 0 && tunnel_port_override == 0) {
+                logMsg(LOG_INFO, "Using port-host-base %u (map internal %u-%u -> host %u+)\n",
+                       port_host_base, port_range_start, port_range_start + 9, port_host_base);
+            }
         }
         
         if (start_device_heartbeat() != 0) {

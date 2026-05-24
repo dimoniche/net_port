@@ -413,6 +413,15 @@ json_t* process_heartbeat_request(json_t *request)
         json_object_set_new(response, "message", json_string("Invalid session token"));
         return response;
     }
+
+    device_session_t session;
+    if (get_session_by_token(session_token, &session) == 0 && session.assigned_port != 0) {
+        uint16_t tunnel_port = (uint16_t)(session.assigned_port + 1);
+        if (ensure_dynamic_server_for_device(session.device_id, session.assigned_port, tunnel_port) < 0) {
+            logMsg(LOG_WARNING, "Failed to ensure dynamic server for %s on heartbeat\n",
+                   session.device_id);
+        }
+    }
     
     // Update statistics if provided
     json_t *stats_obj = json_object_get(request, "statistics");
@@ -612,6 +621,21 @@ static int register_device_session(const char *device_id, const char *client_ip,
         return -1;
     }
 
+    const char *cleanup_params[1] = { device_id };
+    PGresult *cleanup_res = PQexecParams(conn,
+        "SELECT cleanup_device_sessions($1)",
+        1, NULL, cleanup_params, NULL, NULL, 0);
+    if (cleanup_res) {
+        if (PQresultStatus(cleanup_res) == PGRES_TUPLES_OK && PQntuples(cleanup_res) > 0) {
+            char *freed = PQgetvalue(cleanup_res, 0, 0);
+            if (freed && atoi(freed) > 0) {
+                logMsg(LOG_INFO, "Released %s port(s) from previous sessions for device %s\n",
+                       freed, device_id);
+            }
+        }
+        PQclear(cleanup_res);
+    }
+
     PGresult *res = PQexecParams(conn,
         "WITH dev AS ("
         "  SELECT id FROM devices WHERE device_id = $1 "
@@ -623,6 +647,9 @@ static int register_device_session(const char *device_id, const char *client_ip,
         "  JOIN port_allocations pa2 ON pa2.port = pa1.port + 1 AND pa2.status = 'free' "
         "  WHERE pa1.status = 'free' "
         "    AND pa1.port >= 6000 AND pa1.port < 7000 "
+        "    AND pa1.port % 2 = 0 "
+        "    AND (pa1.expires_at IS NULL OR pa1.expires_at <= NOW()) "
+        "    AND (pa2.expires_at IS NULL OR pa2.expires_at <= NOW()) "
         "  ORDER BY pa1.port "
         "  LIMIT 1 "
         "  FOR UPDATE OF pa1 SKIP LOCKED"
@@ -898,7 +925,7 @@ void* cleanup_expired_sessions_thread(void *arg)
     (void)arg;
     
     while (g_running) {
-        sleep(300); // Run every 5 minutes
+        sleep(60); // Run every minute
         
         if (!g_running) {
             break;

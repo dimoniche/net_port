@@ -67,7 +67,8 @@ RUN mkdir -p /var/www/html && cp -r build/* /var/www/html/
 
 COPY init_db.sql /etc/postgresql/init_db.sql
 COPY init_device_db.sql /etc/postgresql/init_device_db.sql
-RUN chown postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql
+COPY sql/port_release_fix.sql /etc/postgresql/port_release_fix.sql
+RUN chown postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/port_release_fix.sql
 
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY start.sh /root/net_port/start.sh
