@@ -75,11 +75,13 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     snprintf(str, sizeof(str), "select id,input_port,output_port,enable,enable_ssl,enable_input_ssl from servers where user_id=%d order by id", user_id);
     logMsg(LOG_DEBUG, str);
 
+    db_lock();
     result = PQexec(get_db_connection(), str);
     if (PQresultStatus(result) != PGRES_TUPLES_OK)
     {
         logMsg(LOG_ERR, "failed: %s======================================== \n\n\n", PQerrorMessage(get_db_connection()));
         PQclear(result);
+        db_unlock();
         return -1;
     }
 
@@ -89,6 +91,7 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     if (!nFields)
     {
         PQclear(result);
+        db_unlock();
         return -1;
     }
 
@@ -102,6 +105,7 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     {
         logMsg(LOG_ERR, "NO PORTS!");
         PQclear(result);
+        db_unlock();
         return -1;
     }
 
@@ -113,6 +117,7 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     {
         logMsg(LOG_ERR, "Memory allocation failed ======================================== \n\n\n");
         PQclear(result);
+        db_unlock();
         return -1;
     }
 
@@ -152,6 +157,7 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     }
 
     PQclear(result);
+    db_unlock();
     return 0;
 }
 
@@ -168,14 +174,17 @@ int save_server_statistics(proxy_server_t *server)
     
     logMsg(LOG_DEBUG, "Executing query: %s", query);
     
+    db_lock();
     PGresult *res = PQexec(get_db_connection(), query);
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         logMsg(LOG_ERR, "Failed to save statistics: %s", PQerrorMessage(get_db_connection()));
         PQclear(res);
+        db_unlock();
         return -1;
     }
     
     PQclear(res);
+    db_unlock();
     return 0;
 }
 
@@ -221,10 +230,12 @@ int cleanup_old_statistics(time_t retention_period)
 
     logMsg(LOG_DEBUG, "Executing cleanup query: %s", query);
 
+    db_lock();
     PGresult *res = PQexec(get_db_connection(), query);
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         logMsg(LOG_ERR, "Failed to cleanup old statistics: %s", PQerrorMessage(get_db_connection()));
         PQclear(res);
+        db_unlock();
         return -1;
     }
 
@@ -232,5 +243,6 @@ int cleanup_old_statistics(time_t retention_period)
     logMsg(LOG_INFO, "Cleaned up %d old statistics records", rows_affected);
 
     PQclear(res);
+    db_unlock();
     return 0;
 }

@@ -10,14 +10,27 @@
 #include "logMsg.h"
 //#include "settings.h"
 
+#include <pthread.h>
+
 //#define REMOTE_DATABASE     1
 
 static PGconn* conn = NULL;
 static PGresult  *result;
 static bool isInited = false;
+static pthread_mutex_t db_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static time_t start_time_t = 0;
 static int module_id = -1;
+
+void db_lock(void)
+{
+    pthread_mutex_lock(&db_conn_mutex);
+}
+
+void db_unlock(void)
+{
+    pthread_mutex_unlock(&db_conn_mutex);
+}
 
 PGconn* get_db_connection(void)
 {

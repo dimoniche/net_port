@@ -32,8 +32,6 @@ static pthread_t g_control_thread;
 static volatile bool g_running = false;
 static SSL_CTX *g_ssl_ctx = NULL;
 static int g_control_socket = -1;
-pthread_mutex_t g_db_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 // Default configuration
 static const device_manager_config_t DEFAULT_CONFIG = {
     .control_port = 8443,
@@ -529,12 +527,12 @@ int device_authenticate(const char *device_id, const char *auth_token, device_in
         return -1;
     }
 
-    pthread_mutex_lock(&g_db_mutex);
+    db_lock();
 
     PGconn *conn = get_db_connection();
     if (!conn) {
         logMsg(LOG_ERR, "Failed to get database connection\n");
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
@@ -549,14 +547,14 @@ int device_authenticate(const char *device_id, const char *auth_token, device_in
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
         logMsg(LOG_ERR, "Database query failed: %s\n", PQerrorMessage(conn));
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
     if (PQntuples(res) == 0) {
         logMsg(LOG_WARNING, "Authentication failed for device %s\n", device_id);
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
@@ -586,7 +584,7 @@ int device_authenticate(const char *device_id, const char *auth_token, device_in
     }
 
     PQclear(res);
-    pthread_mutex_unlock(&g_db_mutex);
+    db_unlock();
 
     logMsg(LOG_INFO, "Device %s authenticated successfully\n", device_id);
     return 0;
@@ -613,11 +611,11 @@ static int register_device_session(const char *device_id, const char *client_ip,
     const char *client_ip_param = client_ip ? client_ip : "0.0.0.0";
     const char *params[4] = { device_id, session_token, client_ip_param, timeout_str };
 
-    pthread_mutex_lock(&g_db_mutex);
+    db_lock();
 
     PGconn *conn = get_db_connection();
     if (!conn) {
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
@@ -677,7 +675,7 @@ static int register_device_session(const char *device_id, const char *client_ip,
     if (PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0) {
         logMsg(LOG_ERR, "Failed to register device session: %s\n", PQerrorMessage(conn));
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
@@ -700,12 +698,12 @@ static int register_device_session(const char *device_id, const char *client_ip,
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         logMsg(LOG_ERR, "Failed to update device after registration: %s\n", PQerrorMessage(conn));
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
     PQclear(res);
 
-    pthread_mutex_unlock(&g_db_mutex);
+    db_unlock();
     return 0;
 }
 
@@ -734,11 +732,11 @@ int device_create_session(const char *device_id, device_session_t *session)
     session->status = SESSION_STATUS_ACTIVE;
     
     // Store session in database
-    pthread_mutex_lock(&g_db_mutex);
+    db_lock();
     
     PGconn *conn = get_db_connection();
     if (!conn) {
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
     
@@ -753,12 +751,12 @@ int device_create_session(const char *device_id, device_session_t *session)
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         logMsg(LOG_ERR, "Failed to create session: %s\n", PQerrorMessage(conn));
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
     
     PQclear(res);
-    pthread_mutex_unlock(&g_db_mutex);
+    db_unlock();
     
     return 0;
 }
@@ -768,11 +766,11 @@ int device_create_session(const char *device_id, device_session_t *session)
  */
 uint16_t allocate_port_for_device(const char *device_id, const char *session_token, uint16_t requested_port)
 {
-    pthread_mutex_lock(&g_db_mutex);
+    db_lock();
     
     PGconn *conn = get_db_connection();
     if (!conn) {
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return 0;
     }
     
@@ -797,14 +795,14 @@ uint16_t allocate_port_for_device(const char *device_id, const char *session_tok
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
         logMsg(LOG_ERR, "Failed to allocate port: %s\n", PQerrorMessage(conn));
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return 0;
     }
     
     if (PQntuples(res) == 0) {
         logMsg(LOG_WARNING, "No port allocated for device %s\n", device_id);
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return 0;
     }
     
@@ -837,7 +835,7 @@ uint16_t allocate_port_for_device(const char *device_id, const char *session_tok
     }
     
     PQclear(res);
-    pthread_mutex_unlock(&g_db_mutex);
+    db_unlock();
     
     return port;
 }
@@ -847,43 +845,44 @@ uint16_t allocate_port_for_device(const char *device_id, const char *session_tok
  */
 int update_device_heartbeat(const char *session_token)
 {
-    pthread_mutex_lock(&g_db_mutex);
+    db_lock();
     
     PGconn *conn = get_db_connection();
     if (!conn) {
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
-    
-    char query[512];
-    snprintf(query, sizeof(query),
-             "UPDATE device_sessions SET last_activity = NOW(), "
-             "expires_at = NOW() + INTERVAL '%d seconds' "
-             "WHERE session_token = '%s' AND status = 'active'",
-             g_config.session_timeout, session_token);
-    
-    PGresult *res = PQexec(conn, query);
-    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+
+    char timeout_str[16];
+    snprintf(timeout_str, sizeof(timeout_str), "%u", g_config.session_timeout);
+
+    const char *params[2] = { timeout_str, session_token };
+    PGresult *res = PQexecParams(conn,
+        "UPDATE device_sessions SET last_activity = NOW(), "
+        "expires_at = NOW() + ($1 || ' seconds')::interval "
+        "WHERE session_token = $2 AND status = 'active'",
+        2, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK || PQcmdTuples(res)[0] == '0') {
         logMsg(LOG_ERR, "Failed to update heartbeat: %s\n", PQerrorMessage(conn));
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
-    
-    // Also update device last_heartbeat
-    snprintf(query, sizeof(query),
-             "UPDATE devices SET last_heartbeat = NOW() "
-             "WHERE id = (SELECT device_id FROM device_sessions WHERE session_token = '%s')",
-             session_token);
-    
-    PGresult *res2 = PQexec(conn, query);
+    PQclear(res);
+
+    const char *dev_params[1] = { session_token };
+    PGresult *res2 = PQexecParams(conn,
+        "UPDATE devices SET last_heartbeat = NOW() "
+        "WHERE id = (SELECT device_id FROM device_sessions WHERE session_token = $1)",
+        1, NULL, dev_params, NULL, NULL, 0);
+
     if (PQresultStatus(res2) != PGRES_COMMAND_OK) {
         logMsg(LOG_ERR, "Failed to update device heartbeat: %s\n", PQerrorMessage(conn));
     }
     PQclear(res2);
-    
-    PQclear(res);
-    pthread_mutex_unlock(&g_db_mutex);
+
+    db_unlock();
     
     return 0;
 }
@@ -893,26 +892,28 @@ int update_device_heartbeat(const char *session_token)
  */
 int generate_session_token(const char *device_id, char *token, size_t token_len)
 {
-    if (!token || token_len < 64) {
+    if (!token || token_len < 32) {
         return -1;
     }
     
-    // Generate random token (in production, use cryptographically secure random)
     time_t now = time(NULL);
     unsigned int seed = (unsigned int)(now ^ (uintptr_t)device_id);
     
     const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     const size_t charset_size = sizeof(charset) - 1;
-    
-    for (size_t i = 0; i < token_len - 1; i++) {
-        token[i] = charset[rand_r(&seed) % charset_size];
+    const size_t random_len = token_len > 48 ? 32 : token_len / 2;
+
+    char random_part[64];
+    if (random_len >= sizeof(random_part)) {
+        return -1;
     }
-    token[token_len - 1] = '\0';
-    
-    // Add timestamp prefix for uniqueness
-    char temp[256];
-    snprintf(temp, sizeof(temp), "%lx-%s", (unsigned long)now, token);
-    strncpy(token, temp, token_len);
+
+    for (size_t i = 0; i < random_len; i++) {
+        random_part[i] = charset[rand_r(&seed) % charset_size];
+    }
+    random_part[random_len] = '\0';
+
+    snprintf(token, token_len, "%lx-%s", (unsigned long)now, random_part);
     
     return 0;
 }
@@ -931,7 +932,7 @@ void* cleanup_expired_sessions_thread(void *arg)
             break;
         }
         
-        pthread_mutex_lock(&g_db_mutex);
+        db_lock();
         
         PGconn *conn = get_db_connection();
         if (conn) {
@@ -947,7 +948,7 @@ void* cleanup_expired_sessions_thread(void *arg)
             PQclear(res);
         }
         
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
     }
     
     return NULL;
@@ -1058,11 +1059,11 @@ int get_session_by_token(const char *session_token, device_session_t *session)
         return -1;
     }
 
-    pthread_mutex_lock(&g_db_mutex);
+    db_lock();
 
     PGconn *conn = get_db_connection();
     if (!conn) {
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
@@ -1078,7 +1079,7 @@ int get_session_by_token(const char *session_token, device_session_t *session)
 
     if (PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0) {
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
@@ -1105,7 +1106,7 @@ int get_session_by_token(const char *session_token, device_session_t *session)
     }
 
     PQclear(res);
-    pthread_mutex_unlock(&g_db_mutex);
+    db_unlock();
     return 0;
 }
 
@@ -1118,11 +1119,11 @@ int update_device_statistics(const char *session_token,
         return -1;
     }
 
-    pthread_mutex_lock(&g_db_mutex);
+    db_lock();
 
     PGconn *conn = get_db_connection();
     if (!conn) {
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
@@ -1146,22 +1147,22 @@ int update_device_statistics(const char *session_token,
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         logMsg(LOG_ERR, "Failed to update device statistics: %s\n", PQerrorMessage(conn));
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
     PQclear(res);
-    pthread_mutex_unlock(&g_db_mutex);
+    db_unlock();
     return 0;
 }
 
 int free_device_port(uint16_t port)
 {
-    pthread_mutex_lock(&g_db_mutex);
+    db_lock();
 
     PGconn *conn = get_db_connection();
     if (!conn) {
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
@@ -1174,11 +1175,11 @@ int free_device_port(uint16_t port)
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
         logMsg(LOG_ERR, "Failed to free port %u: %s\n", port, PQerrorMessage(conn));
         PQclear(res);
-        pthread_mutex_unlock(&g_db_mutex);
+        db_unlock();
         return -1;
     }
 
     PQclear(res);
-    pthread_mutex_unlock(&g_db_mutex);
+    db_unlock();
     return 0;
 }

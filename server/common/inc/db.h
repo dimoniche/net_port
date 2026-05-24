@@ -8,6 +8,7 @@
 #include <libpq-fe.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <pthread.h>
 
 typedef struct _TDBConnectionData
 {
@@ -20,5 +21,7 @@ typedef struct _TDBConnectionData
 
 PGconn* get_db_connection(void);
 int16_t db_init(char* ip_addr, char* port, char* username, char* password);
+void db_lock(void);
+void db_unlock(void);
 
 #endif //CRYPT_SWITCHER_DB_H
