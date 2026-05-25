@@ -19,7 +19,9 @@ CREATE TABLE servers (
     enable BOOLEAN,
     enable_ssl BOOLEAN,
     enable_input_ssl BOOLEAN,
-    description TEXT
+    description TEXT,
+    CONSTRAINT servers_input_port_range CHECK (input_port IS NULL OR (input_port >= 5000 AND input_port <= 5999)),
+    CONSTRAINT servers_output_port_range CHECK (output_port IS NULL OR (output_port >= 5000 AND output_port <= 5999))
 );
 
 -- Default server disabled: ports 6000-7000 are reserved for dynamic device allocation

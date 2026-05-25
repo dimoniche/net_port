@@ -75,8 +75,8 @@ if [ "$USE_LOCAL_DB" = "true" ]; then
         echo "Device tables already exist, skipping init_device_db.sql."
     fi
 
-    # Legacy row used 6000/6001 and blocks device ports — disable if still enabled
-    su - postgres -c "psql -d net_port -c \"UPDATE servers SET enable=false WHERE input_port BETWEEN 6000 AND 7000;\"" 2>/dev/null || true
+    # Legacy rows in device port range — disable and move to placeholder ports
+    su - postgres -c "psql -d net_port -c \"UPDATE servers SET input_port=5998, output_port=5999, enable=false WHERE input_port BETWEEN 6000 AND 7000 OR output_port BETWEEN 6000 AND 7000;\"" 2>/dev/null || true
 else
     echo "Using external PostgreSQL at $DB_HOST:$DB_PORT, initializing database if needed."
     
@@ -141,7 +141,7 @@ else
         fi
 
         PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port \
-            -c "UPDATE servers SET enable=false WHERE input_port BETWEEN 6000 AND 7000;" 2>/dev/null || true
+            -c "UPDATE servers SET input_port=5998, output_port=5999, enable=false WHERE input_port BETWEEN 6000 AND 7000 OR output_port BETWEEN 6000 AND 7000;" 2>/dev/null || true
 
         # Ensure user has privileges
         echo "Ensuring user '$DB_USER' has proper privileges..."
@@ -172,6 +172,24 @@ apply_port_release_fix() {
     fi
 }
 apply_port_release_fix
+
+apply_server_port_separation() {
+    local fix=""
+    if [ -f /etc/postgresql/server_port_separation.sql ]; then
+        fix="/etc/postgresql/server_port_separation.sql"
+    elif [ -f /root/net_port/source/sql/server_port_separation.sql ]; then
+        fix="/root/net_port/source/sql/server_port_separation.sql"
+    else
+        return 0
+    fi
+    echo "Applying server/device port separation migration..."
+    if [ "$USE_LOCAL_DB" = "true" ]; then
+        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
+    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
+    fi
+}
+apply_server_port_separation
 
 # Add admin user with hashed password from environment
 cd /root/net_port/source/web/backend_net_port && bash -c "source $NVM_DIR/nvm.sh && NODE_PATH=/root/net_port/source/web/backend_net_port/node_modules node ../utils/add_test_user.js"
