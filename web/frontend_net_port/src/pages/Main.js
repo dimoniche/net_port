@@ -75,9 +75,88 @@ const Main = () => {
                         <b>--registration-server</b> — адрес сервера Net Port.
                         <br />
                         <b>--registration-port</b> — порт регистрации устройств (по умолчанию 8443).
-                        <br />
-                        <b>--port-host-base</b> — базовый внешний порт; фактические порты
-                        назначаются автоматически после регистрации.
+                    </Typography>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    <Typography variant="h6" gutterBottom>
+                        Порты и параметр --port-host-base
+                    </Typography>
+
+                    <Typography paragraph>
+                        После регистрации сервер назначает пару портов в диапазоне{" "}
+                        <b>6000–7000</b>. Для одного устройства, как правило:
+                    </Typography>
+
+                    <Box component="ul" sx={{ pl: 3, mt: 0, mb: 2 }}>
+                        <Typography component="li" paragraph sx={{ mb: 0.5 }}>
+                            <b>Входящий порт</b> (например, 6000) — к нему подключается
+                            пользователь снаружи (SSH, другой TCP-сервис).
+                        </Typography>
+                        <Typography component="li" paragraph>
+                            <b>Туннельный порт</b> (например, 6001) — к нему подключается
+                            клиент на устройстве и держит обратный канал.
+                        </Typography>
+                    </Box>
+
+                    <Typography paragraph>
+                        Параметр <b>--port-host-base</b> нужен, когда внутренние порты сервера
+                        (6000, 6001, …) снаружи хоста опубликованы под другими номерами.
+                        Типичный случай — Docker: в <code>docker-compose.yml</code> проброс{" "}
+                        <code>49000-49099:6000-6099</code> означает, что снаружи доступны
+                        49000 вместо 6000, 49001 вместо 6001 и т.д.
+                    </Typography>
+
+                    <Typography paragraph>
+                        Клиент, запущенный <b>вне контейнера</b>, не может подключиться к{" "}
+                        <code>SERVER_IP:6001</code>, если с хоста открыт только{" "}
+                        <code>49001</code>. С <code>--port-host-base 49000</code> клиент
+                        сам переводит внутренний порт в опубликованный:
+                    </Typography>
+
+                    <Box
+                        component="pre"
+                        sx={{
+                            p: 2,
+                            bgcolor: "grey.100",
+                            borderRadius: 1,
+                            overflowX: "auto",
+                            fontFamily: "monospace",
+                            fontSize: "0.875rem",
+                            m: 0,
+                        }}
+                    >
+{`внешний_порт = port-host-base + (внутренний_порт - 6000)
+
+Пример: туннель 6001 → 49000 + (6001 - 6000) = 49001
+        входящий 6000 → 49000 + (6000 - 6000) = 49000`}
+                    </Box>
+
+                    <Typography paragraph sx={{ mt: 2 }}>
+                        <b>Кто куда подключается:</b>
+                    </Typography>
+
+                    <Box
+                        component="pre"
+                        sx={{
+                            p: 2,
+                            bgcolor: "grey.100",
+                            borderRadius: 1,
+                            overflowX: "auto",
+                            fontFamily: "monospace",
+                            fontSize: "0.875rem",
+                            m: 0,
+                        }}
+                    >
+{`[Пользователь / SSH]  →  SERVER:49000  →  сервер:6000  →  туннель  →  устройство:22
+[Клиент на устройстве]  →  SERVER:49001  →  сервер:6001  (держит туннель открытым)`}
+                    </Box>
+
+                    <Typography paragraph sx={{ mt: 2 }}>
+                        <b>Когда --port-host-base не нужен:</b> клиент запущен на том же хосте,
+                        где слушают порты 6000/6001 напрямую, или эти порты доступны с машины
+                        клиента без проброса (без Docker/NAT). Тогда клиент использует порты
+                        из ответа регистрации как есть.
                     </Typography>
 
                     <Divider sx={{ my: 2 }} />

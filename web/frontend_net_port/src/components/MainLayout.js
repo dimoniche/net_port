@@ -28,8 +28,104 @@ import NewUserSettingsData from "../pages/UsersSettings/NewUserSettingsData";
 
 import { Can } from "./Abilities";
 import updateAbility from "../config/permission";
+import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
+import OverviewStatsModal from "./OverviewStatsModal";
+import { formatBytes, formatSpeed } from "../utils/statsFormat";
 
 import logo from "../assets/netport-120-120.png";
+
+const computeHeaderSummary = (statistics, devices, servers) => {
+    const activeServers = (servers || []).filter((server) => server.enable).length;
+    const deviceList = devices || [];
+    const onlineDevices = deviceList.filter((device) => device.online).length;
+    const activeConnections = deviceList.reduce(
+        (sum, device) => sum + (Number(device.active_connections) || 0),
+        0
+    );
+
+    const serverReceived = (statistics || []).reduce(
+        (sum, stat) => sum + (parseInt(stat.bytes_received, 10) || 0),
+        0
+    );
+    const serverSent = (statistics || []).reduce(
+        (sum, stat) => sum + (parseInt(stat.bytes_sent, 10) || 0),
+        0
+    );
+    const deviceReceived = deviceList.reduce(
+        (sum, device) => sum + (Number(device.bytes_received) || 0),
+        0
+    );
+    const deviceSent = deviceList.reduce(
+        (sum, device) => sum + (Number(device.bytes_sent) || 0),
+        0
+    );
+
+    const serverReceiveSpeed = (statistics || []).reduce(
+        (sum, stat) => sum + (parseFloat(stat.avg_receive_speed) || 0),
+        0
+    );
+    const serverSendSpeed = (statistics || []).reduce(
+        (sum, stat) => sum + (parseFloat(stat.avg_send_speed) || 0),
+        0
+    );
+    const deviceReceiveSpeed = deviceList.reduce(
+        (sum, device) => sum + (Number(device.avg_receive_speed) || 0),
+        0
+    );
+    const deviceSendSpeed = deviceList.reduce(
+        (sum, device) => sum + (Number(device.avg_send_speed) || 0),
+        0
+    );
+
+    return {
+        activeServers,
+        totalDevices: deviceList.length,
+        onlineDevices,
+        activeConnections,
+        totalBytes: {
+            received: serverReceived + deviceReceived,
+            sent: serverSent + deviceSent,
+        },
+        totalSpeed: {
+            receive: serverReceiveSpeed + deviceReceiveSpeed,
+            send: serverSendSpeed + deviceSendSpeed,
+        },
+    };
+};
+
+const mergeServerStatistics = (current, updatedStat) => {
+    if (!updatedStat?.server_id) {
+        return current;
+    }
+
+    const index = current.findIndex(
+        (item) => Number(item.server_id) === Number(updatedStat.server_id)
+    );
+
+    if (index === -1) {
+        return [...current, updatedStat];
+    }
+
+    const next = [...current];
+    next[index] = { ...next[index], ...updatedStat };
+    return next;
+};
+
+const mergeDeviceStatistics = (current, updatedDevice) => {
+    if (!updatedDevice?.id) {
+        return current;
+    }
+
+    const index = current.findIndex((item) => item.id === updatedDevice.id);
+
+    if (index === -1) {
+        return [...current, updatedDevice];
+    }
+
+    const next = [...current];
+    next[index] = { ...next[index], ...updatedDevice };
+    return next;
+};
 
 const style = {
     position: "absolute",
@@ -75,10 +171,18 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
 
     // Statistics state
     const [statisticsData, setStatisticsData] = useState([]);
+    const [deviceStatisticsData, setDeviceStatisticsData] = useState([]);
     const [serversData, setServersData] = useState([]);
-    const [activeServersCount, setActiveServersCount] = useState(0);
-    const [totalBytes, setTotalBytes] = useState({ received: 0, sent: 0 });
-    const [totalSpeed, setTotalSpeed] = useState({ receive: 0, send: 0 });
+    const [headerSummary, setHeaderSummary] = useState({
+        activeServers: 0,
+        totalDevices: 0,
+        onlineDevices: 0,
+        activeConnections: 0,
+        totalBytes: { received: 0, sent: 0 },
+        totalSpeed: { receive: 0, send: 0 },
+    });
+    const [overviewModalOpen, setOverviewModalOpen] = useState(false);
+    const [overviewFocus, setOverviewFocus] = useState("overview");
 
     const handleLogout = () => {
         removeCookie("token");
@@ -108,59 +212,65 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
         setOpenLogin(true);
     };
 
-    // Функция для форматирования байтов в читаемый формат
-    const formatBytes = (bytes) => {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    const openOverviewModal = (focus) => {
+        setOverviewFocus(focus);
+        setOverviewModalOpen(true);
     };
 
-    // Функция для форматирования скорости в читаемый формат
-    const formatSpeed = (speed) => {
-        if (speed === null || speed === undefined || isNaN(speed) || speed === 0) return '-';
-        
-        const speedNum = typeof speed === 'string' ? parseFloat(speed) : speed;
-        if (speedNum < 1) return '-';
-        
-        const k = 1024;
-        const sizes = ['Bytes/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
-        const i = Math.floor(Math.log(speedNum) / Math.log(k));
-        return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    const statChipSx = {
+        cursor: "pointer",
+        px: 0.75,
+        py: 0.25,
+        borderRadius: 1,
+        "&:hover": {
+            backgroundColor: "rgba(255, 255, 255, 0.12)",
+        },
     };
+
+    const handleServerStatisticsUpdate = useCallback((updatedStat) => {
+        setStatisticsData((prev) => mergeServerStatistics(prev, updatedStat));
+    }, []);
+
+    const handleDeviceStatisticsUpdate = useCallback((updatedDevice) => {
+        setDeviceStatisticsData((prev) => mergeDeviceStatistics(prev, updatedDevice));
+    }, []);
+
+    useRealtimeSocket({
+        token: cookies.token,
+        enabled: Boolean(cookies.user),
+        handlers: {
+            "statistics:server-updated": handleServerStatisticsUpdate,
+            "statistics:device-updated": handleDeviceStatisticsUpdate,
+        },
+    });
+
+    useEffect(() => {
+        setHeaderSummary(
+            computeHeaderSummary(statisticsData, deviceStatisticsData, serversData)
+        );
+    }, [statisticsData, deviceStatisticsData, serversData]);
 
     // Fetch statistics and servers data
     const fetchStatisticsData = useCallback(async () => {
         if (!cookies.user) return;
 
         try {
-            // Fetch statistics data
-            const statistics = await api.get(`/statistics`);
-            
-            // Fetch servers data to get enable status
-            const servers = await api.get(`/servers`);
+            const [statistics, servers, deviceStatistics] = await Promise.all([
+                api.get(`/statistics`),
+                api.get(`/servers`),
+                api.get(`/devices/statistics/summary`),
+            ]);
 
             if (statistics.status === 200) {
                 setStatisticsData(statistics.data);
-                
-                // Calculate total bytes
-                const totalReceived = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_received) || 0), 0);
-                const totalSent = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_sent) || 0), 0);
-                setTotalBytes({ received: totalReceived, sent: totalSent });
-                
-                // Calculate total speed
-                const totalReceiveSpeed = statistics.data.reduce((sum, stat) => sum + (parseFloat(stat.avg_receive_speed) || 0), 0);
-                const totalSendSpeed = statistics.data.reduce((sum, stat) => sum + (parseFloat(stat.avg_send_speed) || 0), 0);
-                setTotalSpeed({ receive: totalReceiveSpeed, send: totalSendSpeed });
             }
 
             if (servers.status === 200) {
                 setServersData(servers.data);
-                
-                // Count active servers (enabled servers)
-                const activeCount = servers.data.filter(server => server.enable).length;
-                setActiveServersCount(activeCount);
+            }
+
+            if (deviceStatistics.status === 200) {
+                setDeviceStatisticsData(deviceStatistics.data);
             }
         } catch (err) {
             console.error("Error fetching statistics data:", err);
@@ -209,21 +319,67 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                             
                             {/* Statistics Info */}
                             {cookies.user && (
-                                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-                                    <Typography variant="body2" sx={{ mr: 2 }}>
-                                        Серверов: {activeServersCount}
+                                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2, flexWrap: 'wrap', gap: 0.5 }}>
+                                    <Typography
+                                        variant="body2"
+                                        sx={statChipSx}
+                                        onClick={() => openOverviewModal("overview")}
+                                        title="Показать общую статистику"
+                                    >
+                                        Серверов: {headerSummary.activeServers}
                                     </Typography>
-                                    <Typography variant="body2" sx={{ mr: 2 }}>
-                                        Получено: {formatBytes(totalBytes.received)}
+                                    <Typography
+                                        variant="body2"
+                                        sx={statChipSx}
+                                        onClick={() => openOverviewModal("connections")}
+                                        title="Показать график устройств и соединений"
+                                    >
+                                        Устройств: {headerSummary.totalDevices}
+                                        {headerSummary.onlineDevices > 0
+                                            ? ` (online: ${headerSummary.onlineDevices})`
+                                            : ""}
                                     </Typography>
-                                    <Typography variant="body2" sx={{ mr: 2 }}>
-                                        Отправлено: {formatBytes(totalBytes.sent)}
+                                    {headerSummary.activeConnections > 0 && (
+                                        <Typography
+                                            variant="body2"
+                                            sx={statChipSx}
+                                            onClick={() => openOverviewModal("connections")}
+                                            title="Показать график соединений"
+                                        >
+                                            Соединений: {headerSummary.activeConnections}
+                                        </Typography>
+                                    )}
+                                    <Typography
+                                        variant="body2"
+                                        sx={statChipSx}
+                                        onClick={() => openOverviewModal("traffic")}
+                                        title="Показать график трафика"
+                                    >
+                                        Получено: {formatBytes(headerSummary.totalBytes.received)}
                                     </Typography>
-                                    <Typography variant="body2" sx={{ mr: 2 }}>
-                                        Прием: {formatSpeed(totalSpeed.receive)}
+                                    <Typography
+                                        variant="body2"
+                                        sx={statChipSx}
+                                        onClick={() => openOverviewModal("traffic")}
+                                        title="Показать график трафика"
+                                    >
+                                        Отправлено: {formatBytes(headerSummary.totalBytes.sent)}
                                     </Typography>
-                                    <Typography variant="body2">
-                                        Передача: {formatSpeed(totalSpeed.send)}
+                                    <Typography
+                                        variant="body2"
+                                        sx={statChipSx}
+                                        onClick={() => openOverviewModal("traffic")}
+                                        title="Показать график скорости"
+                                    >
+                                        Прием: {formatSpeed(headerSummary.totalSpeed.receive)}
+                                    </Typography>
+                                    <Typography
+                                        variant="body2"
+                                        sx={statChipSx}
+                                        onClick={() => openOverviewModal("traffic")}
+                                        title="Показать график скорости"
+                                    >
+                                        Передача: {formatSpeed(headerSummary.totalSpeed.send)}
                                     </Typography>
                                 </Box>
                             )}
@@ -419,6 +575,15 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                     />
                 </Box>
             </Modal>
+            <OverviewStatsModal
+                open={overviewModalOpen}
+                onClose={() => setOverviewModalOpen(false)}
+                focus={overviewFocus}
+                headerSummary={headerSummary}
+                statisticsData={statisticsData}
+                deviceStatisticsData={deviceStatisticsData}
+                serversData={serversData}
+            />
         </React.Fragment>
     );
 }
