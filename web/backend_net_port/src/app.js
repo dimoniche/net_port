@@ -14,8 +14,10 @@ const services = require('./services');
 const appHooks = require('./app.hooks');
 
 const authentication = require('./authentication');
+const socketio = require('@feathersjs/socketio');
 
 const knex = require('./knex');
+const configureChannels = require('./channels');
 
 const app = express(feathers());
 const path = require('path');
@@ -121,11 +123,20 @@ if (sslCertPath) {
 
 // Set up Plugins and providers
 app.configure(express.rest());
+app.configure(
+  socketio({
+    cors: {
+      origin: true,
+      methods: ['GET', 'POST']
+    }
+  })
+);
 
 app.configure(knex);
 
 app.configure(authentication);
 app.configure(services);
+app.configure(configureChannels);
 
 // Configure a middleware for 404s and the error handler
 app.use(express.notFound());

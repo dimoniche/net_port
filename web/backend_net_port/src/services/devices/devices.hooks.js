@@ -1,5 +1,9 @@
 // Device service hooks
 const { authenticate } = require('@feathersjs/authentication').hooks;
+const {
+  emitDeviceRemoved,
+  broadcastDeviceById
+} = require('./device-events');
 
 // Validation schema
 const deviceSchema = {
@@ -139,11 +143,10 @@ module.exports = {
       async context => {
         const { user } = context.params;
         const { id } = context;
+        const knex = context.app.get('db');
+        const device = await knex('devices').where({ id }).first();
         
         if (user && user.role !== 'admin') {
-          const knex = context.app.get('db');
-          const device = await knex('devices').where({ id }).first();
-          
           if (!device) {
             throw new Error('Device not found');
           }
@@ -152,6 +155,8 @@ module.exports = {
             throw new Error('Permission denied');
           }
         }
+
+        context.params._removedDevice = device;
         
         return context;
       }
@@ -186,10 +191,38 @@ module.exports = {
         return context;
       }
     ],
-    create: [],
-    update: [],
-    patch: [],
-    remove: []
+    create: [
+      async context => {
+        if (context.result?.id) {
+          await broadcastDeviceById(context.app, context.result.id);
+        }
+        return context;
+      }
+    ],
+    update: [
+      async context => {
+        if (context.result?.id) {
+          await broadcastDeviceById(context.app, context.result.id);
+        }
+        return context;
+      }
+    ],
+    patch: [
+      async context => {
+        if (context.result?.id) {
+          await broadcastDeviceById(context.app, context.result.id);
+        }
+        return context;
+      }
+    ],
+    remove: [
+      async context => {
+        if (context.params._removedDevice) {
+          emitDeviceRemoved(context.app, context.params._removedDevice);
+        }
+        return context;
+      }
+    ]
   },
   error: {
     all: [

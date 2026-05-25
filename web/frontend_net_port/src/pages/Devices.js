@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import isEmpty from "lodash/isEmpty";
 import { useCookies } from "react-cookie";
@@ -39,6 +39,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 
 import { Loader } from "../components/Loader";
 import CommonDialog from "../components/CommonDialog";
+import { useDeviceStatusSocket } from "../hooks/useDeviceStatusSocket";
 
 import updateAbility from "../config/permission";
 
@@ -83,9 +84,42 @@ const Devices = ({ children, ...rest }) => {
     const [deviceToDelete, setDeviceToDelete] = useState(null);
 
     const [error, setError] = useState(null);
+    const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
     if (error) {
         throw error;
     }
+
+    const mergeDeviceUpdate = useCallback((updatedDevice) => {
+        if (!updatedDevice?.id) {
+            return;
+        }
+
+        setDevicesData((prev) => {
+            const index = prev.findIndex((item) => item.id === updatedDevice.id);
+            if (index === -1) {
+                return [...prev, updatedDevice];
+            }
+
+            const next = [...prev];
+            next[index] = { ...next[index], ...updatedDevice };
+            return next;
+        });
+    }, []);
+
+    const removeDeviceFromList = useCallback((removedDevice) => {
+        if (!removedDevice?.id) {
+            return;
+        }
+
+        setDevicesData((prev) => prev.filter((item) => item.id !== removedDevice.id));
+    }, []);
+
+    useDeviceStatusSocket({
+        token: cookies.token,
+        enabled: liveUpdatesEnabled && !isEmpty(cookies.user),
+        onDeviceUpdated: mergeDeviceUpdate,
+        onDeviceRemoved: removeDeviceFromList,
+    });
 
     const fetchDevices = async (abortController) => {
         let response_error = false;
@@ -145,14 +179,8 @@ const Devices = ({ children, ...rest }) => {
         const abortController = new AbortController();
         fetchDevices(abortController);
 
-        // Poll for updates every 10 seconds
-        const interval = setInterval(() => {
-            fetchDevices();
-        }, 10000);
-
         return () => {
             abortController.abort();
-            clearInterval(interval);
         };
     }, []);
 
@@ -278,6 +306,20 @@ const Devices = ({ children, ...rest }) => {
                         <FormControlLabel
                             control={
                                 <Switch
+                                    checked={liveUpdatesEnabled}
+                                    onChange={(event) => setLiveUpdatesEnabled(event.target.checked)}
+                                    color="primary"
+                                />
+                            }
+                            label={
+                                <Typography variant="body2">
+                                    Live-статусы: {liveUpdatesEnabled ? "ВКЛ" : "ВЫКЛ"}
+                                </Typography>
+                            }
+                        />
+                        <FormControlLabel
+                            control={
+                                <Switch
                                     checked={autoConnectEnabled}
                                     onChange={handleAutoConnectToggle}
                                     color="primary"
@@ -305,6 +347,7 @@ const Devices = ({ children, ...rest }) => {
                             Статус авто-подключения
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
+                            Статусы устройств обновляются в реальном времени через WebSocket.
                             При включенном авто-подключении система автоматически пытается
                             восстановить соединение с устройствами при потере связи.
                             {autoConnectEnabled

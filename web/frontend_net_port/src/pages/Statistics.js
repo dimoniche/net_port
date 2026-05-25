@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import isEmpty from "lodash/isEmpty";
 import { useCookies } from "react-cookie";
@@ -24,6 +24,7 @@ import IconButton from "@mui/material/IconButton";
 import { Loader } from "../components/Loader";
 import ServerStatsModal from "../components/ServerStatsModal";
 import DeviceStatsModal from "../components/DeviceStatsModal";
+import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
 
 const Statistics = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
@@ -39,12 +40,62 @@ const Statistics = ({ children, ...rest }) => {
     const [modalOpen, setModalOpen] = useState(false);
     const [deviceModalOpen, setDeviceModalOpen] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
     const history = useNavigate();
 
     const [error, setError] = useState(null);
     if (error) {
         throw error;
     }
+
+    const mergeServerStatistics = useCallback((updatedStat) => {
+        if (!updatedStat?.server_id) {
+            return;
+        }
+
+        setStatisticsData((prev) => {
+            const index = prev.findIndex(
+                (item) => Number(item.server_id) === Number(updatedStat.server_id)
+            );
+
+            if (index === -1) {
+                return [...prev, updatedStat];
+            }
+
+            const next = [...prev];
+            next[index] = { ...next[index], ...updatedStat };
+            return next;
+        });
+    }, []);
+
+    const mergeDeviceStatistics = useCallback((updatedDevice) => {
+        if (!updatedDevice?.id) {
+            return;
+        }
+
+        setDeviceStatisticsData((prev) => {
+            const index = prev.findIndex((item) => item.id === updatedDevice.id);
+
+            if (index === -1) {
+                return [...prev, updatedDevice];
+            }
+
+            const next = [...prev];
+            next[index] = { ...next[index], ...updatedDevice };
+            return next;
+        });
+    }, []);
+
+    const realtimeHandlers = useMemo(() => ({
+        'statistics:server-updated': mergeServerStatistics,
+        'statistics:device-updated': mergeDeviceStatistics,
+    }), [mergeServerStatistics, mergeDeviceStatistics]);
+
+    useRealtimeSocket({
+        token: cookies.token,
+        enabled: liveUpdatesEnabled && !isEmpty(cookies.user),
+        handlers: realtimeHandlers,
+    });
 
     const fetchServerStatistics = async () => {
         const statistics = await api.get(`/statistics`);
@@ -209,9 +260,16 @@ const Statistics = ({ children, ...rest }) => {
                             startIcon={<RefreshIcon />}
                             onClick={fetchData}
                             disabled={isRefreshing}
+                            sx={{ mr: 1 }}
                         >
                             {isRefreshing ? "Обновление..." : "Обновить"}
                         </Button>
+                        <Chip
+                            label={liveUpdatesEnabled ? "Live: ВКЛ" : "Live: ВЫКЛ"}
+                            color={liveUpdatesEnabled ? "success" : "default"}
+                            onClick={() => setLiveUpdatesEnabled((value) => !value)}
+                            sx={{ cursor: "pointer" }}
+                        />
                     </Box>
 
                     <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 2 }}>

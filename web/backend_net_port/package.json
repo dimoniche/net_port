@@ -44,6 +44,7 @@
         "@feathersjs/errors": "^5.0.24",
         "@feathersjs/express": "^5.0.24",
         "@feathersjs/feathers": "^5.0.24",
+        "@feathersjs/socketio": "^5.0.44",
         "@feathersjs/transport-commons": "^5.0.24",
         "child_process": "^1.0.2",
         "compression": "^1.7.4",

@@ -3,6 +3,10 @@ const { Service } = require('feathers-knex');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const net = require('net');
+const {
+  enrichDeviceWithOnline,
+  broadcastDeviceById
+} = require('./device-events');
 
 function isAdminUser(user) {
   return user?.role === 'admin' || user?.role_name === 'admin';
@@ -120,12 +124,13 @@ function formatSamplesForChart(samples, timeRange) {
 }
 
 exports.Devices = class Devices extends Service {
-  constructor(options) {
+  constructor(options, app) {
     super({
       ...options,
       name: 'devices',
       table: 'devices'
     });
+    this.app = app;
   }
 
   async find(params) {
@@ -190,21 +195,7 @@ exports.Devices = class Devices extends Service {
     const devices = await knexQuery;
     
     // Calculate connectivity status
-    const result = devices.map(device => {
-      const deviceObj = { ...device };
-      
-      // Determine if device is online (heartbeat within last 2 minutes)
-      if (device.last_heartbeat) {
-        const lastHeartbeat = new Date(device.last_heartbeat);
-        const now = new Date();
-        const diffMinutes = (now - lastHeartbeat) / (1000 * 60);
-        deviceObj.online = diffMinutes < 2;
-      } else {
-        deviceObj.online = false;
-      }
-      
-      return deviceObj;
-    });
+    const result = devices.map(device => enrichDeviceWithOnline(device));
     
     // Get total count for pagination
     const countQuery = this.Model('devices').count('* as count');
@@ -272,17 +263,7 @@ exports.Devices = class Devices extends Service {
       };
     }
     
-    // Determine if device is online
-    if (device.last_heartbeat) {
-      const lastHeartbeat = new Date(device.last_heartbeat);
-      const now = new Date();
-      const diffMinutes = (now - lastHeartbeat) / (1000 * 60);
-      device.online = diffMinutes < 2;
-    } else {
-      device.online = false;
-    }
-    
-    return device;
+    return enrichDeviceWithOnline(device);
   }
 
   async create(data, params) {
@@ -435,13 +416,16 @@ exports.Devices = class Devices extends Service {
       status: 'connecting',
       updated_at: new Date()
     });
+
+    const updatedDevice = await broadcastDeviceById(this.app, id);
     
     return {
       message: 'Device enabled for connection. Start the client with device credentials.',
       device_id: device.device_id,
       status: 'connecting',
       control_port: 8443,
-      port_range: '6000-7000'
+      port_range: '6000-7000',
+      device: updatedDevice
     };
   }
 
@@ -491,11 +475,14 @@ exports.Devices = class Devices extends Service {
         await knex.raw('SELECT free_device_port_pair(?)', [session.assigned_port]);
       }
     }
+
+    const updatedDevice = await broadcastDeviceById(this.app, id);
     
     return {
       message: 'Device disconnected',
       device_id: device.device_id,
-      status: 'inactive'
+      status: 'inactive',
+      device: updatedDevice
     };
   }
 
@@ -579,10 +566,9 @@ exports.Devices = class Devices extends Service {
     }
   }
 
-  async getStatisticsSummary(params = {}) {
-    const { user } = params;
+  async buildDeviceStatisticsSummaryRows(options = {}) {
+    const { deviceIds, userId } = options;
     const knex = this.Model;
-    const isAdmin = user?.role === 'admin' || user?.role_name === 'admin';
 
     const latestSessions = knex('device_sessions')
       .select(knex.raw(
@@ -600,6 +586,7 @@ exports.Devices = class Devices extends Service {
         'devices.device_id',
         'devices.name',
         'devices.status',
+        'devices.user_id',
         'devices.last_heartbeat',
         'devices.assigned_port',
         'device_sessions.assigned_port as session_port',
@@ -611,13 +598,18 @@ exports.Devices = class Devices extends Service {
       .leftJoin(latestSessions, 'devices.id', 'device_sessions.device_id')
       .orderBy('devices.device_id', 'asc');
 
-    if (!isAdmin && user?.id) {
-      query = query.where('devices.user_id', user.id);
+    if (deviceIds?.length) {
+      query = query.whereIn('devices.id', deviceIds);
+    }
+
+    if (userId) {
+      query = query.where('devices.user_id', userId);
     }
 
     const devices = await query;
+    const resolvedDeviceIds = devices.map((device) => device.id);
 
-    const hourlyTotals = await knex('device_statistics')
+    let hourlyQuery = knex('device_statistics')
       .select('device_id')
       .sum('bytes_sent as total_bytes_sent')
       .sum('bytes_received as total_bytes_received')
@@ -625,16 +617,22 @@ exports.Devices = class Devices extends Service {
       .where('period_start', '>=', knex.raw("date_trunc('hour', NOW())"))
       .groupBy('device_id');
 
+    if (resolvedDeviceIds.length > 0) {
+      hourlyQuery = hourlyQuery.whereIn('device_id', resolvedDeviceIds);
+    } else {
+      hourlyQuery = hourlyQuery.whereRaw('1 = 0');
+    }
+
+    const hourlyRows = await hourlyQuery;
     const hourlyMap = {};
-    hourlyTotals.forEach((row) => {
+    hourlyRows.forEach((row) => {
       hourlyMap[row.device_id] = row;
     });
 
-    const deviceIds = devices.map((device) => device.id);
     let recentSamples = [];
-    if (deviceIds.length > 0) {
+    if (resolvedDeviceIds.length > 0) {
       recentSamples = await knex('device_traffic_samples')
-        .whereIn('device_id', deviceIds)
+        .whereIn('device_id', resolvedDeviceIds)
         .where('recorded_at', '>=', knex.raw("NOW() - interval '10 minutes'"))
         .orderBy('recorded_at', 'asc');
     }
@@ -669,6 +667,22 @@ exports.Devices = class Devices extends Service {
         last_activity: device.last_activity || device.last_heartbeat
       };
     });
+  }
+
+  async getStatisticsSummary(params = {}) {
+    const { user } = params;
+    const isAdmin = user?.role === 'admin' || user?.role_name === 'admin';
+
+    return this.buildDeviceStatisticsSummaryRows({
+      userId: !isAdmin && user?.id ? user.id : null
+    });
+  }
+
+  async getDeviceStatisticsSummaryRow(deviceId) {
+    const rows = await this.buildDeviceStatisticsSummaryRows({
+      deviceIds: [deviceId]
+    });
+    return rows[0] || null;
   }
 
   async getDeviceStatistics(deviceKey, params = {}) {
