@@ -1,6 +1,9 @@
 services:
   net_port:
-    image: docker.io/library/net_port:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: net_port:latest
     container_name: net_port_app
     ports:
       - "13080:80"

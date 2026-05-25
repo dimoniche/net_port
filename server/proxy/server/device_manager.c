@@ -1397,6 +1397,12 @@ int terminate_device_by_device_id(const char *device_id)
         return -1;
     }
 
+    enum { MAX_PORTS_TO_STOP = 8 };
+    uint16_t ports_to_stop[MAX_PORTS_TO_STOP];
+    int ports_to_stop_count = 0;
+    int session_count = 0;
+    bool stop_without_ports = false;
+
     db_lock();
 
     PGconn *conn = get_db_connection();
@@ -1420,21 +1426,38 @@ int terminate_device_by_device_id(const char *device_id)
         return -1;
     }
 
-    int session_count = PQntuples(res);
+    session_count = PQntuples(res);
     for (int i = 0; i < session_count; i++) {
         char *assigned_port_str = PQgetvalue(res, i, 1);
         uint16_t assigned_port = assigned_port_str ? (uint16_t)atoi(assigned_port_str) : 0;
 
-        if (assigned_port != 0) {
-            stop_dynamic_server_for_device(device_id, assigned_port, (uint16_t)(assigned_port + 1));
+        if (assigned_port != 0 && ports_to_stop_count < MAX_PORTS_TO_STOP) {
+            ports_to_stop[ports_to_stop_count++] = assigned_port;
         }
     }
 
     if (session_count == 0) {
-        stop_dynamic_server_for_device(device_id, 0, 0);
+        stop_without_ports = true;
     }
 
     PQclear(res);
+    db_unlock();
+
+    for (int i = 0; i < ports_to_stop_count; i++) {
+        uint16_t assigned_port = ports_to_stop[i];
+        stop_dynamic_server_for_device(device_id, assigned_port, (uint16_t)(assigned_port + 1));
+    }
+
+    if (stop_without_ports) {
+        stop_dynamic_server_for_device(device_id, 0, 0);
+    }
+
+    db_lock();
+    conn = get_db_connection();
+    if (!conn) {
+        db_unlock();
+        return -1;
+    }
 
     res = PQexecParams(conn,
         "UPDATE device_sessions SET status = 'terminated', expires_at = NOW() "

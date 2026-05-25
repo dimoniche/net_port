@@ -250,11 +250,30 @@ terminate() {
 trap terminate SIGTERM SIGINT
 
 # Function to start server with restart loop
+resolve_server_binary() {
+    if [ -n "${NET_PORT_SERVER_BIN:-}" ] && [ -x "${NET_PORT_SERVER_BIN}" ]; then
+        echo "${NET_PORT_SERVER_BIN}"
+        return 0
+    fi
+
+    cd /root/net_port
+    if [ -x ./module_net_port_server-0.0.4 ]; then
+        echo ./module_net_port_server-0.0.4
+    elif [ -x ./module_net_port_server ]; then
+        echo ./module_net_port_server
+    else
+        echo "ERROR: net_port server binary not found in /root/net_port" >&2
+        return 1
+    fi
+}
+
 start_server() {
     while true; do
         echo "Starting net_port server..."
         cd /root/net_port
-        ./module_net_port_server* --user 1 -v7 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443 &
+        SERVER_BIN="$(resolve_server_binary)" || exit 1
+        echo "Using server binary: ${SERVER_BIN}"
+        "${SERVER_BIN}" --user 1 -v7 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443 &
         server_pid=$!
         wait $server_pid || true
         server_exit_code=$?
