@@ -4,6 +4,7 @@
 
 #include "proxy_client.h"
 #include "device_heartbeat.h"
+#include "proxy_client_device_integration.h"
 #include "logMsg.h"
 #include "time_utils.h"
 #include "hal_time.h"
@@ -20,6 +21,9 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <jansson.h>
+
+extern int device_register_until_allowed(void);
+extern int reconnect_device(void);
 
 // Heartbeat manager state
 static heartbeat_manager_t g_heartbeat_manager;
@@ -46,6 +50,7 @@ int heartbeat_manager_init(const heartbeat_config_t *config)
     g_heartbeat_manager.last_received = 0;
     g_heartbeat_manager.fail_count = 0;
     g_heartbeat_manager.reconnect_attempts = 0;
+    g_heartbeat_manager.allow_reconnect = true;
     
     pthread_mutex_unlock(&g_heartbeat_mutex);
     
@@ -117,6 +122,11 @@ void* heartbeat_thread_func(void *arg)
     logMsg(LOG_DEBUG, "Heartbeat thread started\n");
     
     while (g_heartbeat_running) {
+        if (device_session_is_revoked()) {
+            sleep(1);
+            continue;
+        }
+
         pthread_mutex_lock(&g_heartbeat_mutex);
         
         time_t now = time(NULL);
@@ -124,7 +134,8 @@ void* heartbeat_thread_func(void *arg)
         
         // Check if it's time to send heartbeat
         if (now >= next_heartbeat) {
-            if (send_heartbeat() == 0) {
+            int heartbeat_result = send_heartbeat();
+            if (heartbeat_result == HEARTBEAT_SEND_OK) {
                 g_heartbeat_manager.last_sent = now;
                 g_heartbeat_manager.fail_count = 0;
                 g_heartbeat_manager.status = HEARTBEAT_STATUS_CONNECTED;
@@ -135,23 +146,18 @@ void* heartbeat_thread_func(void *arg)
                            g_heartbeat_manager.reconnect_attempts);
                     g_heartbeat_manager.reconnect_attempts = 0;
                 }
+            } else if (heartbeat_result == HEARTBEAT_SEND_SESSION_TERMINATED) {
+                g_heartbeat_manager.status = HEARTBEAT_STATUS_DISCONNECTED;
             } else {
                 g_heartbeat_manager.fail_count++;
                 g_heartbeat_manager.status = HEARTBEAT_STATUS_DISCONNECTED;
                 
-                // Check if we've exceeded failure threshold
-                if (g_heartbeat_manager.fail_count >= g_heartbeat_manager.config.max_failures) {
-                    logMsg(LOG_WARNING, "Heartbeat failed %d times, attempting reconnect\n",
+                if (!device_session_is_revoked() &&
+                    g_heartbeat_manager.fail_count >= g_heartbeat_manager.config.max_failures) {
+                    logMsg(LOG_WARNING, "Heartbeat failed %d times, waiting for registration permission\n",
                            g_heartbeat_manager.fail_count);
-                    
-                    // Try to reconnect
-                    if (reconnect_to_server() == 0) {
-                        g_heartbeat_manager.reconnect_attempts++;
-                        g_heartbeat_manager.fail_count = 0;
-                    } else {
-                        logMsg(LOG_ERR, "Reconnect attempt %d failed\n",
-                               g_heartbeat_manager.reconnect_attempts);
-                    }
+                    device_start_registration_wait();
+                    g_heartbeat_manager.fail_count = 0;
                 }
             }
         }
@@ -252,6 +258,8 @@ int send_heartbeat(void)
     // Add statistics if available
     json_t *stats = json_object();
     json_object_set_new(stats, "connections", json_integer(get_active_connections_count()));
+    json_object_set_new(stats, "bytes_sent", json_integer(get_bytes_sent_since_last()));
+    json_object_set_new(stats, "bytes_received", json_integer(get_bytes_received_since_last()));
     json_object_set_new(stats, "cpu_usage", json_real(get_cpu_usage()));
     json_object_set_new(stats, "memory_usage", json_real(get_memory_usage()));
     json_object_set_new(stats, "uptime", json_integer(get_uptime()));
@@ -331,8 +339,9 @@ int send_heartbeat(void)
         const char *status = json_string_value(status_obj);
         
         if (strcmp(status, "ok") == 0) {
-            result = 0;
+            result = HEARTBEAT_SEND_OK;
             g_heartbeat_manager.last_received = time(NULL);
+            client_traffic_reset_since_last();
             
             // Update server time if provided
             json_t *timestamp_obj = json_object_get(response, "timestamp");
@@ -342,7 +351,22 @@ int send_heartbeat(void)
                 (void)server_time;
             }
         } else {
-            logMsg(LOG_WARNING, "Heartbeat response status: %s\n", status);
+            json_t *message_obj = json_object_get(response, "message");
+            json_t *force_disconnect_obj = json_object_get(response, "force_disconnect");
+            const char *message = json_is_string(message_obj) ? json_string_value(message_obj) : status;
+
+            logMsg(LOG_WARNING, "Heartbeat response status: %s (%s)\n", status, message);
+
+            if ((json_is_true(force_disconnect_obj)) ||
+                (message && (strstr(message, "Session terminated") != NULL ||
+                             strstr(message, "Invalid session") != NULL))) {
+                g_heartbeat_manager.status = HEARTBEAT_STATUS_DISCONNECTED;
+                logMsg(LOG_INFO, "Session terminated by server, waiting for permission to reconnect\n");
+                device_start_registration_wait();
+                result = HEARTBEAT_SEND_SESSION_TERMINATED;
+            } else {
+                result = HEARTBEAT_SEND_FAILED;
+            }
         }
     }
     
@@ -355,7 +379,7 @@ int send_heartbeat(void)
     }
     close(sock);
     
-    if (result == 0) {
+    if (result == HEARTBEAT_SEND_OK) {
         logMsg(LOG_DEBUG, "Heartbeat sent successfully\n");
     }
     
@@ -368,186 +392,7 @@ int send_heartbeat(void)
 int reconnect_to_server(void)
 {
     logMsg(LOG_INFO, "Attempting to reconnect to server\n");
-    
-    // Build registration request
-    json_t *request = json_object();
-    json_object_set_new(request, "action", json_string("register"));
-    json_object_set_new(request, "device_id", json_string(g_heartbeat_manager.config.device_id));
-    json_object_set_new(request, "auth_token", json_string(g_heartbeat_manager.config.auth_token));
-    json_object_set_new(request, "version", json_string("1.0"));
-    
-    // Add capabilities
-    json_t *capabilities = json_array();
-    json_array_append_new(capabilities, json_string("tcp"));
-    json_array_append_new(capabilities, json_string("ssl"));
-    json_object_set_new(request, "capabilities", capabilities);
-    
-    // Add metadata
-    json_t *metadata = json_object();
-    json_object_set_new(metadata, "reconnect_attempt", json_integer(g_heartbeat_manager.reconnect_attempts + 1));
-    json_object_set_new(metadata, "last_seen", json_integer(time(NULL)));
-    json_object_set_new(request, "metadata", metadata);
-    
-    // Send registration request
-    int sock = -1;
-    SSL *ssl = NULL;
-    int result = -1;
-    
-    // Create socket
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        logMsg(LOG_ERR, "Failed to create socket for reconnect: %s\n", strerror(errno));
-        json_decref(request);
-        return -1;
-    }
-    
-    // Connect to server
-    struct sockaddr_in server_addr;
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(g_heartbeat_manager.config.server_port);
-    
-    if (inet_pton(AF_INET, g_heartbeat_manager.config.server_host, &server_addr.sin_addr) <= 0) {
-        logMsg(LOG_ERR, "Invalid server address: %s\n", g_heartbeat_manager.config.server_host);
-        close(sock);
-        json_decref(request);
-        return -1;
-    }
-    
-    if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        logMsg(LOG_DEBUG, "Failed to connect for reconnect: %s\n", strerror(errno));
-        close(sock);
-        json_decref(request);
-        return -1;
-    }
-    
-    // Setup SSL if enabled
-    if (g_heartbeat_manager.config.enable_ssl) {
-        SSL_CTX *ssl_ctx = g_heartbeat_manager.config.ssl_ctx;
-        if (!ssl_ctx) {
-            logMsg(LOG_ERR, "SSL enabled but no SSL context provided\n");
-            close(sock);
-            json_decref(request);
-            return -1;
-        }
-        
-        ssl = SSL_new(ssl_ctx);
-        if (!ssl) {
-            logMsg(LOG_ERR, "Failed to create SSL object\n");
-            close(sock);
-            json_decref(request);
-            return -1;
-        }
-        
-        SSL_set_fd(ssl, sock);
-        
-        if (SSL_connect(ssl) != 1) {
-            logMsg(LOG_ERR, "SSL connection failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
-            SSL_free(ssl);
-            close(sock);
-            json_decref(request);
-            return -1;
-        }
-    }
-    
-    // Send request
-    char *json_str = json_dumps(request, JSON_COMPACT);
-    json_decref(request);
-    
-    if (!json_str) {
-        logMsg(LOG_ERR, "Failed to serialize reconnect request\n");
-        if (ssl) SSL_free(ssl);
-        close(sock);
-        return -1;
-    }
-    
-    size_t len = strlen(json_str);
-    ssize_t sent;
-    
-    if (ssl) {
-        sent = SSL_write(ssl, json_str, len);
-    } else {
-        sent = send(sock, json_str, len, 0);
-    }
-    
-    free(json_str);
-    
-    if (sent != (ssize_t)len) {
-        logMsg(LOG_DEBUG, "Failed to send reconnect request\n");
-        if (ssl) SSL_free(ssl);
-        close(sock);
-        return -1;
-    }
-    
-    // Receive response
-    char buffer[4096];
-    ssize_t received;
-    
-    if (ssl) {
-        received = SSL_read(ssl, buffer, sizeof(buffer) - 1);
-    } else {
-        received = recv(sock, buffer, sizeof(buffer) - 1, 0);
-    }
-    
-    if (received <= 0) {
-        logMsg(LOG_DEBUG, "No response to reconnect request\n");
-        if (ssl) SSL_free(ssl);
-        close(sock);
-        return -1;
-    }
-    
-    buffer[received] = '\0';
-    
-    // Parse response
-    json_error_t error;
-    json_t *response = json_loads(buffer, 0, &error);
-    
-    if (!response) {
-        logMsg(LOG_ERR, "Failed to parse reconnect response: %s\n", error.text);
-        if (ssl) SSL_free(ssl);
-        close(sock);
-        return -1;
-    }
-    
-    // Check response
-    json_t *status_obj = json_object_get(response, "status");
-    if (json_is_string(status_obj)) {
-        const char *status = json_string_value(status_obj);
-        
-        if (strcmp(status, "authenticated") == 0) {
-            // Update session token and port
-            json_t *session_token_obj = json_object_get(response, "session_token");
-            json_t *assigned_port_obj = json_object_get(response, "assigned_port");
-            
-            if (json_is_string(session_token_obj) && json_is_integer(assigned_port_obj)) {
-                const char *new_session_token = json_string_value(session_token_obj);
-                uint16_t new_port = (uint16_t)json_integer_value(assigned_port_obj);
-                json_t *tunnel_obj = json_object_get(response, "tunnel_port");
-                uint16_t new_tunnel = json_is_integer(tunnel_obj)
-                    ? (uint16_t)json_integer_value(tunnel_obj)
-                    : (uint16_t)(new_port + 1);
-                
-                pthread_mutex_lock(&g_heartbeat_mutex);
-                strncpy(g_heartbeat_manager.config.session_token, new_session_token, SESSION_TOKEN_MAX_LEN);
-                g_heartbeat_manager.config.assigned_port = new_port;
-                pthread_mutex_unlock(&g_heartbeat_mutex);
-                
-                logMsg(LOG_INFO, "Reconnected successfully, tunnel port: %d\n", new_tunnel);
-                result = 0;
-            }
-        }
-    }
-    
-    json_decref(response);
-    
-    // Cleanup
-    if (ssl) {
-        SSL_shutdown(ssl);
-        SSL_free(ssl);
-    }
-    close(sock);
-    
-    return result;
+    return reconnect_device();
 }
 
 /**
@@ -610,42 +455,35 @@ int heartbeat_get_statistics(heartbeat_stats_t *stats)
 
 int get_active_connections_count(void)
 {
-    // Implementation depends on your proxy client structure
-    return 1; // Placeholder
+    return client_traffic_get_active_connections();
 }
 
 float get_cpu_usage(void)
 {
-    // Implementation would read /proc/stat or similar
-    return 0.0f; // Placeholder
+    return 0.0f;
 }
 
 float get_memory_usage(void)
 {
-    // Implementation would read /proc/meminfo or similar
-    return 0.0f; // Placeholder
+    return 0.0f;
 }
 
 time_t get_uptime(void)
 {
-    // Implementation would get process/system uptime
-    return time(NULL); // Placeholder
+    return time(NULL);
 }
 
 uint64_t get_bytes_sent_since_last(void)
 {
-    // Implementation would track bytes sent since last heartbeat
-    return 0; // Placeholder
+    return client_traffic_get_sent_since_last();
 }
 
 uint64_t get_bytes_received_since_last(void)
 {
-    // Implementation would track bytes received since last heartbeat
-    return 0; // Placeholder
+    return client_traffic_get_received_since_last();
 }
 
 int get_active_connections(void)
 {
-    // Implementation would count active connections
-    return 0; // Placeholder
+    return client_traffic_get_active_connections();
 }

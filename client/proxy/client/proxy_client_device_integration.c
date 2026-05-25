@@ -24,6 +24,40 @@
 // Device registration state
 static device_registration_state_t g_device_state;
 static bool g_device_registration_enabled = false;
+static const int g_registration_retry_seconds = 10;
+static volatile sig_atomic_t g_device_session_revoked = 0;
+static volatile sig_atomic_t g_registration_wait_running = 0;
+
+int device_session_is_revoked(void)
+{
+    return g_device_session_revoked != 0;
+}
+
+void device_session_set_revoked(int revoked)
+{
+    g_device_session_revoked = revoked ? 1 : 0;
+}
+
+static void log_registration_failure(const char *message)
+{
+    if (message &&
+        (strstr(message, "Authentication failed") != NULL ||
+         strstr(message, "Failed to create session") != NULL)) {
+        logMsg(LOG_INFO, "Registration waiting for server permission: %s\n", message);
+        return;
+    }
+
+    if (message) {
+        logMsg(LOG_WARNING, "Registration failed: %s\n", message);
+    } else {
+        logMsg(LOG_WARNING, "Registration failed\n");
+    }
+}
+
+static void log_registration_transport_failure(const char *details)
+{
+    logMsg(LOG_WARNING, "Registration transport error: %s\n", details);
+}
 static heartbeat_config_t g_heartbeat_config;
 static bool g_cli_output_host = false;
 static bool g_cli_output_port = false;
@@ -196,7 +230,7 @@ int device_register_with_server(void)
     }
     
     if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        logMsg(LOG_ERR, "Failed to connect to registration server: %s\n", strerror(errno));
+        log_registration_transport_failure(strerror(errno));
         close(sock);
         return -1;
     }
@@ -251,7 +285,7 @@ int device_register_with_server(void)
     ssize_t received = recv(sock, buffer, sizeof(buffer) - 1, 0);
     
     if (received <= 0) {
-        logMsg(LOG_ERR, "No response from registration server\n");
+        log_registration_transport_failure("no response from registration server");
         close(sock);
         return -1;
     }
@@ -341,13 +375,99 @@ int device_register_with_server(void)
         json_t *message_obj = json_object_get(response, "message");
         const char *message = json_is_string(message_obj) ? json_string_value(message_obj) : "Unknown error";
         
-        logMsg(LOG_ERR, "Registration failed: %s\n", message);
+        log_registration_failure(message);
     }
     
     json_decref(response);
     close(sock);
     
     return result;
+}
+
+int device_register_until_allowed(void)
+{
+    int attempt = 0;
+
+    while (!global_graceful_shutdown) {
+        attempt++;
+
+        if (device_register_with_server() == 0) {
+            if (attempt > 1) {
+                logMsg(LOG_INFO, "Device registered successfully after %d attempt(s)\n", attempt);
+            }
+            device_session_set_revoked(0);
+            return 0;
+        }
+
+        logMsg(LOG_INFO, "Registration attempt %d failed, retrying in %d seconds...\n",
+               attempt, g_registration_retry_seconds);
+
+        for (int i = 0; i < g_registration_retry_seconds && !global_graceful_shutdown; i++) {
+            sleep(1);
+        }
+    }
+
+    logMsg(LOG_INFO, "Registration retry loop stopped due to shutdown\n");
+    return -1;
+}
+
+static int device_apply_reregistration(void)
+{
+    strncpy(g_heartbeat_config.session_token, g_device_state.session_token, SESSION_TOKEN_MAX_LEN);
+    g_heartbeat_config.assigned_port = g_device_state.assigned_port;
+
+    proxy_server_thread_data_t *settings = get_client_settings();
+    apply_tunnel_settings(settings);
+    apply_output_target_from_registration(settings);
+    if (validate_output_target(settings) != 0) {
+        return -1;
+    }
+
+    heartbeat_update_config(&g_heartbeat_config);
+    g_device_state.status = DEVICE_STATUS_CONNECTED;
+    switcher_servers_restart_input_threads();
+    logMsg(LOG_INFO, "Device tunnel settings updated after registration\n");
+    return 0;
+}
+
+static void *registration_wait_thread(void *arg)
+{
+    (void)arg;
+
+    if (device_register_until_allowed() != 0) {
+        g_registration_wait_running = 0;
+        return NULL;
+    }
+
+    device_session_set_revoked(0);
+
+    if (device_apply_reregistration() != 0) {
+        g_device_state.status = DEVICE_STATUS_DISCONNECTED;
+        device_session_set_revoked(1);
+    }
+
+    g_registration_wait_running = 0;
+    return NULL;
+}
+
+void device_start_registration_wait(void)
+{
+    if (g_registration_wait_running) {
+        return;
+    }
+
+    g_registration_wait_running = 1;
+    device_session_set_revoked(1);
+    switcher_servers_drop_active_connections();
+
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, registration_wait_thread, NULL) != 0) {
+        logMsg(LOG_ERR, "Failed to start registration wait thread\n");
+        g_registration_wait_running = 0;
+        return;
+    }
+
+    pthread_detach(thread);
 }
 
 /**
@@ -422,8 +542,8 @@ int main_with_device_registration(int argc, char** argv)
             return -1;
         }
         
-        if (device_register_with_server() != 0) {
-            logMsg(LOG_ERR, "Device registration failed\n");
+        if (device_register_until_allowed() != 0) {
+            logMsg(LOG_ERR, "Device registration stopped\n");
             return -1;
         }
 
@@ -473,36 +593,8 @@ device_registration_state_t* get_device_registration_state(void)
 int reconnect_device(void)
 {
     logMsg(LOG_INFO, "Attempting to reconnect device...\n");
-    
-    // Update status
     g_device_state.status = DEVICE_STATUS_RECONNECTING;
-    
-    // Try to register again
-    if (device_register_with_server() != 0) {
-        g_device_state.status = DEVICE_STATUS_DISCONNECTED;
-        return -1;
-    }
-    
-    // Update heartbeat configuration with new session token
-    strncpy(g_heartbeat_config.session_token, g_device_state.session_token, SESSION_TOKEN_MAX_LEN);
-    g_heartbeat_config.assigned_port = g_device_state.assigned_port;
-    
-    proxy_server_thread_data_t *settings = get_client_settings();
-    apply_tunnel_settings(settings);
-    apply_output_target_from_registration(settings);
-    if (validate_output_target(settings) != 0) {
-        g_device_state.status = DEVICE_STATUS_DISCONNECTED;
-        return -1;
-    }
-    
-    // Restart heartbeat
-    heartbeat_manager_stop();
-    heartbeat_manager_init(&g_heartbeat_config);
-    heartbeat_manager_start();
-    
-    g_device_state.status = DEVICE_STATUS_CONNECTED;
-    
-    logMsg(LOG_INFO, "Device reconnected successfully\n");
+    device_start_registration_wait();
     return 0;
 }
 

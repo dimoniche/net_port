@@ -14,21 +14,30 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
+import Tabs from "@mui/material/Tabs";
+import Tab from "@mui/material/Tab";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
 import IconButton from "@mui/material/IconButton";
 import { Loader } from "../components/Loader";
 import ServerStatsModal from "../components/ServerStatsModal";
+import DeviceStatsModal from "../components/DeviceStatsModal";
 
 const Statistics = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
     const [cookies, , removeCookie] = useCookies();
 
+    const [tab, setTab] = useState(0);
     const [isLoaded, setIsLoaded] = useState(false);
     const [statisticsData, setStatisticsData] = useState([]);
     const [serversData, setServersData] = useState([]);
+    const [deviceStatisticsData, setDeviceStatisticsData] = useState([]);
     const [selectedServer, setSelectedServer] = useState(null);
+    const [selectedDevice, setSelectedDevice] = useState(null);
     const [modalOpen, setModalOpen] = useState(false);
+    const [deviceModalOpen, setDeviceModalOpen] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const history = useNavigate();
 
@@ -36,6 +45,26 @@ const Statistics = ({ children, ...rest }) => {
     if (error) {
         throw error;
     }
+
+    const fetchServerStatistics = async () => {
+        const statistics = await api.get(`/statistics`);
+        const servers = await api.get(`/servers`);
+
+        if (statistics.status === 200) {
+            setStatisticsData(statistics.data);
+        }
+
+        if (servers.status === 200) {
+            setServersData(servers.data);
+        }
+    };
+
+    const fetchDeviceStatistics = async () => {
+        const response = await api.get(`/devices/statistics/summary`);
+        if (response.status === 200) {
+            setDeviceStatisticsData(response.data);
+        }
+    };
 
     const fetchData = async () => {
         setIsRefreshing(true);
@@ -46,21 +75,8 @@ const Statistics = ({ children, ...rest }) => {
         }
 
         try {
-            // Fetch statistics data
-            const statistics = await api.get(`/statistics`);
-
-            // Fetch servers data to get descriptions
-            const servers = await api.get(`/servers`);
-
-            if (statistics.status === 200) {
-                setStatisticsData(statistics.data);
-                setIsLoaded(true);
-            }
-
-            if (servers.status === 200) {
-                console.log('Servers data:', servers.data); // Debug log
-                setServersData(servers.data);
-            }
+            await Promise.all([fetchServerStatistics(), fetchDeviceStatistics()]);
+            setIsLoaded(true);
         } catch (err) {
             if (err.response && err.response.status === 401) {
                 handleLogout();
@@ -86,72 +102,58 @@ const Statistics = ({ children, ...rest }) => {
         history("/main");
     };
 
-    // Функция для форматирования байтов в читаемый формат
     const formatBytes = (bytes) => {
-        // Преобразуем в число, если пришло строковое значение
-        const bytesNum = typeof bytes === 'string' ? parseInt(bytes, 10) : bytes;
-        
-        if (bytesNum === 0) return '0 Bytes';
+        const bytesNum = typeof bytes === "string" ? parseInt(bytes, 10) : bytes;
+
+        if (!bytesNum) return "0 Bytes";
         const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
         const i = Math.floor(Math.log(bytesNum) / Math.log(k));
-        return parseFloat((bytesNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        return parseFloat((bytesNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     };
 
-    // Функция для форматирования скорости в читаемый формат
     const formatSpeed = (speed) => {
-        // Проверяем на null, undefined, NaN или нулевое значение
         if (speed === null || speed === undefined || isNaN(speed) || speed === 0) {
-            return '-';
+            return "-";
         }
-        
-        // Преобразуем в число, если пришло строковое значение
-        const speedNum = typeof speed === 'string' ? parseFloat(speed) : speed;
-        
-        // Проверяем еще раз после преобразования
+
+        const speedNum = typeof speed === "string" ? parseFloat(speed) : speed;
+
         if (isNaN(speedNum) || speedNum < 1) {
-            return '-';
+            return "-";
         }
-        
+
         const k = 1024;
-        const sizes = ['Bytes/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
+        const sizes = ["Bytes/s", "KB/s", "MB/s", "GB/s", "TB/s"];
         const i = Math.floor(Math.log(speedNum) / Math.log(k));
-        return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     };
 
-    // Функция для получения описания сервера
     const getServerDescription = (serverId) => {
         if (!serversData || serversData.length === 0) {
-            console.log('Servers data not loaded yet or empty');
             return `Сервер #${serverId}`;
         }
 
-        let server = serversData.find(s => s.id === serverId);
-        console.log('Looking for server:', serverId, 'Found:', server ? 'Yes' : 'No');
-
+        const server = serversData.find((s) => s.id === serverId);
         if (server) {
-            console.log('Server data:', server);
             return server.description || server.name || `Сервер #${serverId}`;
-        } else {
-            console.log('Available server IDs:', serversData.map(s => s.id || s.server_id));
-            return `Сервер #${serverId}`;
         }
+
+        return `Сервер #${serverId}`;
     };
 
-    // Функция для форматирования времени
     const formatTimestamp = (timestamp) => {
+        if (!timestamp) return "-";
         const date = new Date(timestamp);
-        const day = String(date.getDate()).padStart(2, '0');
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const year = String(date.getFullYear()).slice(-2); // Последние 2 цифры года
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, "0");
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const year = String(date.getFullYear()).slice(-2);
+        const hours = String(date.getHours()).padStart(2, "0");
+        const minutes = String(date.getMinutes()).padStart(2, "0");
 
-        // Компактный формат: DD.MM.YY HH:MM
         return `${day}.${month}.${year} ${hours}:${minutes}`;
     };
 
-    // Функция для сброса статистики по server_id (в т.ч. для удалённых серверов)
     const handleResetServerStatistics = async (serverId) => {
         try {
             await api.delete(`/statistics/${serverId}/reset`);
@@ -173,13 +175,33 @@ const Statistics = ({ children, ...rest }) => {
         }
     };
 
+    const handleResetDeviceStatistics = async (device) => {
+        try {
+            await api.delete(`/devices/${device.id}/statistics/reset`);
+            await fetchData();
+        } catch (err) {
+            if (err.response && err.response.status === 401) {
+                handleLogout();
+            } else {
+                setError(err);
+            }
+        }
+    };
+
     return (
         <>
             {!isEmpty(cookies.user) ? (
-                <div style={{ padding: '20px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <Typography variant="h4" gutterBottom style={{ margin: 0 }}>
-                            Статистика серверов
+                <div style={{ padding: "20px" }}>
+                    <Box
+                        sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            mb: 2,
+                        }}
+                    >
+                        <Typography variant="h4" sx={{ m: 0 }}>
+                            Статистика
                         </Typography>
                         <Button
                             variant="contained"
@@ -188,66 +210,150 @@ const Statistics = ({ children, ...rest }) => {
                             onClick={fetchData}
                             disabled={isRefreshing}
                         >
-                            {isRefreshing ? 'Обновление...' : 'Обновить'}
+                            {isRefreshing ? "Обновление..." : "Обновить"}
                         </Button>
-                    </div>
+                    </Box>
 
-                    {isLoaded && !isEmpty(statisticsData) ? (
-                        <TableContainer component={Paper} sx={{ mt: 2 }}>
-                            <Table sx={{ minWidth: 650 }} aria-label="statistics table">
-                                <TableHead>
-                                    <TableRow>
-                                        <TableCell><b>Описание сервера</b></TableCell>
-                                        <TableCell><b>Байт получено</b></TableCell>
-                                        <TableCell><b>Байт отправлено</b></TableCell>
-                                        <TableCell><b>Скорость приема</b></TableCell>
-                                        <TableCell><b>Скорость передачи</b></TableCell>
-                                        <TableCell><b>Активные соединения</b></TableCell>
-                                        <TableCell><b>Время обновления</b></TableCell>
-                                        <TableCell><b>Действия</b></TableCell>
-                                    </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                    {statisticsData
-                                        .sort(function (a, b) {
-                                            return b.timestamp - a.timestamp;
-                                        })
-                                        .map((stat) => (
-                                            <TableRow
-                                                key={`${stat.server_id}-${stat.timestamp}`}
-                                                hover
-                                                onClick={() => {
-                                                    console.log('Server clicked:', stat.server_id); // Debug log
-                                                    setSelectedServer(stat.server_id);
-                                                    setModalOpen(true);
-                                                }}
-                                                style={{ cursor: 'pointer' }}
-                                            >
-                                                <TableCell>{getServerDescription(stat.server_id)}</TableCell>
-                                                <TableCell>{formatBytes(stat.bytes_received)}</TableCell>
-                                                <TableCell>{formatBytes(stat.bytes_sent)}</TableCell>
-                                                <TableCell>{formatSpeed(stat.avg_receive_speed)}</TableCell>
-                                                <TableCell>{formatSpeed(stat.avg_send_speed)}</TableCell>
-                                                <TableCell>{stat.connections_count}</TableCell>
-                                                <TableCell>{formatTimestamp(stat.timestamp)}</TableCell>
-                                                <TableCell>
-                                                    <IconButton
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleResetServerStatistics(stat.server_id);
-                                                        }}
-                                                        color="secondary"
-                                                    >
-                                                        <DeleteIcon />
-                                                    </IconButton>
-                                                </TableCell>
+                    <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 2 }}>
+                        <Tab label="Серверы" />
+                        <Tab label="Устройства" />
+                    </Tabs>
+
+                    {tab === 0 && (
+                        <>
+                            {isLoaded && !isEmpty(statisticsData) ? (
+                                <TableContainer component={Paper}>
+                                    <Table sx={{ minWidth: 650 }} aria-label="server statistics table">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell><b>Описание сервера</b></TableCell>
+                                                <TableCell><b>Байт получено</b></TableCell>
+                                                <TableCell><b>Байт отправлено</b></TableCell>
+                                                <TableCell><b>Скорость приема</b></TableCell>
+                                                <TableCell><b>Скорость передачи</b></TableCell>
+                                                <TableCell><b>Активные соединения</b></TableCell>
+                                                <TableCell><b>Время обновления</b></TableCell>
+                                                <TableCell><b>Действия</b></TableCell>
                                             </TableRow>
-                                        ))}
-                                </TableBody>
-                            </Table>
-                        </TableContainer>
-                    ) : (
-                        <Loader title={"Статистика не доступна"} />
+                                        </TableHead>
+                                        <TableBody>
+                                            {statisticsData
+                                                .sort((a, b) => b.timestamp - a.timestamp)
+                                                .map((stat) => (
+                                                    <TableRow
+                                                        key={`${stat.server_id}-${stat.timestamp}`}
+                                                        hover
+                                                        onClick={() => {
+                                                            setSelectedServer(stat.server_id);
+                                                            setModalOpen(true);
+                                                        }}
+                                                        style={{ cursor: "pointer" }}
+                                                    >
+                                                        <TableCell>{getServerDescription(stat.server_id)}</TableCell>
+                                                        <TableCell>{formatBytes(stat.bytes_received)}</TableCell>
+                                                        <TableCell>{formatBytes(stat.bytes_sent)}</TableCell>
+                                                        <TableCell>{formatSpeed(stat.avg_receive_speed)}</TableCell>
+                                                        <TableCell>{formatSpeed(stat.avg_send_speed)}</TableCell>
+                                                        <TableCell>{stat.connections_count}</TableCell>
+                                                        <TableCell>{formatTimestamp(stat.timestamp)}</TableCell>
+                                                        <TableCell>
+                                                            <IconButton
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleResetServerStatistics(stat.server_id);
+                                                                }}
+                                                                color="secondary"
+                                                            >
+                                                                <DeleteIcon />
+                                                            </IconButton>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            ) : (
+                                <Loader title={"Статистика серверов не доступна"} />
+                            )}
+                        </>
+                    )}
+
+                    {tab === 1 && (
+                        <>
+                            {isLoaded && !isEmpty(deviceStatisticsData) ? (
+                                <TableContainer component={Paper}>
+                                    <Table sx={{ minWidth: 650 }} aria-label="device statistics table">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell><b>Устройство</b></TableCell>
+                                                <TableCell><b>Статус</b></TableCell>
+                                                <TableCell><b>Порт</b></TableCell>
+                                                <TableCell><b>Байт получено</b></TableCell>
+                                                <TableCell><b>Байт отправлено</b></TableCell>
+                                                <TableCell><b>Скорость приема</b></TableCell>
+                                                <TableCell><b>Скорость передачи</b></TableCell>
+                                                <TableCell><b>За текущий час</b></TableCell>
+                                                <TableCell><b>Соединения</b></TableCell>
+                                                <TableCell><b>Последняя активность</b></TableCell>
+                                                <TableCell><b>Действия</b></TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {deviceStatisticsData.map((device) => (
+                                                <TableRow
+                                                    key={device.id}
+                                                    hover
+                                                    onClick={() => {
+                                                        setSelectedDevice(device);
+                                                        setDeviceModalOpen(true);
+                                                    }}
+                                                    style={{ cursor: "pointer" }}
+                                                >
+                                                    <TableCell>
+                                                        {device.name || device.device_id}
+                                                        <Typography variant="caption" display="block" color="text.secondary">
+                                                            {device.device_id}
+                                                        </Typography>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Chip
+                                                            label={device.online ? "online" : device.status || "offline"}
+                                                            color={device.online ? "success" : "default"}
+                                                            size="small"
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {device.session_port || device.assigned_port || "-"}
+                                                    </TableCell>
+                                                    <TableCell>{formatBytes(device.bytes_received)}</TableCell>
+                                                    <TableCell>{formatBytes(device.bytes_sent)}</TableCell>
+                                                    <TableCell>{formatSpeed(device.avg_receive_speed)}</TableCell>
+                                                    <TableCell>{formatSpeed(device.avg_send_speed)}</TableCell>
+                                                    <TableCell>
+                                                        {formatBytes(device.hourly_bytes_received)} / {formatBytes(device.hourly_bytes_sent)}
+                                                    </TableCell>
+                                                    <TableCell>{device.active_connections || 0}</TableCell>
+                                                    <TableCell>{formatTimestamp(device.last_activity)}</TableCell>
+                                                    <TableCell>
+                                                        <IconButton
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleResetDeviceStatistics(device);
+                                                            }}
+                                                            color="secondary"
+                                                        >
+                                                            <DeleteIcon />
+                                                        </IconButton>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            ) : (
+                                <Loader title={"Статистика устройств не доступна"} />
+                            )}
+                        </>
                     )}
                 </div>
             ) : (
@@ -258,6 +364,12 @@ const Statistics = ({ children, ...rest }) => {
                 onClose={() => setModalOpen(false)}
                 serverId={selectedServer}
                 serversData={serversData}
+            />
+            <DeviceStatsModal
+                open={deviceModalOpen}
+                onClose={() => setDeviceModalOpen(false)}
+                device={selectedDevice}
+                devicesData={deviceStatisticsData}
             />
         </>
     );

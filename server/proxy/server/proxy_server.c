@@ -15,6 +15,17 @@
 #include "time_counter.h"
 #include "device_manager.h"
 
+#define MAX_DYNAMIC_SERVER_RUNTIMES 256
+
+typedef struct dynamic_server_runtime_s {
+    char device_id[DEVICE_ID_MAX_LEN + 1];
+    uint16_t input_port;
+    uint16_t tunnel_port;
+    int server_index;
+    proxy_server_thread_data_t *connections_data;
+    bool active;
+} dynamic_server_runtime_t;
+
 // Глобальное определение переменной количества потоков
 int COUNT_SOCKET_THREAD = 25;
 
@@ -22,6 +33,8 @@ static proxy_server_t* servers;
 static uint16_t servers_count;
 static int32_t count_open_crypt_session = 0;
 static proxy_servers_settings_t proxy_settings;
+static dynamic_server_runtime_t g_dynamic_runtimes[MAX_DYNAMIC_SERVER_RUNTIMES];
+static pthread_mutex_t g_dynamic_runtimes_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Семафор для защиты доступа к статистике серверов
 sem_t statistics_semaphore;
@@ -49,6 +62,11 @@ void input_server_wait_stop(proxy_server_t * server);
 int get_free_input_socket(proxy_server_thread_data_t * data);
 int get_input_socket_with_output(proxy_server_thread_data_t * data);
 int get_free_output_socket(proxy_server_thread_data_t * data);
+static int start_server_listening_threads(proxy_server_t *server, proxy_server_thread_data_t **runtime_out);
+static void register_dynamic_server_runtime(const char *device_id, uint16_t input_port,
+                                            uint16_t tunnel_port, int server_index,
+                                            proxy_server_thread_data_t *connections_data);
+static void stop_dynamic_server_runtime(proxy_server_thread_data_t *connections_data, int server_index);
 
 // Функция для периодического сохранения статистики
 void* statistics_saver_thread(void* arg) {
@@ -1618,7 +1636,7 @@ SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file) 
     return ctx;
 }
 
-static int start_server_listening_threads(proxy_server_t *server)
+static int start_server_listening_threads(proxy_server_t *server, proxy_server_thread_data_t **runtime_out)
 {
     proxy_server_thread_data_t *connections_data;
 
@@ -1671,7 +1689,358 @@ static int start_server_listening_threads(proxy_server_t *server)
     server->is_input_running = runtime->is_input_running;
     server->is_output_running = runtime->is_output_running;
 
+    if (runtime_out) {
+        *runtime_out = connections_data;
+    }
+
     return 0;
+}
+
+static void register_dynamic_server_runtime(const char *device_id, uint16_t input_port,
+                                            uint16_t tunnel_port, int server_index,
+                                            proxy_server_thread_data_t *connections_data)
+{
+    pthread_mutex_lock(&g_dynamic_runtimes_mutex);
+
+    for (int i = 0; i < MAX_DYNAMIC_SERVER_RUNTIMES; i++) {
+        if (g_dynamic_runtimes[i].active) {
+            continue;
+        }
+
+        strncpy(g_dynamic_runtimes[i].device_id, device_id, DEVICE_ID_MAX_LEN);
+        g_dynamic_runtimes[i].device_id[DEVICE_ID_MAX_LEN] = '\0';
+        g_dynamic_runtimes[i].input_port = input_port;
+        g_dynamic_runtimes[i].tunnel_port = tunnel_port;
+        g_dynamic_runtimes[i].server_index = server_index;
+        g_dynamic_runtimes[i].connections_data = connections_data;
+        g_dynamic_runtimes[i].active = true;
+        pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+        return;
+    }
+
+    pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+    logMsg(LOG_WARNING, "Dynamic server runtime registry is full\n");
+}
+
+static void wait_for_runtime_threads(proxy_server_t *runtime)
+{
+    if (!runtime) {
+        return;
+    }
+
+    int waited_ms = 0;
+    while ((runtime->is_input_running || runtime->is_output_running) && waited_ms < 10000) {
+        usleep(10000);
+        waited_ms += 10;
+    }
+}
+
+static void stop_dynamic_server_runtime(proxy_server_thread_data_t *connections_data, int server_index)
+{
+    if (!connections_data) {
+        return;
+    }
+
+    proxy_server_t *runtime = &connections_data->data;
+    runtime->stop_input_running = true;
+    runtime->stop_output_running = true;
+    runtime->enable = false;
+
+    if (server_index >= 0 && server_index < servers_count) {
+        servers[server_index].enable = false;
+        servers[server_index].stop_input_running = true;
+        servers[server_index].stop_output_running = true;
+    }
+
+    for (int i = 0; i < COUNT_SOCKET_THREAD; i++) {
+        proxy_server_local_socket_data_t *sock = &connections_data->local_sockets[i];
+        sock->close_output_socket = true;
+
+        if (sock->input_local >= 0) {
+            shutdown(sock->input_local, SHUT_RDWR);
+            close(sock->input_local);
+            sock->input_local = -1;
+        }
+
+        if (sock->output_local >= 0) {
+            shutdown(sock->output_local, SHUT_RDWR);
+            close(sock->output_local);
+            sock->output_local = -1;
+        }
+    }
+
+    if (runtime->input >= 0) {
+        shutdown(runtime->input, SHUT_RDWR);
+        close(runtime->input);
+        runtime->input = -1;
+    }
+
+    if (runtime->output >= 0) {
+        shutdown(runtime->output, SHUT_RDWR);
+        close(runtime->output);
+        runtime->output = -1;
+    }
+
+    wait_for_runtime_threads(runtime);
+
+    if (server_index >= 0 && server_index < servers_count) {
+        servers[server_index].is_input_running = false;
+        servers[server_index].is_output_running = false;
+        servers[server_index].is_input_starting = false;
+        servers[server_index].is_output_starting = false;
+        if (servers[server_index].input >= 0) {
+            close(servers[server_index].input);
+            servers[server_index].input = -1;
+        }
+        if (servers[server_index].output >= 0) {
+            close(servers[server_index].output);
+            servers[server_index].output = -1;
+        }
+    }
+}
+
+static void stop_dynamic_runtimes_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
+{
+    pthread_mutex_lock(&g_dynamic_runtimes_mutex);
+
+    for (int i = 0; i < MAX_DYNAMIC_SERVER_RUNTIMES; i++) {
+        if (!g_dynamic_runtimes[i].connections_data) {
+            continue;
+        }
+
+        bool match = false;
+        if (input_port != 0 && tunnel_port != 0) {
+            match = (g_dynamic_runtimes[i].input_port == input_port &&
+                     g_dynamic_runtimes[i].tunnel_port == tunnel_port);
+        }
+        if (!match && device_id) {
+            match = (strcmp(g_dynamic_runtimes[i].device_id, device_id) == 0);
+        }
+        if (!match) {
+            continue;
+        }
+
+        stop_dynamic_server_runtime(g_dynamic_runtimes[i].connections_data,
+                                    g_dynamic_runtimes[i].server_index);
+        g_dynamic_runtimes[i].active = false;
+        g_dynamic_runtimes[i].connections_data = NULL;
+    }
+
+    pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+
+    if (!device_id) {
+        return;
+    }
+
+    for (int i = 0; i < servers_count; i++) {
+        if (!servers[i].is_dynamic_port) {
+            continue;
+        }
+        if (strcmp(servers[i].device_id, device_id) != 0) {
+            continue;
+        }
+        if (input_port != 0 && servers[i].input_port != input_port) {
+            continue;
+        }
+        if (tunnel_port != 0 && servers[i].output_port != tunnel_port) {
+            continue;
+        }
+
+        servers[i].stop_input_running = true;
+        servers[i].stop_output_running = true;
+        servers[i].enable = false;
+        wait_for_runtime_threads(&servers[i]);
+    }
+}
+
+int stop_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
+{
+    if (!device_id) {
+        return -1;
+    }
+
+    stop_dynamic_runtimes_for_device(device_id, input_port, tunnel_port);
+    logMsg(LOG_INFO, "Stopped dynamic server for device %s\n", device_id);
+    return 0;
+}
+
+static int start_dynamic_server_at_index(int index, const char *device_id,
+                                         uint16_t input_port, uint16_t tunnel_port);
+static void cleanup_dynamic_server_slot(int index);
+static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port);
+
+static void cleanup_dynamic_server_slot(int index)
+{
+    char device_id[DEVICE_ID_MAX_LEN + 1] = {0};
+    uint16_t input_port = 0;
+    uint16_t tunnel_port = 0;
+
+    if (index >= 0 && index < servers_count) {
+        input_port = servers[index].input_port;
+        tunnel_port = servers[index].output_port;
+        strncpy(device_id, servers[index].device_id, DEVICE_ID_MAX_LEN);
+    }
+
+    if (device_id[0] != '\0') {
+        stop_dynamic_runtimes_for_device(device_id, input_port, tunnel_port);
+    }
+
+    pthread_mutex_lock(&g_dynamic_runtimes_mutex);
+    for (int i = 0; i < MAX_DYNAMIC_SERVER_RUNTIMES; i++) {
+        if (g_dynamic_runtimes[i].server_index != index || !g_dynamic_runtimes[i].connections_data) {
+            continue;
+        }
+
+        stop_dynamic_server_runtime(g_dynamic_runtimes[i].connections_data, index);
+        g_dynamic_runtimes[i].active = false;
+        g_dynamic_runtimes[i].connections_data = NULL;
+    }
+    pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+
+    if (index < 0 || index >= servers_count) {
+        return;
+    }
+
+    proxy_server_t *server = &servers[index];
+    server->stop_input_running = true;
+    server->stop_output_running = true;
+    server->enable = false;
+
+    if (server->input >= 0) {
+        shutdown(server->input, SHUT_RDWR);
+        close(server->input);
+        server->input = -1;
+    }
+    if (server->output >= 0) {
+        shutdown(server->output, SHUT_RDWR);
+        close(server->output);
+        server->output = -1;
+    }
+
+    wait_for_runtime_threads(server);
+}
+
+static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port)
+{
+    pthread_mutex_lock(&g_dynamic_runtimes_mutex);
+
+    for (int i = 0; i < MAX_DYNAMIC_SERVER_RUNTIMES; i++) {
+        if (!g_dynamic_runtimes[i].active) {
+            continue;
+        }
+        if (g_dynamic_runtimes[i].input_port != input_port ||
+            g_dynamic_runtimes[i].tunnel_port != tunnel_port) {
+            continue;
+        }
+
+        proxy_server_thread_data_t *connections_data = g_dynamic_runtimes[i].connections_data;
+        if (!connections_data) {
+            continue;
+        }
+
+        proxy_server_t *runtime = &connections_data->data;
+        if (runtime->enable &&
+            runtime->is_input_running &&
+            runtime->is_output_running &&
+            runtime->input >= 0 &&
+            runtime->output >= 0) {
+            int server_index = g_dynamic_runtimes[i].server_index;
+            pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+            return server_index;
+        }
+    }
+
+    pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+    return -1;
+}
+
+static int start_dynamic_server_at_index(int index, const char *device_id,
+                                         uint16_t input_port, uint16_t tunnel_port)
+{
+    if (index < 0 || index >= servers_count || !device_id) {
+        return -1;
+    }
+
+    cleanup_dynamic_server_slot(index);
+
+    proxy_server_t *server = &servers[index];
+    uint16_t saved_id = (uint16_t)index;
+
+    memset(server, 0, sizeof(*server));
+    server->id = saved_id;
+    server->enable = true;
+    server->input_port = input_port;
+    server->output_port = tunnel_port;
+    server->is_input_enabled = true;
+    server->is_output_enabled = true;
+    server->enable_output_ssl = false;
+    server->enable_input_ssl = false;
+    server->is_dynamic_port = true;
+    strncpy(server->device_id, device_id, DEVICE_ID_MAX_LEN);
+    server->device_id[DEVICE_ID_MAX_LEN] = '\0';
+    server->statistics.last_update = time(NULL);
+
+    if (server_input_init(server) < 0) {
+        server->is_input_enabled = false;
+        server->enable = false;
+        logMsg(LOG_ERR, "Failed to init input socket for device %s on port %u\n",
+               device_id, input_port);
+        return -1;
+    }
+
+    if (server_output_init(server) < 0) {
+        server->is_output_enabled = false;
+        server->enable = false;
+        logMsg(LOG_ERR, "Failed to init output socket for device %s on port %u\n",
+               device_id, tunnel_port);
+        if (server->input >= 0) {
+            close(server->input);
+            server->input = -1;
+        }
+        return -1;
+    }
+
+    proxy_server_thread_data_t *runtime_data = NULL;
+    if (start_server_listening_threads(server, &runtime_data) != 0) {
+        server->enable = false;
+        if (server->input >= 0) {
+            close(server->input);
+            server->input = -1;
+        }
+        if (server->output >= 0) {
+            close(server->output);
+            server->output = -1;
+        }
+        return -1;
+    }
+
+    register_dynamic_server_runtime(device_id, input_port, tunnel_port, index, runtime_data);
+    logMsg(LOG_INFO, "Dynamic server started for device %s: input=%u tunnel=%u (slot=%d)\n",
+           device_id, input_port, tunnel_port, index);
+    return index;
+}
+
+static int find_stopped_dynamic_server(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
+{
+    for (int i = 0; i < servers_count; i++) {
+        if (!servers[i].is_dynamic_port || servers[i].enable) {
+            continue;
+        }
+        if (strcmp(servers[i].device_id, device_id) == 0) {
+            return i;
+        }
+    }
+
+    for (int i = 0; i < servers_count; i++) {
+        if (!servers[i].is_dynamic_port || servers[i].enable) {
+            continue;
+        }
+        if (servers[i].input_port == input_port && servers[i].output_port == tunnel_port) {
+            return i;
+        }
+    }
+
+    return -1;
 }
 
 int create_dynamic_server_for_device(const char *device_id, uint16_t input_port,
@@ -1694,55 +2063,11 @@ int create_dynamic_server_for_device(const char *device_id, uint16_t input_port,
     servers_count++;
 
     memset(&servers[index], 0, sizeof(proxy_server_t));
-    servers[index].id = (uint16_t)index;
-    servers[index].enable = true;
-    servers[index].input_port = input_port;
-    servers[index].output_port = tunnel_port;
-    servers[index].is_input_enabled = true;
-    servers[index].is_output_enabled = true;
-    servers[index].enable_output_ssl = false;
-    servers[index].enable_input_ssl = false;
-    servers[index].is_dynamic_port = true;
-    strncpy(servers[index].device_id, device_id, DEVICE_ID_MAX_LEN);
-    servers[index].device_id[DEVICE_ID_MAX_LEN] = '\0';
-    servers[index].statistics.last_update = time(NULL);
-
-    if (server_input_init(&servers[index]) < 0) {
-        servers[index].is_input_enabled = false;
-        logMsg(LOG_ERR, "Failed to init input socket for device %s on port %u\n",
-               device_id, input_port);
+    int started = start_dynamic_server_at_index(index, device_id, input_port, tunnel_port);
+    if (started < 0) {
         servers_count--;
-        return -1;
     }
-
-    if (server_output_init(&servers[index]) < 0) {
-        servers[index].is_output_enabled = false;
-        logMsg(LOG_ERR, "Failed to init output socket for device %s on port %u\n",
-               device_id, tunnel_port);
-        if (servers[index].input >= 0) {
-            close(servers[index].input);
-            servers[index].input = -1;
-        }
-        servers_count--;
-        return -1;
-    }
-
-    if (start_server_listening_threads(&servers[index]) != 0) {
-        if (servers[index].input >= 0) {
-            close(servers[index].input);
-            servers[index].input = -1;
-        }
-        if (servers[index].output >= 0) {
-            close(servers[index].output);
-            servers[index].output = -1;
-        }
-        servers_count--;
-        return -1;
-    }
-
-    logMsg(LOG_INFO, "Dynamic server started for device %s: input=%u tunnel=%u\n",
-           device_id, input_port, tunnel_port);
-    return index;
+    return started;
 }
 
 int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
@@ -1751,16 +2076,23 @@ int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port,
         return -1;
     }
 
-    for (int i = 0; i < servers_count; i++) {
-        if (!servers[i].enable || !servers[i].is_dynamic_port) {
-            continue;
-        }
-        if (servers[i].input_port != input_port || servers[i].output_port != tunnel_port) {
-            continue;
-        }
-        logMsg(LOG_DEBUG, "Reusing dynamic server for device %s on input=%u tunnel=%u\n",
+    int healthy_index = find_healthy_dynamic_server(input_port, tunnel_port);
+    if (healthy_index >= 0) {
+        logMsg(LOG_DEBUG, "Reusing healthy dynamic server for device %s on input=%u tunnel=%u\n",
                device_id, input_port, tunnel_port);
-        return i;
+        return healthy_index;
+    }
+
+    stop_dynamic_runtimes_for_device(device_id, input_port, tunnel_port);
+
+    int stopped_index = find_stopped_dynamic_server(device_id, input_port, tunnel_port);
+    if (stopped_index >= 0) {
+        logMsg(LOG_INFO, "Restarting stopped dynamic server slot %d for device %s\n",
+               stopped_index, device_id);
+        int restarted = start_dynamic_server_at_index(stopped_index, device_id, input_port, tunnel_port);
+        if (restarted >= 0) {
+            return restarted;
+        }
     }
 
     logMsg(LOG_INFO, "Creating dynamic server for device %s: input=%u tunnel=%u\n",

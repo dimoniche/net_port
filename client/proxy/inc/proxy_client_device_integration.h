@@ -9,6 +9,10 @@
 #include <stdbool.h>
 #include "device_heartbeat.h"
 
+#define HEARTBEAT_SEND_OK                 0
+#define HEARTBEAT_SEND_FAILED            -1
+#define HEARTBEAT_SEND_SESSION_TERMINATED -2
+
 /**
  * @brief Initialize device registration
  * 
@@ -27,6 +31,13 @@ int device_registration_init(const char *device_id, const char *auth_token,
  * @return int 0 on success, -1 on error
  */
 int device_register_with_server(void);
+
+/**
+ * @brief Retry registration until server allows connection or shutdown
+ *
+ * @return int 0 on success, -1 on shutdown/interrupt
+ */
+int device_register_until_allowed(void);
 
 /**
  * @brief Start device heartbeat

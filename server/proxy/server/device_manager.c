@@ -79,7 +79,7 @@ static int sha256_hex(const char *input, char *output_hex, size_t output_len)
 static void* control_server_thread(void *arg);
 static int handle_device_connection(int client_fd, struct sockaddr_in *client_addr);
 static int parse_json_request(const char *json_str, json_t **root);
-static int process_json_message(int client_fd, const char *json_str);
+static int process_json_message(int client_fd, const char *json_str, const char *client_ip);
 static int send_json_response(int client_fd, json_t *response);
 static int create_ssl_context(void);
 static void cleanup_device_manager_ssl_context(void);
@@ -89,6 +89,18 @@ void* cleanup_expired_sessions_thread(void *arg);
 json_t* process_registration_request(json_t *request);
 json_t* process_heartbeat_request(json_t *request);
 json_t* process_statistics_request(json_t *request);
+json_t* process_admin_disconnect_request(json_t *request);
+
+static bool is_local_control_request(const char *client_ip)
+{
+    if (!client_ip) {
+        return false;
+    }
+
+    return strcmp(client_ip, "127.0.0.1") == 0 ||
+           strcmp(client_ip, "::1") == 0 ||
+           strcmp(client_ip, "0.0.0.0") == 0;
+}
 
 /**
  * Initialize device manager with configuration
@@ -253,7 +265,7 @@ static int handle_device_connection(int client_fd, struct sockaddr_in *client_ad
     buffer[bytes_read] = '\0';
     
     // Process JSON message
-    int result = process_json_message(client_fd, buffer);
+    int result = process_json_message(client_fd, buffer, client_ip);
     
     close(client_fd);
     return result;
@@ -262,7 +274,7 @@ static int handle_device_connection(int client_fd, struct sockaddr_in *client_ad
 /**
  * Process JSON message from device
  */
-static int process_json_message(int client_fd, const char *json_str)
+static int process_json_message(int client_fd, const char *json_str, const char *client_ip)
 {
     json_t *root = NULL;
     json_error_t error;
@@ -305,6 +317,14 @@ static int process_json_message(int client_fd, const char *json_str)
         response = process_heartbeat_request(root);
     } else if (strcmp(action, "statistics") == 0) {
         response = process_statistics_request(root);
+    } else if (strcmp(action, "disconnect") == 0) {
+        if (!is_local_control_request(client_ip)) {
+            response = json_object();
+            json_object_set_new(response, "status", json_string("error"));
+            json_object_set_new(response, "message", json_string("Unauthorized control request"));
+        } else {
+            response = process_admin_disconnect_request(root);
+        }
     } else {
         logMsg(LOG_WARNING, "Unknown action: %s\n", action);
         
@@ -368,6 +388,10 @@ json_t* process_registration_request(json_t *request)
     if (ensure_dynamic_server_for_device(device_id, input_port, tunnel_port) < 0) {
         logMsg(LOG_WARNING, "Failed to ensure dynamic server for device %s (input=%u tunnel=%u)\n",
                device_id, input_port, tunnel_port);
+        terminate_device_session(session_token);
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "message", json_string("Failed to start device proxy"));
+        return response;
     }
     
     json_object_set_new(response, "status", json_string("authenticated"));
@@ -408,7 +432,8 @@ json_t* process_heartbeat_request(json_t *request)
     // Update heartbeat
     if (update_device_heartbeat(session_token) != 0) {
         json_object_set_new(response, "status", json_string("error"));
-        json_object_set_new(response, "message", json_string("Invalid session token"));
+        json_object_set_new(response, "message", json_string("Session terminated"));
+        json_object_set_new(response, "force_disconnect", json_true());
         return response;
     }
 
@@ -422,20 +447,52 @@ json_t* process_heartbeat_request(json_t *request)
     }
     
     // Update statistics if provided
+    uint64_t bytes_sent = 0;
+    uint64_t bytes_received = 0;
+    uint32_t connections = 0;
+    bool has_traffic = false;
+
     json_t *stats_obj = json_object_get(request, "statistics");
+    json_t *traffic_obj = json_object_get(request, "traffic");
+
     if (stats_obj && json_is_object(stats_obj)) {
         json_t *bytes_sent_obj = json_object_get(stats_obj, "bytes_sent");
         json_t *bytes_received_obj = json_object_get(stats_obj, "bytes_received");
         json_t *connections_obj = json_object_get(stats_obj, "connections");
-        
+
+        if (json_is_integer(connections_obj)) {
+            connections = (uint32_t)json_integer_value(connections_obj);
+        }
+
         if (json_is_integer(bytes_sent_obj) && json_is_integer(bytes_received_obj)) {
-            uint64_t bytes_sent = json_integer_value(bytes_sent_obj);
-            uint64_t bytes_received = json_integer_value(bytes_received_obj);
-            uint32_t connections = json_is_integer(connections_obj) ? json_integer_value(connections_obj) : 0;
-            
-            update_device_statistics(session_token, bytes_sent, bytes_received, connections);
+            bytes_sent = (uint64_t)json_integer_value(bytes_sent_obj);
+            bytes_received = (uint64_t)json_integer_value(bytes_received_obj);
+            has_traffic = true;
         }
     }
+
+    if (traffic_obj && json_is_object(traffic_obj)) {
+        json_t *bytes_sent_obj = json_object_get(traffic_obj, "bytes_sent");
+        json_t *bytes_received_obj = json_object_get(traffic_obj, "bytes_received");
+        json_t *connections_obj = json_object_get(traffic_obj, "active_connections");
+
+        if (json_is_integer(connections_obj)) {
+            connections = (uint32_t)json_integer_value(connections_obj);
+        }
+
+        if (!has_traffic && json_is_integer(bytes_sent_obj) && json_is_integer(bytes_received_obj)) {
+            bytes_sent = (uint64_t)json_integer_value(bytes_sent_obj);
+            bytes_received = (uint64_t)json_integer_value(bytes_received_obj);
+            has_traffic = true;
+        }
+    }
+
+    if (has_traffic) {
+        update_device_statistics(session_token, bytes_sent, bytes_received, connections);
+        aggregate_device_hourly_statistics(session_token, bytes_sent, bytes_received, connections);
+    }
+
+    record_device_traffic_sample(session_token, bytes_sent, bytes_received, connections);
     
     json_object_set_new(response, "status", json_string("ok"));
     json_object_set_new(response, "timestamp", json_integer(time(NULL)));
@@ -541,7 +598,7 @@ int device_authenticate(const char *device_id, const char *auth_token, device_in
         "SELECT id::text, name, type, user_id, internal_address, internal_port, status "
         "FROM devices "
         "WHERE device_id = $1 AND auth_token_hash = $2 "
-        "AND status IN ('active', 'pending', 'connecting', 'inactive')",
+        "AND status IN ('active', 'pending', 'connecting')",
         2, NULL, params, NULL, NULL, 0);
 
     if (PQresultStatus(res) != PGRES_TUPLES_OK) {
@@ -637,7 +694,7 @@ static int register_device_session(const char *device_id, const char *client_ip,
     PGresult *res = PQexecParams(conn,
         "WITH dev AS ("
         "  SELECT id FROM devices WHERE device_id = $1 "
-        "  AND status IN ('active', 'pending', 'connecting', 'inactive')"
+        "  AND status IN ('active', 'pending', 'connecting')"
         "), "
         "pair AS ("
         "  SELECT pa1.port AS input_port, pa2.port AS tunnel_port "
@@ -1156,6 +1213,105 @@ int update_device_statistics(const char *session_token,
     return 0;
 }
 
+int record_device_traffic_sample(const char *session_token,
+                                 uint64_t bytes_sent_delta,
+                                 uint64_t bytes_received_delta,
+                                 uint32_t connections)
+{
+    if (!session_token) {
+        return -1;
+    }
+
+    db_lock();
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        db_unlock();
+        return -1;
+    }
+
+    char bytes_sent_str[32];
+    char bytes_received_str[32];
+    char connections_str[16];
+    snprintf(bytes_sent_str, sizeof(bytes_sent_str), "%llu", (unsigned long long)bytes_sent_delta);
+    snprintf(bytes_received_str, sizeof(bytes_received_str), "%llu", (unsigned long long)bytes_received_delta);
+    snprintf(connections_str, sizeof(connections_str), "%u", connections);
+
+    const char *params[4] = { bytes_sent_str, bytes_received_str, connections_str, session_token };
+    PGresult *res = PQexecParams(conn,
+        "INSERT INTO device_traffic_samples (device_id, session_id, bytes_sent_delta, bytes_received_delta, active_connections) "
+        "SELECT ds.device_id, ds.id, $1::bigint, $2::bigint, $3::integer "
+        "FROM device_sessions ds "
+        "WHERE ds.session_token = $4 AND ds.status = 'active'",
+        4, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_WARNING, "Failed to record device traffic sample: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        db_unlock();
+        return -1;
+    }
+
+    PQclear(res);
+
+    res = PQexec(conn,
+        "DELETE FROM device_traffic_samples WHERE recorded_at < NOW() - interval '8 days'");
+    PQclear(res);
+
+    db_unlock();
+    return 0;
+}
+
+int aggregate_device_hourly_statistics(const char *session_token,
+                                       uint64_t bytes_sent,
+                                       uint64_t bytes_received,
+                                       uint32_t connections)
+{
+    if (!session_token || (bytes_sent == 0 && bytes_received == 0 && connections == 0)) {
+        return 0;
+    }
+
+    db_lock();
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        db_unlock();
+        return -1;
+    }
+
+    char bytes_sent_str[32];
+    char bytes_received_str[32];
+    char connections_str[16];
+    snprintf(bytes_sent_str, sizeof(bytes_sent_str), "%llu", (unsigned long long)bytes_sent);
+    snprintf(bytes_received_str, sizeof(bytes_received_str), "%llu", (unsigned long long)bytes_received);
+    snprintf(connections_str, sizeof(connections_str), "%u", connections);
+
+    const char *params[4] = { bytes_sent_str, bytes_received_str, connections_str, session_token };
+    PGresult *res = PQexecParams(conn,
+        "INSERT INTO device_statistics (device_id, period_start, period_end, bytes_sent, bytes_received, connection_count, peak_connections) "
+        "SELECT ds.device_id, date_trunc('hour', NOW()), date_trunc('hour', NOW()) + interval '1 hour', "
+        "$1::bigint, $2::bigint, 1, $3::integer "
+        "FROM device_sessions ds "
+        "WHERE ds.session_token = $4 AND ds.status = 'active' "
+        "ON CONFLICT (device_id, period_start) DO UPDATE SET "
+        "bytes_sent = device_statistics.bytes_sent + EXCLUDED.bytes_sent, "
+        "bytes_received = device_statistics.bytes_received + EXCLUDED.bytes_received, "
+        "peak_connections = GREATEST(device_statistics.peak_connections, EXCLUDED.peak_connections), "
+        "period_end = EXCLUDED.period_end",
+        4, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_WARNING, "Failed to aggregate device statistics: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        db_unlock();
+        return -1;
+    }
+
+    PQclear(res);
+    db_unlock();
+    return 0;
+}
+
 int free_device_port(uint16_t port)
 {
     db_lock();
@@ -1182,4 +1338,168 @@ int free_device_port(uint16_t port)
     PQclear(res);
     db_unlock();
     return 0;
+}
+
+int terminate_device_session(const char *session_token)
+{
+    if (!session_token) {
+        return -1;
+    }
+
+    device_session_t session;
+    if (get_session_by_token(session_token, &session) != 0) {
+        return -1;
+    }
+
+    if (session.assigned_port != 0) {
+        stop_dynamic_server_for_device(session.device_id, session.assigned_port,
+                                       (uint16_t)(session.assigned_port + 1));
+    }
+
+    db_lock();
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        db_unlock();
+        return -1;
+    }
+
+    const char *params[1] = { session_token };
+    PGresult *res = PQexecParams(conn,
+        "UPDATE device_sessions SET status = 'terminated', expires_at = NOW() "
+        "WHERE session_token = $1 AND status = 'active'",
+        1, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_ERR, "Failed to terminate session: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        db_unlock();
+        return -1;
+    }
+
+    PQclear(res);
+
+    if (session.assigned_port != 0) {
+        char port_str[16];
+        snprintf(port_str, sizeof(port_str), "%u", session.assigned_port);
+        const char *port_params[1] = { port_str };
+        res = PQexecParams(conn, "SELECT free_device_port_pair($1::integer)", 1, NULL, port_params, NULL, NULL, 0);
+        PQclear(res);
+    }
+
+    db_unlock();
+    return 0;
+}
+
+int terminate_device_by_device_id(const char *device_id)
+{
+    if (!device_id) {
+        return -1;
+    }
+
+    db_lock();
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        db_unlock();
+        return -1;
+    }
+
+    const char *params[1] = { device_id };
+    PGresult *res = PQexecParams(conn,
+        "SELECT ds.session_token, ds.assigned_port "
+        "FROM device_sessions ds "
+        "JOIN devices d ON ds.device_id = d.id "
+        "WHERE d.device_id = $1 AND ds.status = 'active'",
+        1, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+        logMsg(LOG_ERR, "Failed to query active sessions for %s: %s\n", device_id, PQerrorMessage(conn));
+        PQclear(res);
+        db_unlock();
+        return -1;
+    }
+
+    int session_count = PQntuples(res);
+    for (int i = 0; i < session_count; i++) {
+        char *assigned_port_str = PQgetvalue(res, i, 1);
+        uint16_t assigned_port = assigned_port_str ? (uint16_t)atoi(assigned_port_str) : 0;
+
+        if (assigned_port != 0) {
+            stop_dynamic_server_for_device(device_id, assigned_port, (uint16_t)(assigned_port + 1));
+        }
+    }
+
+    if (session_count == 0) {
+        stop_dynamic_server_for_device(device_id, 0, 0);
+    }
+
+    PQclear(res);
+
+    res = PQexecParams(conn,
+        "UPDATE device_sessions SET status = 'terminated', expires_at = NOW() "
+        "WHERE device_id = (SELECT id FROM devices WHERE device_id = $1) "
+        "AND status = 'active'",
+        1, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_ERR, "Failed to terminate sessions for %s: %s\n", device_id, PQerrorMessage(conn));
+        PQclear(res);
+        db_unlock();
+        return -1;
+    }
+
+    PQclear(res);
+
+    res = PQexecParams(conn,
+        "SELECT free_device_port_pair(ds.assigned_port) "
+        "FROM device_sessions ds "
+        "JOIN devices d ON ds.device_id = d.id "
+        "WHERE d.device_id = $1 AND ds.assigned_port IS NOT NULL",
+        1, NULL, params, NULL, NULL, 0);
+    PQclear(res);
+
+    res = PQexecParams(conn,
+        "UPDATE devices SET status = 'inactive', assigned_port = NULL, updated_at = NOW() "
+        "WHERE device_id = $1",
+        1, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_ERR, "Failed to deactivate device %s: %s\n", device_id, PQerrorMessage(conn));
+        PQclear(res);
+        db_unlock();
+        return -1;
+    }
+
+    PQclear(res);
+    db_unlock();
+
+    logMsg(LOG_INFO, "Device %s disconnected: stopped proxy and terminated %d session(s)\n",
+           device_id, session_count);
+    return 0;
+}
+
+json_t* process_admin_disconnect_request(json_t *request)
+{
+    json_t *response = json_object();
+    json_t *device_id_obj = json_object_get(request, "device_id");
+
+    if (!json_is_string(device_id_obj)) {
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "message", json_string("Missing device_id"));
+        return response;
+    }
+
+    const char *device_id = json_string_value(device_id_obj);
+
+    if (terminate_device_by_device_id(device_id) != 0) {
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "message", json_string("Failed to disconnect device"));
+        return response;
+    }
+
+    json_object_set_new(response, "status", json_string("ok"));
+    json_object_set_new(response, "message", json_string("Device disconnected"));
+    json_object_set_new(response, "device_id", json_string(device_id));
+    return response;
 }

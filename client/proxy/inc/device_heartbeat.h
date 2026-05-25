@@ -84,6 +84,7 @@ typedef struct heartbeat_manager_s {
     time_t last_received;
     uint32_t fail_count;
     uint32_t reconnect_attempts;
+    bool allow_reconnect;
 } heartbeat_manager_t;
 
 /**

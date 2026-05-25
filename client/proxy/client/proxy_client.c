@@ -10,7 +10,89 @@
 #include "logMsg.h"
 #include "time_counter.h"
 
+#include <pthread.h>
+
 static proxy_server_thread_data_t threads_data;
+
+static struct {
+    pthread_mutex_t mutex;
+    uint64_t sent_since_last;
+    uint64_t received_since_last;
+    int initialized;
+} g_traffic_stats = { .initialized = 0 };
+
+static void client_traffic_init(void)
+{
+    if (g_traffic_stats.initialized) {
+        return;
+    }
+    pthread_mutex_init(&g_traffic_stats.mutex, NULL);
+    g_traffic_stats.initialized = 1;
+}
+
+void client_traffic_add_sent(size_t bytes)
+{
+    if (bytes == 0) {
+        return;
+    }
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    g_traffic_stats.sent_since_last += bytes;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+}
+
+void client_traffic_add_received(size_t bytes)
+{
+    if (bytes == 0) {
+        return;
+    }
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    g_traffic_stats.received_since_last += bytes;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+}
+
+uint64_t client_traffic_get_sent_since_last(void)
+{
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    uint64_t value = g_traffic_stats.sent_since_last;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+    return value;
+}
+
+uint64_t client_traffic_get_received_since_last(void)
+{
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    uint64_t value = g_traffic_stats.received_since_last;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+    return value;
+}
+
+int client_traffic_get_active_connections(void)
+{
+    int count = 0;
+
+    for (int i = 0; i < threads_data.connections_count; i++) {
+        if (threads_data.connections &&
+            threads_data.connections[i].is_running_input &&
+            threads_data.connections[i].is_running_output) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+void client_traffic_reset_since_last(void)
+{
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    g_traffic_stats.sent_since_last = 0;
+    g_traffic_stats.received_since_last = 0;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+}
 
 /* Signal-safe global shutdown flag */
 volatile sig_atomic_t global_graceful_shutdown = 0;
@@ -177,6 +259,45 @@ server_input_thread (void* parameter)
         logMsg(LOG_INFO, "Start to server connection %d\n", conn->id);
 
         while (!conn->stop_running_input) {
+            if (device_session_is_revoked()) {
+                logMsg(LOG_INFO, "Input server connect paused for connection %d (waiting for registration)\n", conn->id);
+
+                {
+                    int sleep_ms = 10000;
+                    int slept = 0;
+                    while (slept < sleep_ms && !conn->stop_running_input && !global_graceful_shutdown &&
+                           device_session_is_revoked()) {
+                        int step = (sleep_ms - slept) > 200 ? 200 : (sleep_ms - slept);
+                        Thread_sleep(step);
+                        slept += step;
+                    }
+                }
+
+                if (conn->stop_running_input || global_graceful_shutdown) {
+                    logMsg(LOG_INFO, "Input thread stop requested for connection %d\n", conn->id);
+                    if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                    conn->is_starting_input = false;
+                    conn->is_running_input = false;
+                    return 0;
+                }
+
+                if (device_session_is_revoked()) {
+                    continue;
+                }
+
+                if (conn->input >= 0) {
+                    close(conn->input);
+                    conn->input = -1;
+                }
+
+                if (init_input_sockets(conn) != 0) {
+                    Thread_sleep(1000);
+                    continue;
+                }
+
+                backoff = 1;
+            }
+
             if (connect(conn->input, (struct sockaddr *) &conn->input_addr,
                         sizeof(conn->input_addr)) == 0) {
                 connected = 1;
@@ -577,6 +698,10 @@ server_input_thread (void* parameter)
                     }
                 }
             } while (conn->is_running_output);
+
+            if (sent >= len_apdu && len_apdu > 0) {
+                client_traffic_add_received((size_t)len_apdu);
+            }
         }
 
         Thread_sleep(10);
@@ -907,6 +1032,10 @@ server_output_thread (void* parameter)
                     }
                 }
             } while (conn->is_running_input);
+
+            if (sent >= len_apdu && len_apdu > 0) {
+                client_traffic_add_sent((size_t)len_apdu);
+            }
         }
 
         Thread_sleep(10);
@@ -1026,6 +1155,80 @@ bool
 server_input_is_running(proxy_server_connection_t *conn)
 {
     return conn->is_running_input;
+}
+
+void
+switcher_servers_drop_active_connections(void)
+{
+    proxy_server_thread_data_t *settings = get_client_settings();
+
+    if (!settings || !settings->connections) {
+        return;
+    }
+
+    logMsg(LOG_INFO, "Dropping active proxy connections\n");
+
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+
+        conn->stop_running_input = true;
+        conn->stop_running_output = true;
+
+        if (conn->input >= 0) {
+            shutdown(conn->input, SHUT_RDWR);
+        }
+        if (conn->output >= 0) {
+            shutdown(conn->output, SHUT_RDWR);
+        }
+    }
+}
+
+void
+switcher_servers_restart_input_threads(void)
+{
+    proxy_server_thread_data_t *settings = get_client_settings();
+
+    if (!settings || !settings->connections) {
+        return;
+    }
+
+    logMsg(LOG_INFO, "Restarting proxy input threads after registration\n");
+
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+
+        conn->stop_running_input = true;
+        conn->stop_running_output = true;
+
+        if (conn->input >= 0) {
+            shutdown(conn->input, SHUT_RDWR);
+            close(conn->input);
+            conn->input = -1;
+        }
+        if (conn->output >= 0) {
+            shutdown(conn->output, SHUT_RDWR);
+            close(conn->output);
+            conn->output = -1;
+        }
+    }
+
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+        int waited_ms = 0;
+
+        while (conn->is_running_input && waited_ms < 10000) {
+            Thread_sleep(10);
+            waited_ms += 10;
+        }
+
+        conn->stop_running_input = false;
+        conn->stop_running_output = false;
+        conn->is_running_input = false;
+        conn->is_running_output = false;
+        conn->is_starting_input = false;
+        conn->is_starting_output = false;
+        server_input_start(i);
+    }
 }
 
 void

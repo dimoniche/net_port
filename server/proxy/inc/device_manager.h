@@ -260,6 +260,7 @@ int get_session_by_token(const char *session_token, device_session_t *session);
  * @return int 0 on success, -1 on error
  */
 int terminate_device_session(const char *session_token);
+int terminate_device_by_device_id(const char *device_id);
 
 /**
  * @brief Update device statistics
@@ -271,6 +272,19 @@ int terminate_device_session(const char *session_token);
  * @return int 0 on success, -1 on error
  */
 int update_device_statistics(const char *session_token, uint64_t bytes_sent, uint64_t bytes_received, uint32_t connections);
+
+/**
+ * @brief Aggregate device statistics into hourly buckets
+ */
+int aggregate_device_hourly_statistics(const char *session_token,
+                                       uint64_t bytes_sent,
+                                       uint64_t bytes_received,
+                                       uint32_t connections);
+
+int record_device_traffic_sample(const char *session_token,
+                                 uint64_t bytes_sent_delta,
+                                 uint64_t bytes_received_delta,
+                                 uint32_t connections);
 
 /**
  * @brief Process device registration request

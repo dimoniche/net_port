@@ -15,6 +15,7 @@ exports.Statistics = class Statistics {
         FROM statistic
         GROUP BY server_id
       ) s2 ON s1.server_id = s2.server_id AND s1.timestamp = s2.max_timestamp
+      INNER JOIN servers srv ON srv.id = s1.server_id
       ORDER BY s1.server_id
     `;
 

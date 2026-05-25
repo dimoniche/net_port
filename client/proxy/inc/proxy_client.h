@@ -90,10 +90,23 @@ extern volatile sig_atomic_t global_graceful_shutdown;
 int switcher_servers_start();
 void switcher_servers_stop();
 void switcher_servers_wait_stop();
+void switcher_servers_drop_active_connections(void);
+void switcher_servers_restart_input_threads(void);
 
 // Функции для работы с OpenSSL
 void init_openssl();
 void cleanup_openssl();
 SSL_CTX *create_client_ssl_context(const char *ca_file);
+
+void client_traffic_add_sent(size_t bytes);
+void client_traffic_add_received(size_t bytes);
+uint64_t client_traffic_get_sent_since_last(void);
+uint64_t client_traffic_get_received_since_last(void);
+int client_traffic_get_active_connections(void);
+void client_traffic_reset_since_last(void);
+
+int device_session_is_revoked(void);
+void device_session_set_revoked(int revoked);
+void device_start_registration_wait(void);
 
 #endif //NET_PORT_CLIENT_H
