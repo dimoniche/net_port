@@ -191,6 +191,24 @@ apply_server_port_separation() {
 }
 apply_server_port_separation
 
+apply_internal_port_range_fix() {
+    local fix=""
+    if [ -f /etc/postgresql/internal_port_range_fix.sql ]; then
+        fix="/etc/postgresql/internal_port_range_fix.sql"
+    elif [ -f /root/net_port/source/sql/internal_port_range_fix.sql ]; then
+        fix="/root/net_port/source/sql/internal_port_range_fix.sql"
+    else
+        return 0
+    fi
+    echo "Applying internal_port range migration..."
+    if [ "$USE_LOCAL_DB" = "true" ]; then
+        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
+    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
+    fi
+}
+apply_internal_port_range_fix
+
 # Add admin user with hashed password from environment
 cd /root/net_port/source/web/backend_net_port && bash -c "source $NVM_DIR/nvm.sh && NODE_PATH=/root/net_port/source/web/backend_net_port/node_modules node ../utils/add_test_user.js"
 

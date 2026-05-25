@@ -25,6 +25,96 @@
 static device_registration_state_t g_device_state;
 static bool g_device_registration_enabled = false;
 static heartbeat_config_t g_heartbeat_config;
+static bool g_cli_output_host = false;
+static bool g_cli_output_port = false;
+static uint16_t g_port_host_base = 0;
+static uint16_t g_port_range_start = 6000;
+static uint16_t g_tunnel_port_override = 0;
+
+static bool argv_has_flag(int argc, char **argv, const char *flag)
+{
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], flag) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void apply_tunnel_settings(proxy_server_thread_data_t *settings)
+{
+    if (!settings) {
+        return;
+    }
+
+    uint16_t tunnel_connect_port = g_device_state.tunnel_port;
+
+    if (g_tunnel_port_override != 0) {
+        tunnel_connect_port = g_tunnel_port_override;
+    } else if (g_port_host_base != 0) {
+        tunnel_connect_port = (uint16_t)(g_port_host_base +
+            (g_device_state.tunnel_port - g_port_range_start));
+    }
+
+    strncpy(settings->input_address, g_device_state.server_host,
+            sizeof(settings->input_address) - 1);
+    settings->input_address[sizeof(settings->input_address) - 1] = '\0';
+    settings->input_port = tunnel_connect_port;
+
+    logMsg(LOG_INFO, "Configured proxy tunnel to %s:%d (server tunnel %d, external %d)\n",
+           settings->input_address, tunnel_connect_port,
+           g_device_state.tunnel_port, g_device_state.assigned_port);
+    if (g_port_host_base != 0 && g_tunnel_port_override == 0) {
+        logMsg(LOG_INFO, "Using port-host-base %u (map internal %u-%u -> host %u+)\n",
+               g_port_host_base, g_port_range_start, g_port_range_start + 9, g_port_host_base);
+    }
+}
+
+static void apply_output_target_from_registration(proxy_server_thread_data_t *settings)
+{
+    if (!settings) {
+        return;
+    }
+
+    if (!g_cli_output_host) {
+        if (g_device_state.internal_address[0] != '\0') {
+            strncpy(settings->output_address, g_device_state.internal_address,
+                    sizeof(settings->output_address) - 1);
+            settings->output_address[sizeof(settings->output_address) - 1] = '\0';
+            logMsg(LOG_INFO, "Using internal_address from registration: %s\n",
+                   settings->output_address);
+        } else if (g_device_state.internal_port != 0) {
+            strncpy(settings->output_address, "127.0.0.1",
+                    sizeof(settings->output_address) - 1);
+            settings->output_address[sizeof(settings->output_address) - 1] = '\0';
+            logMsg(LOG_INFO, "Using default internal_address 127.0.0.1 for registered port %d\n",
+                   g_device_state.internal_port);
+        }
+    }
+
+    if (!g_cli_output_port && g_device_state.internal_port != 0) {
+        settings->output_port = g_device_state.internal_port;
+        logMsg(LOG_INFO, "Using internal_port from registration: %d\n",
+               settings->output_port);
+    }
+}
+
+static int validate_output_target(const proxy_server_thread_data_t *settings)
+{
+    if (!settings || settings->output_port == 0) {
+        logMsg(LOG_ERR,
+               "Output target is not configured. Set internal_port in web UI or use -p_out\n");
+        return -1;
+    }
+
+    if (settings->output_address[0] == '\0') {
+        logMsg(LOG_ERR,
+               "Output address is not configured. Set internal_address in web UI or use --host_out\n");
+        return -1;
+    }
+
+    return 0;
+}
 
 /**
  * Initialize device registration
@@ -208,6 +298,20 @@ int device_register_with_server(void)
             if (json_is_integer(interval_obj)) {
                 g_device_state.heartbeat_interval = (uint32_t)json_integer_value(interval_obj);
             }
+
+            json_t *internal_addr_obj = json_object_get(response, "internal_address");
+            json_t *internal_port_obj = json_object_get(response, "internal_port");
+            g_device_state.internal_address[0] = '\0';
+            g_device_state.internal_port = 0;
+            if (json_is_string(internal_addr_obj)) {
+                strncpy(g_device_state.internal_address,
+                        json_string_value(internal_addr_obj),
+                        sizeof(g_device_state.internal_address) - 1);
+                g_device_state.internal_address[sizeof(g_device_state.internal_address) - 1] = '\0';
+            }
+            if (json_is_integer(internal_port_obj)) {
+                g_device_state.internal_port = (uint16_t)json_integer_value(internal_port_obj);
+            }
             
             g_device_state.status = DEVICE_STATUS_REGISTERED;
             g_device_state.registered_at = time(NULL);
@@ -222,6 +326,13 @@ int device_register_with_server(void)
             logMsg(LOG_INFO, "Device registered successfully\n");
             logMsg(LOG_INFO, "  External port: %d\n", g_device_state.assigned_port);
             logMsg(LOG_INFO, "  Tunnel port: %d\n", g_device_state.tunnel_port);
+            if (g_device_state.internal_port != 0) {
+                logMsg(LOG_INFO, "  Internal target: %s:%d\n",
+                       g_device_state.internal_address[0] != '\0'
+                           ? g_device_state.internal_address
+                           : "127.0.0.1",
+                       g_device_state.internal_port);
+            }
             logMsg(LOG_INFO, "  Heartbeat interval: %d seconds\n", g_device_state.heartbeat_interval);
         } else {
             logMsg(LOG_ERR, "Missing required fields in registration response\n");
@@ -272,15 +383,17 @@ int start_device_heartbeat(void)
  */
 int main_with_device_registration(int argc, char** argv)
 {
-    // Parse command line arguments
     char *device_id = NULL;
     char *auth_token = NULL;
     char *registration_server = NULL;
     uint16_t registration_port = 8443;
-    uint16_t tunnel_port_override = 0;
-    uint16_t port_host_base = 0;
-    uint16_t port_range_start = 6000;
     bool enable_device_registration = false;
+
+    g_cli_output_host = argv_has_flag(argc, argv, "--host_out");
+    g_cli_output_port = argv_has_flag(argc, argv, "-p_out");
+    g_tunnel_port_override = 0;
+    g_port_host_base = 0;
+    g_port_range_start = 6000;
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--device-id") == 0 && i + 1 < argc) {
@@ -293,50 +406,32 @@ int main_with_device_registration(int argc, char** argv)
         } else if (strcmp(argv[i], "--registration-port") == 0 && i + 1 < argc) {
             registration_port = (uint16_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--tunnel-port") == 0 && i + 1 < argc) {
-            tunnel_port_override = (uint16_t)atoi(argv[++i]);
+            g_tunnel_port_override = (uint16_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--port-host-base") == 0 && i + 1 < argc) {
-            port_host_base = (uint16_t)atoi(argv[++i]);
+            g_port_host_base = (uint16_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--port-range-start") == 0 && i + 1 < argc) {
-            port_range_start = (uint16_t)atoi(argv[++i]);
+            g_port_range_start = (uint16_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "-p_in") == 0 && i + 1 < argc) {
-            tunnel_port_override = (uint16_t)atoi(argv[++i]);
+            g_tunnel_port_override = (uint16_t)atoi(argv[++i]);
         }
     }
     
-    // Initialize device registration if enabled
     if (enable_device_registration && device_id && auth_token && registration_server) {
         if (device_registration_init(device_id, auth_token, registration_server, registration_port) != 0) {
             logMsg(LOG_ERR, "Failed to initialize device registration\n");
             return -1;
         }
         
-        // Register with server
         if (device_register_with_server() != 0) {
             logMsg(LOG_ERR, "Device registration failed\n");
             return -1;
         }
-        
+
         proxy_server_thread_data_t *settings = get_client_settings();
-        if (settings) {
-            uint16_t tunnel_connect_port = g_device_state.tunnel_port;
-
-            if (tunnel_port_override != 0) {
-                tunnel_connect_port = tunnel_port_override;
-            } else if (port_host_base != 0) {
-                tunnel_connect_port = (uint16_t)(port_host_base +
-                    (g_device_state.tunnel_port - port_range_start));
-            }
-
-            strncpy(settings->input_address, registration_server, sizeof(settings->input_address) - 1);
-            settings->input_port = tunnel_connect_port;
-
-            logMsg(LOG_INFO, "Configured proxy tunnel to %s:%d (server tunnel %d, external %d)\n",
-                   registration_server, tunnel_connect_port,
-                   g_device_state.tunnel_port, g_device_state.assigned_port);
-            if (port_host_base != 0 && tunnel_port_override == 0) {
-                logMsg(LOG_INFO, "Using port-host-base %u (map internal %u-%u -> host %u+)\n",
-                       port_host_base, port_range_start, port_range_start + 9, port_host_base);
-            }
+        apply_tunnel_settings(settings);
+        apply_output_target_from_registration(settings);
+        if (validate_output_target(settings) != 0) {
+            return -1;
         }
         
         if (start_device_heartbeat() != 0) {
@@ -393,8 +488,11 @@ int reconnect_device(void)
     g_heartbeat_config.assigned_port = g_device_state.assigned_port;
     
     proxy_server_thread_data_t *settings = get_client_settings();
-    if (settings && g_device_state.tunnel_port) {
-        settings->input_port = g_device_state.tunnel_port;
+    apply_tunnel_settings(settings);
+    apply_output_target_from_registration(settings);
+    if (validate_output_target(settings) != 0) {
+        g_device_state.status = DEVICE_STATUS_DISCONNECTED;
+        return -1;
     }
     
     // Restart heartbeat

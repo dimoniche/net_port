@@ -47,6 +47,7 @@ static void print_usage(void)
     fprintf(stderr, "         --registration-port   - device control server port (default 8443)\n");
     fprintf(stderr, "         --port-host-base N    - map server ports to host (Docker: 49000)\n");
     fprintf(stderr, "         --tunnel-port N       - override tunnel connect port (e.g. 49003)\n");
+    fprintf(stderr, "\nDevice mode uses internal_address/internal_port from server when -p_out/--host_out are omitted.\n");
     fprintf(stderr, "\nExamples:\n");
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --connections 5 --timeout 60\n", progname);
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --disable-timeout\n", progname);

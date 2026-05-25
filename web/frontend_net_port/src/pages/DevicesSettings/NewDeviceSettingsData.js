@@ -62,6 +62,8 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                     state: {
                         newDevice: created.device_id,
                         authToken: created.auth_token,
+                        internalPort: internalPort,
+                        internalAddress: deviceData.internal_address,
                     },
                 });
             } else {

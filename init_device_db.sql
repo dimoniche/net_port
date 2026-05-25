@@ -29,7 +29,7 @@ CREATE TABLE devices (
     
     -- Indexes for performance
     CONSTRAINT valid_port_range CHECK (assigned_port IS NULL OR (assigned_port >= 6000 AND assigned_port <= 7000)),
-    CONSTRAINT valid_internal_port CHECK (internal_port IS NULL OR (internal_port >= 6000 AND internal_port <= 7000))
+    CONSTRAINT valid_internal_port CHECK (internal_port IS NULL OR (internal_port >= 1 AND internal_port <= 65535))
 );
 
 -- Indexes for devices table

@@ -42,6 +42,24 @@ import CommonDialog from "../components/CommonDialog";
 
 import updateAbility from "../config/permission";
 
+const buildDeviceClientCommand = ({
+    deviceId,
+    token,
+    internalPort,
+    internalAddress,
+}) => {
+    const base = `./module_net_port_client --device-id ${deviceId} --device-token ${token} --registration-server SERVER_IP --registration-port 8443 --port-host-base 49000`;
+
+    if (internalPort) {
+        if (internalAddress && internalAddress !== "127.0.0.1") {
+            return `${base} --host_out ${internalAddress}`;
+        }
+        return base;
+    }
+
+    return `${base} --host_out ${internalAddress || "127.0.0.1"} -p_out 22`;
+};
+
 const Devices = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
     const [cookies, , removeCookie] = useCookies();
@@ -116,6 +134,8 @@ const Devices = ({ children, ...rest }) => {
             setTokenNotice({
                 deviceId: location.state.newDevice,
                 token: location.state.authToken,
+                internalPort: location.state.internalPort || null,
+                internalAddress: location.state.internalAddress || null,
             });
             history(location.pathname, { replace: true, state: {} });
         }
@@ -235,7 +255,12 @@ const Devices = ({ children, ...rest }) => {
                         <AlertTitle>Токен устройства {tokenNotice.deviceId}</AlertTitle>
                         Сохраните токен — он показывается один раз: <strong>{tokenNotice.token}</strong>
                         <Box sx={{ mt: 1, fontFamily: "monospace", fontSize: "0.85rem" }}>
-                            {`./module_net_port_client --device-id ${tokenNotice.deviceId} --device-token ${tokenNotice.token} --registration-server SERVER_IP --registration-port 8443 --port-host-base 49000 --host_out 127.0.0.1 -p_out 22`}
+                            {buildDeviceClientCommand({
+                                deviceId: tokenNotice.deviceId,
+                                token: tokenNotice.token,
+                                internalPort: tokenNotice.internalPort,
+                                internalAddress: tokenNotice.internalAddress,
+                            })}
                         </Box>
                     </Alert>
                 )}
