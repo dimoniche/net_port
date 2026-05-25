@@ -151,24 +151,18 @@ const Statistics = ({ children, ...rest }) => {
         return `${day}.${month}.${year} ${hours}:${minutes}`;
     };
 
-    // Функция для сброса статистики по серверу
+    // Функция для сброса статистики по server_id (в т.ч. для удалённых серверов)
     const handleResetServerStatistics = async (serverId) => {
         try {
-            // Находим сервер по ID, чтобы получить user_id
-            const server = serversData.find(s => s.id === serverId);
-            
-            if (!server) {
-                console.error(`Server with id ${serverId} not found`);
-                return;
+            await api.delete(`/statistics/${serverId}/reset`);
+
+            const server = serversData.find(
+                (s) => Number(s.id) === Number(serverId)
+            );
+            if (server) {
+                await api.post(`/servers/${serverId}/restart`);
             }
 
-            // Сбрасываем статистику по server_id
-            await api.delete(`/statistics/${serverId}/reset`);
-            
-            // Перезагружаем сервер по user_id
-            await api.post(`/servers/${server.user_id}/restart`);
-            
-            // Обновляем данные после сброса и перезагрузки
             await fetchData();
         } catch (err) {
             if (err.response && err.response.status === 401) {

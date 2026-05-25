@@ -143,15 +143,19 @@ const Servers = ({ children, ...rest }) => {
     };
 
     const removeModalHandler = async () => {
-        const users = await api
-            .delete(`/servers/${serverDeleteId}`)
-            .catch((err) => {
+        try {
+            const response = await api.delete(`/servers/${serverDeleteId}`);
+            if (response.status === 200) {
+                setServersData(response.data);
+                setIsLoaded(true);
+                setOpen(false);
+            }
+        } catch (err) {
+            if (err.response && err.response.status === 401) {
+                handleLogout();
+            } else {
                 setError(err);
-            });
-
-        if (users.status === 200) {
-            setServersData(users.data);
-            setIsLoaded(true);
+            }
             setOpen(false);
         }
     };

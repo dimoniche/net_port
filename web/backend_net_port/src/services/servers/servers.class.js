@@ -41,15 +41,21 @@ exports.Servers = class Servers {
   }
 
   async remove(id) {
-
+    const serverId = Number(id);
     const server = await this.db
       .from('servers')
-      .where('id', Number(id))
+      .where('id', serverId)
       .first();
+
+    if (!server) {
+      throw new Error(`Server with id ${id} not found`);
+    }
+
+    await this.db('statistic').where('server_id', serverId).del();
 
     await this.db
       .from('servers')
-      .where('id', id)
+      .where('id', serverId)
       .del();
 
     try {
@@ -58,7 +64,7 @@ exports.Servers = class Servers {
     } catch (e) {
 
     }
-  
+
     return this.db
       .from('servers')
       .where('user_id', Number(server.user_id))
