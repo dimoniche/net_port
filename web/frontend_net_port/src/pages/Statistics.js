@@ -27,6 +27,45 @@ import DeviceStatsModal from "../components/DeviceStatsModal";
 import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
 import { formatTimestamp } from "../utils/statsFormat";
 
+const statisticsTableContainerSx = {
+    width: "100%",
+    maxWidth: "100%",
+    overflowX: "auto",
+};
+
+const statisticsTableSx = {
+    width: "100%",
+    minWidth: 1100,
+    tableLayout: "fixed",
+};
+
+const statisticsHeadCellSx = {
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    px: { xs: 0.75, sm: 1.5 },
+    py: 1.25,
+    fontSize: { xs: "0.75rem", sm: "0.875rem" },
+};
+
+const statisticsBodyCellSx = {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    px: { xs: 0.75, sm: 1.5 },
+    py: 1,
+    fontSize: { xs: "0.75rem", sm: "0.875rem" },
+};
+
+const StatisticsTableShell = ({ ariaLabel, children }) => (
+    <TableContainer component={Paper} sx={statisticsTableContainerSx}>
+        <Table sx={statisticsTableSx} size="small" aria-label={ariaLabel}>
+            {children}
+        </Table>
+    </TableContainer>
+);
+
 const Statistics = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
     const [cookies, , removeCookie] = useCookies();
@@ -234,7 +273,14 @@ const Statistics = ({ children, ...rest }) => {
     return (
         <>
             {!isEmpty(cookies.user) ? (
-                <div style={{ padding: "20px" }}>
+                <Box
+                    sx={{
+                        width: "100%",
+                        maxWidth: "100%",
+                        boxSizing: "border-box",
+                        p: { xs: 1.5, sm: 2.5 },
+                    }}
+                >
                     <Box
                         sx={{
                             display: "flex",
@@ -246,22 +292,23 @@ const Statistics = ({ children, ...rest }) => {
                         <Typography variant="h4" sx={{ m: 0 }}>
                             Статистика
                         </Typography>
-                        <Button
-                            variant="contained"
-                            color="primary"
-                            startIcon={<RefreshIcon />}
-                            onClick={fetchData}
-                            disabled={isRefreshing}
-                            sx={{ mr: 1 }}
-                        >
-                            {isRefreshing ? "Обновление..." : "Обновить"}
-                        </Button>
-                        <Chip
-                            label={liveUpdatesEnabled ? "Live: ВКЛ" : "Live: ВЫКЛ"}
-                            color={liveUpdatesEnabled ? "success" : "default"}
-                            onClick={() => setLiveUpdatesEnabled((value) => !value)}
-                            sx={{ cursor: "pointer" }}
-                        />
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, ml: "auto" }}>
+                            <Button
+                                variant="contained"
+                                color="primary"
+                                startIcon={<RefreshIcon />}
+                                onClick={fetchData}
+                                disabled={isRefreshing}
+                            >
+                                {isRefreshing ? "Обновление..." : "Обновить"}
+                            </Button>
+                            <Chip
+                                label={liveUpdatesEnabled ? "Live: ВКЛ" : "Live: ВЫКЛ"}
+                                color={liveUpdatesEnabled ? "success" : "default"}
+                                onClick={() => setLiveUpdatesEnabled((value) => !value)}
+                                sx={{ cursor: "pointer" }}
+                            />
+                        </Box>
                     </Box>
 
                     <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 2 }}>
@@ -272,56 +319,55 @@ const Statistics = ({ children, ...rest }) => {
                     {tab === 0 && (
                         <>
                             {isLoaded && !isEmpty(statisticsData) ? (
-                                <TableContainer component={Paper}>
-                                    <Table sx={{ minWidth: 650 }} aria-label="server statistics table">
-                                        <TableHead>
-                                            <TableRow>
-                                                <TableCell><b>Описание сервера</b></TableCell>
-                                                <TableCell><b>Байт получено</b></TableCell>
-                                                <TableCell><b>Байт отправлено</b></TableCell>
-                                                <TableCell><b>Скорость приема</b></TableCell>
-                                                <TableCell><b>Скорость передачи</b></TableCell>
-                                                <TableCell><b>Активные соединения</b></TableCell>
-                                                <TableCell><b>Время обновления</b></TableCell>
-                                                <TableCell><b>Действия</b></TableCell>
-                                            </TableRow>
-                                        </TableHead>
-                                        <TableBody>
-                                            {statisticsData
-                                                .sort((a, b) => b.timestamp - a.timestamp)
-                                                .map((stat) => (
-                                                    <TableRow
-                                                        key={`${stat.server_id}-${stat.timestamp}`}
-                                                        hover
-                                                        onClick={() => {
-                                                            setSelectedServer(stat.server_id);
-                                                            setModalOpen(true);
-                                                        }}
-                                                        style={{ cursor: "pointer" }}
-                                                    >
-                                                        <TableCell>{getServerDescription(stat.server_id)}</TableCell>
-                                                        <TableCell>{formatBytes(stat.bytes_received)}</TableCell>
-                                                        <TableCell>{formatBytes(stat.bytes_sent)}</TableCell>
-                                                        <TableCell>{formatSpeed(stat.avg_receive_speed)}</TableCell>
-                                                        <TableCell>{formatSpeed(stat.avg_send_speed)}</TableCell>
-                                                        <TableCell>{stat.connections_count}</TableCell>
-                                                        <TableCell>{formatStatTimestamp(stat.timestamp)}</TableCell>
-                                                        <TableCell>
-                                                            <IconButton
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleResetServerStatistics(stat.server_id);
-                                                                }}
-                                                                color="secondary"
-                                                            >
-                                                                <DeleteIcon />
-                                                            </IconButton>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
-                                        </TableBody>
-                                    </Table>
-                                </TableContainer>
+                                <StatisticsTableShell ariaLabel="server statistics table">
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "18%" }}>Описание сервера</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Байт получено</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Байт отправлено</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Скорость приема</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Скорость передачи</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Соединения</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "16%" }}>Время обновления</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "8%" }} align="center">Действия</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {statisticsData
+                                            .sort((a, b) => b.timestamp - a.timestamp)
+                                            .map((stat) => (
+                                                <TableRow
+                                                    key={`${stat.server_id}-${stat.timestamp}`}
+                                                    hover
+                                                    onClick={() => {
+                                                        setSelectedServer(stat.server_id);
+                                                        setModalOpen(true);
+                                                    }}
+                                                    style={{ cursor: "pointer" }}
+                                                >
+                                                    <TableCell sx={statisticsBodyCellSx}>{getServerDescription(stat.server_id)}</TableCell>
+                                                    <TableCell sx={statisticsBodyCellSx} align="right">{formatBytes(stat.bytes_received)}</TableCell>
+                                                    <TableCell sx={statisticsBodyCellSx} align="right">{formatBytes(stat.bytes_sent)}</TableCell>
+                                                    <TableCell sx={statisticsBodyCellSx} align="right">{formatSpeed(stat.avg_receive_speed)}</TableCell>
+                                                    <TableCell sx={statisticsBodyCellSx} align="right">{formatSpeed(stat.avg_send_speed)}</TableCell>
+                                                    <TableCell sx={statisticsBodyCellSx} align="right">{stat.connections_count}</TableCell>
+                                                    <TableCell sx={statisticsBodyCellSx}>{formatStatTimestamp(stat.timestamp)}</TableCell>
+                                                    <TableCell sx={statisticsBodyCellSx} align="center">
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleResetServerStatistics(stat.server_id);
+                                                            }}
+                                                            color="secondary"
+                                                        >
+                                                            <DeleteIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                    </TableBody>
+                                </StatisticsTableShell>
                             ) : (
                                 <Loader title={"Статистика серверов не доступна"} />
                             )}
@@ -331,81 +377,80 @@ const Statistics = ({ children, ...rest }) => {
                     {tab === 1 && (
                         <>
                             {isLoaded && !isEmpty(deviceStatisticsData) ? (
-                                <TableContainer component={Paper}>
-                                    <Table sx={{ minWidth: 650 }} aria-label="device statistics table">
-                                        <TableHead>
-                                            <TableRow>
-                                                <TableCell><b>Устройство</b></TableCell>
-                                                <TableCell><b>Статус</b></TableCell>
-                                                <TableCell><b>Порт</b></TableCell>
-                                                <TableCell><b>Байт получено</b></TableCell>
-                                                <TableCell><b>Байт отправлено</b></TableCell>
-                                                <TableCell><b>Скорость приема</b></TableCell>
-                                                <TableCell><b>Скорость передачи</b></TableCell>
-                                                <TableCell><b>За текущий час</b></TableCell>
-                                                <TableCell><b>Соединения</b></TableCell>
-                                                <TableCell><b>Последняя активность</b></TableCell>
-                                                <TableCell><b>Действия</b></TableCell>
+                                <StatisticsTableShell ariaLabel="device statistics table">
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "14%" }}>Устройство</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "8%" }}>Статус</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "7%" }} align="right">Порт</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Байт получено</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Байт отправлено</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Скорость приема</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Скорость передачи</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">За текущий час</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "7%" }} align="right">Соединения</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "14%" }}>Последняя активность</TableCell>
+                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "8%" }} align="center">Действия</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {deviceStatisticsData.map((device) => (
+                                            <TableRow
+                                                key={device.id}
+                                                hover
+                                                onClick={() => {
+                                                    setSelectedDevice(device);
+                                                    setDeviceModalOpen(true);
+                                                }}
+                                                style={{ cursor: "pointer" }}
+                                            >
+                                                <TableCell sx={{ ...statisticsBodyCellSx, whiteSpace: "normal" }}>
+                                                    {device.name || device.device_id}
+                                                    <Typography variant="caption" display="block" color="text.secondary" noWrap>
+                                                        {device.device_id}
+                                                    </Typography>
+                                                </TableCell>
+                                                <TableCell sx={statisticsBodyCellSx}>
+                                                    <Chip
+                                                        label={device.online ? "online" : device.status || "offline"}
+                                                        color={device.online ? "success" : "default"}
+                                                        size="small"
+                                                    />
+                                                </TableCell>
+                                                <TableCell sx={statisticsBodyCellSx} align="right">
+                                                    {device.session_port || device.assigned_port || "-"}
+                                                </TableCell>
+                                                <TableCell sx={statisticsBodyCellSx} align="right">{formatBytes(device.bytes_received)}</TableCell>
+                                                <TableCell sx={statisticsBodyCellSx} align="right">{formatBytes(device.bytes_sent)}</TableCell>
+                                                <TableCell sx={statisticsBodyCellSx} align="right">{formatSpeed(device.avg_receive_speed)}</TableCell>
+                                                <TableCell sx={statisticsBodyCellSx} align="right">{formatSpeed(device.avg_send_speed)}</TableCell>
+                                                <TableCell sx={{ ...statisticsBodyCellSx, whiteSpace: "normal" }} align="right">
+                                                    {formatBytes(device.hourly_bytes_received)} / {formatBytes(device.hourly_bytes_sent)}
+                                                </TableCell>
+                                                <TableCell sx={statisticsBodyCellSx} align="right">{device.active_connections || 0}</TableCell>
+                                                <TableCell sx={statisticsBodyCellSx}>{formatStatTimestamp(device.last_activity)}</TableCell>
+                                                <TableCell sx={statisticsBodyCellSx} align="center">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleResetDeviceStatistics(device);
+                                                        }}
+                                                        color="secondary"
+                                                    >
+                                                        <DeleteIcon fontSize="small" />
+                                                    </IconButton>
+                                                </TableCell>
                                             </TableRow>
-                                        </TableHead>
-                                        <TableBody>
-                                            {deviceStatisticsData.map((device) => (
-                                                <TableRow
-                                                    key={device.id}
-                                                    hover
-                                                    onClick={() => {
-                                                        setSelectedDevice(device);
-                                                        setDeviceModalOpen(true);
-                                                    }}
-                                                    style={{ cursor: "pointer" }}
-                                                >
-                                                    <TableCell>
-                                                        {device.name || device.device_id}
-                                                        <Typography variant="caption" display="block" color="text.secondary">
-                                                            {device.device_id}
-                                                        </Typography>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Chip
-                                                            label={device.online ? "online" : device.status || "offline"}
-                                                            color={device.online ? "success" : "default"}
-                                                            size="small"
-                                                        />
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {device.session_port || device.assigned_port || "-"}
-                                                    </TableCell>
-                                                    <TableCell>{formatBytes(device.bytes_received)}</TableCell>
-                                                    <TableCell>{formatBytes(device.bytes_sent)}</TableCell>
-                                                    <TableCell>{formatSpeed(device.avg_receive_speed)}</TableCell>
-                                                    <TableCell>{formatSpeed(device.avg_send_speed)}</TableCell>
-                                                    <TableCell>
-                                                        {formatBytes(device.hourly_bytes_received)} / {formatBytes(device.hourly_bytes_sent)}
-                                                    </TableCell>
-                                                    <TableCell>{device.active_connections || 0}</TableCell>
-                                                    <TableCell>{formatStatTimestamp(device.last_activity)}</TableCell>
-                                                    <TableCell>
-                                                        <IconButton
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleResetDeviceStatistics(device);
-                                                            }}
-                                                            color="secondary"
-                                                        >
-                                                            <DeleteIcon />
-                                                        </IconButton>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </TableContainer>
+                                        ))}
+                                    </TableBody>
+                                </StatisticsTableShell>
                             ) : (
                                 <Loader title={"Статистика устройств не доступна"} />
                             )}
                         </>
                     )}
-                </div>
+                </Box>
             ) : (
                 <></>
             )}
