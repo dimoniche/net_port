@@ -716,7 +716,7 @@ Environment=DB_PASSWORD=$DB_PASSWORD
 Environment=DB_HOST=$DB_HOST
 Environment=DB_PORT=$DB_PORT
 Environment=THREADS=10
-ExecStart=$SERVER_BIN_PATH --user 1 -v1 --cert $INSTALL_DIR/ssl/server.crt --key $INSTALL_DIR/ssl/server.key --threads 10 --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT
+ExecStart=$SERVER_BIN_PATH --user 1 -v1 --cert $INSTALL_DIR/ssl/server.crt --key $INSTALL_DIR/ssl/server.key --threads 10 --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
