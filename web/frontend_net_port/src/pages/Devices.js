@@ -451,17 +451,33 @@ const Devices = ({ children, ...rest }) => {
                                         <TableCell>{device.device_id}</TableCell>
                                         <TableCell>{device.name || "-"}</TableCell>
                                         <TableCell>{device.type || "-"}</TableCell>
-                                        <TableCell>
-                                            <Chip
-                                                label={device.status || "unknown"}
-                                                color={getStatusColor(device.status)}
-                                                size="small"
-                                            />
-                                            {device.online && (
-                                                <Chip label="online" color="success" size="small" sx={{ ml: 1 }} />
-                                            )}
+                                        <TableCell sx={{ verticalAlign: "top" }}>
+                                            <Box
+                                                sx={{
+                                                    display: "flex",
+                                                    flexDirection: "column",
+                                                    alignItems: "stretch",
+                                                    gap: 0.5,
+                                                    width: 72,
+                                                }}
+                                            >
+                                                <Chip
+                                                    label={device.status || "unknown"}
+                                                    color={getStatusColor(device.status)}
+                                                    size="small"
+                                                    sx={{ justifyContent: "center" }}
+                                                />
+                                                {device.online && (
+                                                    <Chip
+                                                        label="online"
+                                                        color="success"
+                                                        size="small"
+                                                        sx={{ justifyContent: "center" }}
+                                                    />
+                                                )}
+                                            </Box>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell sx={{ verticalAlign: "top" }}>
                                             {(() => {
                                                 const activePort = device.assigned_port || device.session_port;
                                                 const displayPort = activePort || device.preferred_port;
@@ -469,26 +485,40 @@ const Devices = ({ children, ...rest }) => {
                                                     return "Не назначен";
                                                 }
                                                 return (
-                                                    <>
-                                                        {displayPort}
+                                                    <Box
+                                                        sx={{
+                                                            display: "flex",
+                                                            flexDirection: "column",
+                                                            alignItems: "stretch",
+                                                            gap: 0.5,
+                                                            width: 72,
+                                                        }}
+                                                    >
+                                                        <Chip
+                                                            label={String(displayPort)}
+                                                            size="small"
+                                                            variant="outlined"
+                                                            sx={{ justifyContent: "center" }}
+                                                        />
                                                         {!activePort && device.preferred_port ? (
                                                             <Chip
                                                                 label="зарезерв."
                                                                 size="small"
                                                                 variant="outlined"
-                                                                sx={{ ml: 1 }}
+                                                                sx={{ justifyContent: "center" }}
                                                             />
                                                         ) : null}
-                                                        {device.preferred_port && activePort === device.preferred_port ? (
+                                                        {device.preferred_port &&
+                                                        activePort === device.preferred_port ? (
                                                             <Chip
                                                                 label="фикс."
                                                                 size="small"
                                                                 color="info"
                                                                 variant="outlined"
-                                                                sx={{ ml: 1 }}
+                                                                sx={{ justifyContent: "center" }}
                                                             />
                                                         ) : null}
-                                                    </>
+                                                    </Box>
                                                 );
                                             })()}
                                         </TableCell>
