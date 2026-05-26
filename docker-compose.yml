@@ -19,4 +19,21 @@ services:
       - APP_USER=admin
       - APP_PASSWORD=lbvsx123
       - THREADS=10
+      - DEVICE_CONTROL_HOST=127.0.0.1
+      - DEVICE_CONTROL_PORT=8443
+      - METRICS_CACHE_MS=5000
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: net_port_prometheus
+    profiles:
+      - monitoring
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts:/etc/prometheus/alerts:ro
+    depends_on:
+      - net_port
     restart: unless-stopped

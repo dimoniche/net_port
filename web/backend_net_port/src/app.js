@@ -18,6 +18,7 @@ const socketio = require('@feathersjs/socketio');
 
 const knex = require('./knex');
 const configureChannels = require('./channels');
+const { configureObservability } = require('./observability');
 
 const app = express(feathers());
 const path = require('path');
@@ -137,6 +138,7 @@ app.configure(knex);
 app.configure(authentication);
 app.configure(services);
 app.configure(configureChannels);
+configureObservability(app);
 
 // Configure a middleware for 404s and the error handler
 app.use(express.notFound());

@@ -1,0 +1,47 @@
+groups:
+  - name: net_port
+    rules:
+      - alert: NetPortTargetDown
+        expr: up{job="net_port"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Net Port metrics target is down
+          description: Prometheus cannot scrape net_port:8080/metrics for 2 minutes.
+
+      - alert: NetPortNoFreePorts
+        expr: net_port_ports_available < 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Low free device ports
+          description: Fewer than 5 free ports in range 6000-6998 (current {{ $value }}).
+
+      - alert: NetPortNoFreePortsCritical
+        expr: net_port_ports_available == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: No free device ports
+          description: Port pool exhausted; new device registrations may fail.
+
+      - alert: NetPortHighConnecting
+        expr: net_port_devices_connecting > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Many devices stuck in connecting
+          description: "{{ $value }} devices in connecting state for over 10 minutes."
+
+      - alert: NetPortSessionsWithoutOnlineDevices
+        expr: net_port_sessions_active > 0 and net_port_devices_online == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Active sessions but no online devices
+          description: Possible stale sessions or heartbeat issues.
