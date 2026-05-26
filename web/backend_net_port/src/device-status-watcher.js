@@ -2,7 +2,7 @@
 
 const { Client } = require('pg');
 const logger = require('./logger');
-const { broadcastDeviceById } = require('./services/devices/device-events');
+const { broadcastDeviceById, emitDeviceRemoved } = require('./services/devices/device-events');
 const {
   broadcastServerStatisticsRow,
   broadcastDeviceStatisticsRow
@@ -15,9 +15,19 @@ const DEVICE_TRIGGER_SQL = `
 CREATE OR REPLACE FUNCTION notify_device_status_change() RETURNS trigger AS $$
 DECLARE
   dev_id UUID;
+  payload TEXT;
 BEGIN
   IF TG_TABLE_NAME = 'device_sessions' THEN
     dev_id := COALESCE(NEW.device_id, OLD.device_id);
+  ELSIF TG_OP = 'DELETE' THEN
+    payload := json_build_object(
+      'action', 'deleted',
+      'id', OLD.id,
+      'device_id', OLD.device_id,
+      'user_id', OLD.user_id
+    )::text;
+    PERFORM pg_notify('${DEVICE_STATUS_CHANNEL}', payload);
+    RETURN OLD;
   ELSE
     dev_id := COALESCE(NEW.id, OLD.id);
   END IF;
@@ -96,22 +106,44 @@ function startDeviceStatusWatcher(app) {
   });
 
   let reconnectTimer = null;
-  const pendingDeviceIds = new Set();
+  const pendingDevicePayloads = new Set();
   const pendingStatistics = new Set();
   let deviceFlushTimer = null;
   let statisticsFlushTimer = null;
 
+  const handleDeviceNotifyPayload = async (payload) => {
+    if (!payload) {
+      return;
+    }
+
+    if (payload.startsWith('{')) {
+      try {
+        const data = JSON.parse(payload);
+        if (data.action === 'deleted' && data.id) {
+          emitDeviceRemoved(app, data);
+          return;
+        }
+      } catch (error) {
+        logger.error('Failed to parse device notify payload: %s', error.message);
+      }
+    }
+
+    await broadcastDeviceById(app, payload);
+  };
+
   const flushDevices = async () => {
     deviceFlushTimer = null;
-    const ids = Array.from(pendingDeviceIds);
-    pendingDeviceIds.clear();
+    const payloads = Array.from(pendingDevicePayloads);
+    pendingDevicePayloads.clear();
 
-    for (const deviceId of ids) {
+    for (const payload of payloads) {
       try {
-        await broadcastDeviceById(app, deviceId);
-        await broadcastDeviceStatisticsRow(app, deviceId);
+        await handleDeviceNotifyPayload(payload);
+        if (!payload.startsWith('{')) {
+          await broadcastDeviceStatisticsRow(app, payload);
+        }
       } catch (error) {
-        logger.error('Failed to broadcast device %s update: %s', deviceId, error.message);
+        logger.error('Failed to broadcast device update %s: %s', payload, error.message);
       }
     }
   };
@@ -134,8 +166,8 @@ function startDeviceStatusWatcher(app) {
     }
   };
 
-  const scheduleDeviceBroadcast = (deviceId) => {
-    pendingDeviceIds.add(String(deviceId));
+  const scheduleDeviceBroadcast = (payload) => {
+    pendingDevicePayloads.add(String(payload));
     if (!deviceFlushTimer) {
       deviceFlushTimer = setTimeout(flushDevices, 150);
     }

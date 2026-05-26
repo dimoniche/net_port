@@ -2,6 +2,7 @@
 // Security features for device management system
 //
 
+#include "security_features.h"
 #include "device_manager.h"
 #include "proxy_server.h"
 #include "logMsg.h"
@@ -78,15 +79,6 @@ typedef struct security_event_s {
     char device_id[DEVICE_ID_MAX_LEN];
     char description[256];
 } security_event_t;
-
-// Security statistics structure
-typedef struct security_stats_s {
-    size_t rate_limit_entries;
-    size_t whitelist_entries;
-    size_t blacklist_entries;
-    size_t active_penalties;
-    size_t permanent_blocks;
-} security_stats_t;
 
 /**
  * Initialize security features
@@ -578,6 +570,35 @@ int validate_json_input(const char *json_str, size_t max_length)
     }
     
     return 0; // Valid
+}
+
+void security_configure_rate_limit(
+    uint32_t max_requests,
+    uint32_t window_seconds,
+    uint32_t penalty_seconds)
+{
+    pthread_mutex_lock(&g_security_mutex);
+    g_rate_limit_config.max_requests = max_requests > 0 ? max_requests : 1;
+    g_rate_limit_config.window_seconds = window_seconds > 0 ? window_seconds : 1;
+    g_rate_limit_config.penalty_seconds = penalty_seconds > 0 ? penalty_seconds : 1;
+    pthread_mutex_unlock(&g_security_mutex);
+
+    logMsg(LOG_INFO, "Rate limit reconfigured: %u requests / %u seconds (penalty %u s)\n",
+           g_rate_limit_config.max_requests,
+           g_rate_limit_config.window_seconds,
+           g_rate_limit_config.penalty_seconds);
+}
+
+void security_reset_rate_limits(void)
+{
+    pthread_mutex_lock(&g_security_mutex);
+    if (g_rate_limit_table) {
+        memset(g_rate_limit_table, 0,
+               g_rate_limit_table_capacity * sizeof(rate_limit_entry_t));
+    }
+    g_rate_limit_table_size = 0;
+    pthread_mutex_unlock(&g_security_mutex);
+    logMsg(LOG_INFO, "Rate limit state reset\n");
 }
 
 /**

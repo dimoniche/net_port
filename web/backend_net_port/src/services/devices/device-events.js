@@ -95,9 +95,11 @@ async function broadcastDeviceById(app, deviceId) {
 
   if (device) {
     emitDeviceUpdate(app, device);
+    return device;
   }
 
-  return device;
+  emitDeviceRemoved(app, { id: deviceId });
+  return null;
 }
 
 module.exports = {

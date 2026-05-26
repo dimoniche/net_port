@@ -4,6 +4,7 @@
 
 #include "device_manager.h"
 #include "proxy_server.h"
+#include "security_features.h"
 #include "db.h"
 #include "db_func.h"
 #include "logMsg.h"
@@ -86,8 +87,8 @@ static void cleanup_device_manager_ssl_context(void);
 
 // Global functions defined in this file
 void* cleanup_expired_sessions_thread(void *arg);
-json_t* process_registration_request(json_t *request);
-json_t* process_heartbeat_request(json_t *request);
+json_t* process_registration_request(json_t *request, const char *client_ip);
+json_t* process_heartbeat_request(json_t *request, const char *client_ip);
 json_t* process_statistics_request(json_t *request);
 json_t* process_admin_disconnect_request(json_t *request);
 
@@ -130,6 +131,10 @@ int device_manager_init(const device_manager_config_t *config)
             logMsg(LOG_ERR, "Failed to create SSL context\n");
             return -1;
         }
+    }
+
+    if (security_features_init() != 0) {
+        logMsg(LOG_WARNING, "Security features init failed, continuing without rate limiting\n");
     }
     
     g_initialized = true;
@@ -294,6 +299,15 @@ static int process_json_message(int client_fd, const char *json_str, const char 
 {
     json_t *root = NULL;
     json_error_t error;
+
+    if (validate_json_input(json_str, 4096) != 0) {
+        json_t *response = json_object();
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "message", json_string("Invalid request payload"));
+        send_json_response(client_fd, response);
+        json_decref(response);
+        return -1;
+    }
     
     // Parse JSON
     root = json_loads(json_str, 0, &error);
@@ -328,9 +342,9 @@ static int process_json_message(int client_fd, const char *json_str, const char 
     
     // Process based on action type
     if (strcmp(action, "register") == 0) {
-        response = process_registration_request(root);
+        response = process_registration_request(root, client_ip);
     } else if (strcmp(action, "heartbeat") == 0) {
-        response = process_heartbeat_request(root);
+        response = process_heartbeat_request(root, client_ip);
     } else if (strcmp(action, "statistics") == 0) {
         response = process_statistics_request(root);
     } else if (strcmp(action, "disconnect") == 0) {
@@ -371,6 +385,17 @@ static int process_json_message(int client_fd, const char *json_str, const char 
                 return 0;
             }
         }
+    } else if (strcmp(action, "reset_rate_limits") == 0) {
+        if (!is_local_control_request(client_ip)) {
+            response = json_object();
+            json_object_set_new(response, "status", json_string("error"));
+            json_object_set_new(response, "message", json_string("Unauthorized control request"));
+        } else {
+            security_reset_rate_limits();
+            response = json_object();
+            json_object_set_new(response, "status", json_string("ok"));
+            json_object_set_new(response, "message", json_string("Rate limits reset"));
+        }
     } else {
         logMsg(LOG_WARNING, "Unknown action: %s\n", action);
         
@@ -392,7 +417,7 @@ static int process_json_message(int client_fd, const char *json_str, const char 
 /**
  * Process device registration request
  */
-json_t* process_registration_request(json_t *request)
+json_t* process_registration_request(json_t *request, const char *client_ip)
 {
     json_t *response = json_object();
     
@@ -407,6 +432,12 @@ json_t* process_registration_request(json_t *request)
     
     const char *device_id = json_string_value(device_id_obj);
     const char *auth_token = json_string_value(auth_token_obj);
+
+    if (validate_device_token(device_id, auth_token, client_ip) != 0) {
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "message", json_string("Rate limit exceeded"));
+        return response;
+    }
     
     logMsg(LOG_INFO, "Device registration request: %s\n", device_id);
     
@@ -462,7 +493,7 @@ json_t* process_registration_request(json_t *request)
 /**
  * Process device heartbeat request
  */
-json_t* process_heartbeat_request(json_t *request)
+json_t* process_heartbeat_request(json_t *request, const char *client_ip)
 {
     json_t *response = json_object();
     
@@ -474,6 +505,12 @@ json_t* process_heartbeat_request(json_t *request)
     }
     
     const char *session_token = json_string_value(session_token_obj);
+
+    if (validate_session_token_security(session_token, client_ip) != 0) {
+        json_object_set_new(response, "status", json_string("error"));
+        json_object_set_new(response, "message", json_string("Rate limit exceeded"));
+        return response;
+    }
     
     // Update heartbeat
     if (update_device_heartbeat(session_token) != 0) {
@@ -1165,6 +1202,7 @@ int device_manager_stop(void)
     
     // Cleanup SSL
     cleanup_device_manager_ssl_context();
+    security_features_cleanup();
     
     logMsg(LOG_INFO, "Device manager stopped\n");
     return 0;

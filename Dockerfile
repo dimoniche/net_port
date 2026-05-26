@@ -70,7 +70,8 @@ COPY init_device_db.sql /etc/postgresql/init_device_db.sql
 COPY sql/port_release_fix.sql /etc/postgresql/port_release_fix.sql
 COPY sql/device_preferred_port.sql /etc/postgresql/device_preferred_port.sql
 COPY sql/user_auto_connect.sql /etc/postgresql/user_auto_connect.sql
-RUN chown postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/port_release_fix.sql /etc/postgresql/device_preferred_port.sql /etc/postgresql/user_auto_connect.sql
+COPY sql/device_delete_notify.sql /etc/postgresql/device_delete_notify.sql
+RUN chown postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/port_release_fix.sql /etc/postgresql/device_preferred_port.sql /etc/postgresql/user_auto_connect.sql /etc/postgresql/device_delete_notify.sql
 
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY start.sh /root/net_port/start.sh

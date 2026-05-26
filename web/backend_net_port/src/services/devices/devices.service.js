@@ -7,28 +7,10 @@ const {
   enrichDeviceWithOnline,
   broadcastDeviceById
 } = require('./device-events');
+const { normalizePreferredPort } = require('./deviceValidation');
 
 function isAdminUser(user) {
   return user?.role === 'admin' || user?.role_name === 'admin';
-}
-
-function normalizePreferredPort(value) {
-  if (value === '' || value === null || value === undefined) {
-    return null;
-  }
-
-  const port = Number(value);
-  if (!Number.isInteger(port)) {
-    throw new Error('Fixed port must be an integer');
-  }
-  if (port < 6000 || port > 6998) {
-    throw new Error('Fixed port must be between 6000 and 6998');
-  }
-  if (port % 2 !== 0) {
-    throw new Error('Fixed port must be an even number (6000, 6002, ...)');
-  }
-
-  return port;
 }
 
 async function reservePreferredPort(knex, deviceUuid, preferredPort) {

@@ -25,6 +25,8 @@
     },
     "scripts": {
         "test": "npm run lint && npm run jest",
+        "test:unit": "npm run jest",
+        "test:integration": "bash ../../scripts/integration/run_all_integration_tests.sh",
         "lint": "eslint src/. test/. --config .eslintrc.json --fix",
         "dev": "nodemon src/",
         "start": "node src/",

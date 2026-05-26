@@ -4,6 +4,12 @@ const {
   emitDeviceRemoved,
   broadcastDeviceById
 } = require('./device-events');
+const {
+  normalizePreferredPort,
+  validateDeviceId,
+  validateDeviceType,
+  validateInternalPort
+} = require('./deviceValidation');
 
 // Validation schema
 const deviceSchema = {
@@ -88,15 +94,15 @@ module.exports = {
         }
 
         if (Object.prototype.hasOwnProperty.call(data, 'preferred_port')) {
-          if (data.preferred_port === '' || data.preferred_port === undefined) {
-            data.preferred_port = null;
-          } else {
-            const port = Number(data.preferred_port);
-            if (!Number.isInteger(port) || port < 6000 || port > 6998 || port % 2 !== 0) {
-              throw new Error('Fixed port must be an even integer between 6000 and 6998');
-            }
-            data.preferred_port = port;
-          }
+          data.preferred_port = normalizePreferredPort(data.preferred_port);
+        }
+
+        if (data.device_id) {
+          validateDeviceId(data.device_id);
+        }
+        validateDeviceType(data.type);
+        if (Object.prototype.hasOwnProperty.call(data, 'internal_port')) {
+          data.internal_port = validateInternalPort(data.internal_port);
         }
         
         // Set user_id if not provided
@@ -127,16 +133,14 @@ module.exports = {
         }
 
         if (Object.prototype.hasOwnProperty.call(context.data || {}, 'preferred_port')) {
-          const value = context.data.preferred_port;
-          if (value === '' || value === undefined) {
-            context.data.preferred_port = null;
-          } else {
-            const port = Number(value);
-            if (!Number.isInteger(port) || port < 6000 || port > 6998 || port % 2 !== 0) {
-              throw new Error('Fixed port must be an even integer between 6000 and 6998');
-            }
-            context.data.preferred_port = port;
-          }
+          context.data.preferred_port = normalizePreferredPort(context.data.preferred_port);
+        }
+        if (context.data?.device_id) {
+          validateDeviceId(context.data.device_id);
+        }
+        validateDeviceType(context.data?.type);
+        if (Object.prototype.hasOwnProperty.call(context.data || {}, 'internal_port')) {
+          context.data.internal_port = validateInternalPort(context.data.internal_port);
         }
         
         return context;
@@ -162,16 +166,14 @@ module.exports = {
         }
 
         if (Object.prototype.hasOwnProperty.call(context.data || {}, 'preferred_port')) {
-          const value = context.data.preferred_port;
-          if (value === '' || value === undefined) {
-            context.data.preferred_port = null;
-          } else {
-            const port = Number(value);
-            if (!Number.isInteger(port) || port < 6000 || port > 6998 || port % 2 !== 0) {
-              throw new Error('Fixed port must be an even integer between 6000 and 6998');
-            }
-            context.data.preferred_port = port;
-          }
+          context.data.preferred_port = normalizePreferredPort(context.data.preferred_port);
+        }
+        if (context.data?.device_id) {
+          validateDeviceId(context.data.device_id);
+        }
+        validateDeviceType(context.data?.type);
+        if (Object.prototype.hasOwnProperty.call(context.data || {}, 'internal_port')) {
+          context.data.internal_port = validateInternalPort(context.data.internal_port);
         }
         
         return context;
