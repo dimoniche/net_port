@@ -68,36 +68,53 @@ function sendDeviceControlCommand(deviceId, action) {
   const host = process.env.DEVICE_CONTROL_HOST || '127.0.0.1';
   const port = Number(process.env.DEVICE_CONTROL_PORT || 8443);
   const payload = JSON.stringify({ action, device_id: deviceId });
+  const timeoutMs = action === 'disconnect' ? 15000 : 5000;
 
   return new Promise((resolve, reject) => {
     const client = net.createConnection({ host, port }, () => {
       client.write(payload);
+      client.end();
     });
 
     let responseData = '';
+    let settled = false;
+
+    const finish = (handler) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      handler();
+    };
 
     client.on('data', (chunk) => {
       responseData += chunk.toString();
     });
 
     client.on('end', () => {
-      if (!responseData) {
-        resolve({ status: 'ok' });
-        return;
-      }
+      finish(() => {
+        if (!responseData) {
+          resolve({ status: 'ok' });
+          return;
+        }
 
-      try {
-        resolve(JSON.parse(responseData));
-      } catch (error) {
-        resolve({ status: 'ok', raw: responseData });
-      }
+        try {
+          resolve(JSON.parse(responseData));
+        } catch (error) {
+          resolve({ status: 'ok', raw: responseData });
+        }
+      });
     });
 
-    client.on('error', reject);
-    client.setTimeout(5000, () => {
+    client.on('error', (error) => {
+      finish(() => reject(error));
+    });
+
+    const timer = setTimeout(() => {
       client.destroy();
-      reject(new Error('Device control server timeout'));
-    });
+      finish(() => reject(new Error('Device control server timeout')));
+    }, timeoutMs);
   });
 }
 

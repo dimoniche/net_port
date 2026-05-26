@@ -4,6 +4,7 @@ const users = require('./users/users.service.js');
 const role = require('./role/role.service.js');
 const servers = require('./servers/servers.service.js');
 const statistics = require('./statistics/statistics.service.js');
+const configureSettings = require('./settings/settings.service.js');
 const { Devices } = require('./devices/devices.service.js');
 const hooks = require('./devices/devices.hooks');
 const { authenticate } = require('@feathersjs/authentication').hooks;
@@ -14,6 +15,7 @@ module.exports = function (app) {
   app.configure(role);
   app.configure(servers);
   app.configure(statistics);
+  configureSettings(app);
   
   // Configure devices service
   const SERVICE_ENDPOINT = (app.get('prefix') || '') + '/devices';

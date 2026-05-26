@@ -44,6 +44,7 @@ CREATE TABLE users (
     email VARCHAR(255),
     role_name VARCHAR(255),
     username VARCHAR(255),
-    phone VARCHAR(255)
+    phone VARCHAR(255),
+    auto_connect_enabled BOOLEAN DEFAULT TRUE
 );
 

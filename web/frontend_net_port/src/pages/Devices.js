@@ -180,6 +180,14 @@ const Devices = ({ children, ...rest }) => {
         const abortController = new AbortController();
         fetchDevices(abortController);
 
+        api.get("/settings/auto-connect", { signal: abortController.signal })
+            .then((response) => {
+                if (response.status === 200) {
+                    setAutoConnectEnabled(response.data.enabled !== false);
+                }
+            })
+            .catch(() => {});
+
         return () => {
             abortController.abort();
         };
@@ -195,10 +203,16 @@ const Devices = ({ children, ...rest }) => {
         updateAbility(rest.ability, null);
     };
 
-    const handleAutoConnectToggle = () => {
-        setAutoConnectEnabled(!autoConnectEnabled);
-        // TODO: Save setting to backend
-        // api.patch('/settings/auto-connect', { enabled: !autoConnectEnabled });
+    const handleAutoConnectToggle = async () => {
+        const nextValue = !autoConnectEnabled;
+        setAutoConnectEnabled(nextValue);
+
+        try {
+            await api.patch("/settings/auto-connect", { enabled: nextValue });
+        } catch (error) {
+            setAutoConnectEnabled(!nextValue);
+            console.error("Failed to save auto-connect setting:", error);
+        }
     };
 
     const handleConnectDevice = async (deviceId) => {

@@ -323,7 +323,37 @@ static int process_json_message(int client_fd, const char *json_str, const char 
             json_object_set_new(response, "status", json_string("error"));
             json_object_set_new(response, "message", json_string("Unauthorized control request"));
         } else {
-            response = process_admin_disconnect_request(root);
+            json_t *device_id_obj = json_object_get(root, "device_id");
+            if (!json_is_string(device_id_obj)) {
+                response = json_object();
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "message", json_string("Missing device_id"));
+            } else {
+                const char *device_id = json_string_value(device_id_obj);
+
+                response = json_object();
+                json_object_set_new(response, "status", json_string("ok"));
+                json_object_set_new(response, "message", json_string("Device disconnect initiated"));
+                json_object_set_new(response, "device_id", json_string(device_id));
+
+                if (send_json_response(client_fd, response) != 0) {
+                    json_decref(response);
+                    json_decref(root);
+                    return -1;
+                }
+
+                json_decref(response);
+                response = NULL;
+
+                if (terminate_device_by_device_id(device_id) != 0) {
+                    logMsg(LOG_ERR, "Failed to disconnect device %s after control ack\n", device_id);
+                    json_decref(root);
+                    return -1;
+                }
+
+                json_decref(root);
+                return 0;
+            }
         }
     } else {
         logMsg(LOG_WARNING, "Unknown action: %s\n", action);
@@ -555,16 +585,20 @@ static int send_json_response(int client_fd, json_t *response)
         logMsg(LOG_ERR, "Failed to serialize JSON response\n");
         return -1;
     }
-    
-    // Send response
+
     size_t len = strlen(json_str);
-    ssize_t sent = send(client_fd, json_str, len, 0);
+    ssize_t sent = send(client_fd, json_str, len, MSG_NOSIGNAL);
     if (sent != (ssize_t)len) {
-        logMsg(LOG_ERR, "Failed to send response: %s\n", strerror(errno));
+        if (errno == EPIPE || errno == ECONNRESET || errno == EBADF) {
+            logMsg(LOG_DEBUG, "Client disconnected before response was delivered\n");
+        } else {
+            logMsg(LOG_ERR, "Failed to send response: %s\n", strerror(errno));
+        }
         free(json_str);
         return -1;
     }
-    
+
+    shutdown(client_fd, SHUT_WR);
     free(json_str);
     return 0;
 }
