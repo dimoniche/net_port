@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import isEmpty from "lodash/isEmpty";
 import { useCookies } from "react-cookie";
@@ -7,11 +7,6 @@ import { ApiContext } from "../context/ApiContext";
 
 import Paper from "@mui/material/Paper";
 import Button from "@mui/material/Button";
-import TableContainer from "@mui/material/TableContainer";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableRow from "@mui/material/TableRow";
-import TableCell from "@mui/material/TableCell";
 import TextField from "@mui/material/TextField";
 import FormControl from "@mui/material/FormControl";
 import InputLabel from "@mui/material/InputLabel";
@@ -20,11 +15,18 @@ import MenuItem from "@mui/material/MenuItem";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Grid from "@mui/material/Grid";
+import Chip from "@mui/material/Chip";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+
+import RefreshIcon from "@mui/icons-material/Refresh";
+import AddIcon from "@mui/icons-material/Add";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
 
 import { Loader } from "../components/Loader";
-import ServerSettingsData from "./ServerSettings/ServerSettingsData";
 import ServerTableView from "./ServerSettings/ServerTableView";
 import CommonDialog from "../components/CommonDialog";
+import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
 
 import updateAbility from "../config/permission";
 
@@ -33,346 +35,344 @@ const Servers = ({ children, ...rest }) => {
     const [cookies, , removeCookie] = useCookies();
 
     const [isLoaded, setIsLoaded] = useState(false);
-    const [serversData, setServersData] = useState();
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [serversData, setServersData] = useState([]);
     const history = useNavigate();
 
-    // Filter states
     const [nameFilter, setNameFilter] = useState("");
     const [inputPortFilter, setInputPortFilter] = useState("");
-    const [outputPortFilter, setInputOutputFilter] = useState("");
+    const [outputPortFilter, setOutputPortFilter] = useState("");
     const [enableFilter, setEnableFilter] = useState("");
 
-    // Display settings - default to table view
-    const [tableView, setTableView] = useState(true);
-
-    const [open, setOpen] = useState(false);
-    const [serverDeleteId, setServerDeleteId] = useState(null);
+    const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+    const [serverToDelete, setServerToDelete] = useState(null);
+    const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
 
     const [error, setError] = useState(null);
     if (error) {
         throw error;
     }
 
+    const handleLogout = useCallback(() => {
+        removeCookie("token");
+        removeCookie("user");
+        api.delete(`/authentication`).catch(() => {});
+        history("/main");
+        updateAbility(rest.ability, null);
+    }, [api, history, removeCookie, rest.ability]);
+
+    const fetchServers = useCallback(async (abortController) => {
+        let responseError = false;
+        setIsRefreshing(true);
+
+        if (isEmpty(cookies.user)) {
+            history("/main");
+            setIsRefreshing(false);
+            return;
+        }
+
+        const servers = await api
+            .get(`/servers/0?user_id=${cookies.user.id}`, {
+                signal: abortController?.signal,
+            })
+            .catch((err) => {
+                if (err.response?.status === 401) {
+                    handleLogout();
+                } else {
+                    setError(err);
+                }
+                responseError = true;
+            });
+
+        if (responseError) {
+            setIsRefreshing(false);
+            return;
+        }
+        if (abortController?.signal?.aborted) {
+            setIsRefreshing(false);
+            return;
+        }
+
+        if (servers.status === 200) {
+            setServersData(Array.isArray(servers.data) ? servers.data : []);
+            setIsLoaded(true);
+        }
+        setIsRefreshing(false);
+    }, [api, cookies.user, handleLogout, history]);
+
+    const realtimeHandlers = useMemo(
+        () => ({
+            "statistics:server-updated": () => {
+                fetchServers();
+            },
+        }),
+        [fetchServers]
+    );
+
+    useRealtimeSocket({
+        token: cookies.token,
+        enabled: liveUpdatesEnabled && !isEmpty(cookies.user),
+        handlers: realtimeHandlers,
+    });
+
     useEffect(() => {
         const abortController = new AbortController();
-        async function fetchData(abortController) {
-            let response_error = false;
+        fetchServers(abortController);
+        return () => abortController.abort();
+    }, [fetchServers]);
 
-            if (isEmpty(cookies.user)) {
-                history("/main");
-                return;
-            }
+    const filteredServers = (serversData || []).filter((server) => {
+        if (
+            nameFilter &&
+            server.description &&
+            !server.description.toLowerCase().includes(nameFilter.toLowerCase())
+        ) {
+            return false;
+        }
 
-            const servers = await api
-                .get(`/servers/0?user_id=${cookies.user.id}`, {
-                    signal: abortController.signal,
-                })
-                .catch((err) => {
-                    if (err.response.status === 401) {
-                        handleLogout();
-                    } else {
-                        setError(err);
-                    }
-                    response_error = true;
-                });
+        if (
+            inputPortFilter &&
+            server.input_port &&
+            !server.input_port.toString().includes(inputPortFilter)
+        ) {
+            return false;
+        }
 
-            if (response_error) return;
-            if (abortController.signal.aborted) return;
+        if (
+            outputPortFilter &&
+            server.output_port &&
+            !server.output_port.toString().includes(outputPortFilter)
+        ) {
+            return false;
+        }
 
-            if (servers.status === 200) {
-                setServersData(servers.data);
-                setIsLoaded(true);
+        if (enableFilter !== "" && server.enable !== undefined) {
+            const enabled = enableFilter === "true";
+            if (server.enable !== enabled) {
+                return false;
             }
         }
-        fetchData(abortController);
 
-        return () => {
-            //abortController.abort();
-        };
-    }, []);
+        return true;
+    });
 
-    // Load display settings from localStorage
-    useEffect(() => {
-        const savedSettings = localStorage.getItem('serverDisplaySettings');
-        if (savedSettings) {
-            const settings = JSON.parse(savedSettings);
-            setTableView(settings.tableView !== undefined ? settings.tableView : true); // Default to true if not set
+    const canAddServer =
+        cookies.user?.role_name === "admin" ||
+        isEmpty(serversData) ||
+        serversData.length < 5;
+
+    const handleRestartAll = async () => {
+        if (isEmpty(serversData)) {
+            return;
         }
-    }, []);
 
-    // Filter servers based on filter criteria
-    const getFilteredServers = () => {
-        if (!serversData) return [];
-        
-        return serversData.filter(server => {
-            // Name filter (description field) - substring match
-            if (nameFilter && server.description && 
-                !server.description.toLowerCase().includes(nameFilter.toLowerCase())) {
-                return false;
-            }
-            
-            // Input port filter - substring match
-            if (inputPortFilter && server.input_port && 
-                !server.input_port.toString().includes(inputPortFilter)) {
-                return false;
-            }
-            
-            // Output port filter - substring match
-            if (outputPortFilter && server.output_port && 
-                !server.output_port.toString().includes(outputPortFilter)) {
-                return false;
-            }
-            
-            // Enable status filter - substring match
-            if (enableFilter !== "" && server.enable !== undefined) {
-                const enableText = server.enable ? "true" : "false";
-                if (!enableText.includes(enableFilter.toLowerCase())) {
-                    return false;
-                }
-            }
-            
-            return true;
-        });
-    };
-
-    const newHandler = () => history(`/servers/new`);
-    const editHandler = (id) => history(`/servers/edit/${id}`);
-    const deleteHandler = async (id) => {
-        setServerDeleteId(id);
-        setOpen(true);
-    };
-
-    const removeModalHandler = async () => {
         try {
-            const response = await api.delete(`/servers/${serverDeleteId}`);
-            if (response.status === 200) {
-                setServersData(response.data);
-                setIsLoaded(true);
-                setOpen(false);
-            }
+            await api.put(`/servers/${serversData[0].id}`, {
+                user_id: cookies.user.id,
+            });
+            await fetchServers();
         } catch (err) {
-            if (err.response && err.response.status === 401) {
+            if (err.response?.status === 401) {
                 handleLogout();
             } else {
                 setError(err);
             }
-            setOpen(false);
         }
     };
 
-    const handleLogout = () => {
-        removeCookie("token");
-        removeCookie("user");
-
-        api.delete(`/authentication`).catch((err) => {});
-
-        history("/main");
-        updateAbility(rest.ability, null);
+    const openDeleteConfirm = (server) => {
+        setServerToDelete(server);
+        setOpenDeleteDialog(true);
     };
 
-    const restartServices = () => {
-        var data;
-        data = { user_id: cookies.user.id };
+    const handleDeleteServer = async () => {
+        if (!serverToDelete) {
+            return;
+        }
 
         try {
-            api.put(`/servers/${serversData[0].id}`, data)
-                .then((response) => {})
-                .catch((error) => {
-                    console.error(error.response);
-                    if (error.response.status === 422) {
-                    }
-                    if (error.response.status === 401) {
-                        handleLogout();
-                    }
-                });
-        } catch (error) {
-            setError(error);
-            console.log(JSON.stringify(error.message));
+            const response = await api.delete(`/servers/${serverToDelete.id}`);
+            if (response.status === 200) {
+                setServersData(Array.isArray(response.data) ? response.data : []);
+                setOpenDeleteDialog(false);
+                setServerToDelete(null);
+            }
+        } catch (err) {
+            if (err.response?.status === 401) {
+                handleLogout();
+            } else {
+                setError(err);
+            }
+            setOpenDeleteDialog(false);
         }
     };
 
-    // Reset all filters
-    const resetFilters = () => {
-        setNameFilter("");
-        setInputPortFilter("");
-        setInputOutputFilter("");
-        setEnableFilter("");
-    };
-
-    const filteredServers = getFilteredServers();
+    if (!isLoaded) {
+        return <Loader />;
+    }
 
     return (
-        <>
-            {!isEmpty(cookies.user) ? (
-                <Box sx={{ flexGrow: 1, mt: 2, width: '100%' }}>
-                    <Grid container spacing={2}>
-                        <Grid item xs={12} md={6}>
-                            <TableContainer component={Paper}>
-                                <Table sx={{ minWidth: 300 }} aria-label="simple table">
-                                    <TableBody>
-                                        <TableRow
-                                            sx={{
-                                                "&:last-child td, &:last-child th": {
-                                                    border: 0,
-                                                },
-                                            }}
-                                        >
-                                            <TableCell component="th" scope="row">
-                                                <b>Сервер</b>
-                                            </TableCell>
-                                            <TableCell align="right">
-                                                <Button
-                                                    color="primary"
-                                                    size="large"
-                                                    variant="contained"
-                                                    type="submit"
-                                                    onClick={() => {
-                                                        newHandler();
-                                                    }}
-                                                    disabled={
-                                                        cookies.user.role_name === "admin"
-                                                            ? false
-                                                            : !isEmpty(serversData)
-                                                            ? serversData.length >= 5
-                                                            : true
-                                                    }
-                                                >
-                                                    Добавить
-                                                </Button>
-                                            </TableCell>
-                                        </TableRow>
-                                        <TableRow
-                                            sx={{
-                                                "&:last-child td, &:last-child th": {
-                                                    border: 0,
-                                                },
-                                            }}
-                                        >
-                                            <TableCell component="th" scope="row">
-                                                <b>Все службы</b>
-                                            </TableCell>
-                                            <TableCell align="right">
-                                                <Button
-                                                    color="primary"
-                                                    size="large"
-                                                    variant="contained"
-                                                    type="submit"
-                                                    onClick={() => {
-                                                        restartServices();
-                                                    }}
-                                                    disabled={isEmpty(serversData)}
-                                                >
-                                                    Перезагрузить
-                                                </Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    </TableBody>
-                                </Table>
-                            </TableContainer>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                            <Paper sx={{ p: 2, height: '100%' }}>
-                                <Typography variant="h6" gutterBottom>
-                                    Фильтры
+        <Grid container spacing={3}>
+            <Grid item xs={12}>
+                <Box
+                    sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        mb: 2,
+                        flexWrap: "wrap",
+                        gap: 1,
+                    }}
+                >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+                        <Typography variant="h4" sx={{ m: 0 }}>
+                            Серверы
+                        </Typography>
+                        <Button
+                            variant="contained"
+                            startIcon={<AddIcon />}
+                            onClick={() => history("/servers/new")}
+                            disabled={!canAddServer}
+                        >
+                            Добавить сервер
+                        </Button>
+                    </Box>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, ml: "auto" }}>
+                        <Button
+                            variant="contained"
+                            color="primary"
+                            startIcon={<RefreshIcon />}
+                            onClick={() => fetchServers()}
+                            disabled={isRefreshing}
+                        >
+                            {isRefreshing ? "Обновление..." : "Обновить"}
+                        </Button>
+                        <Chip
+                            label={liveUpdatesEnabled ? "Live: ВКЛ" : "Live: ВЫКЛ"}
+                            color={liveUpdatesEnabled ? "success" : "default"}
+                            onClick={() => setLiveUpdatesEnabled((value) => !value)}
+                            sx={{ cursor: "pointer" }}
+                        />
+                    </Box>
+                </Box>
+            </Grid>
+
+            <Grid item xs={12}>
+                <Card>
+                    <CardContent>
+                        <Box
+                            sx={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                                gap: 1,
+                            }}
+                        >
+                            <Box>
+                                <Typography variant="h6" gutterBottom sx={{ mb: 0.5 }}>
+                                    Перезагрузка служб
                                 </Typography>
-                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                    <TextField
-                                        label="Название сервера"
-                                        value={nameFilter}
-                                        onChange={(e) => setNameFilter(e.target.value)}
-                                        variant="outlined"
-                                        size="small"
-                                    />
-                                    <Box sx={{ display: 'flex', gap: 2 }}>
-                                        <TextField
-                                            label="Порт (input)"
-                                            value={inputPortFilter}
-                                            onChange={(e) => setInputPortFilter(e.target.value)}
-                                            variant="outlined"
-                                            size="small"
-                                            type="number"
-                                            sx={{ flex: 1 }}
-                                        />
-                                        <TextField
-                                            label="Порт (output)"
-                                            value={outputPortFilter}
-                                            onChange={(e) => setInputOutputFilter(e.target.value)}
-                                            variant="outlined"
-                                            size="small"
-                                            type="number"
-                                            sx={{ flex: 1 }}
-                                        />
-                                    </Box>
-                                    <Box sx={{ display: 'flex', gap: 2 }}>
-                                        <FormControl variant="outlined" size="small" sx={{ flex: 1 }}>
-                                            <InputLabel>Статус сервера</InputLabel>
-                                            <Select
-                                                value={enableFilter}
-                                                onChange={(e) => setEnableFilter(e.target.value)}
-                                                label="Статус сервера"
-                                            >
-                                                <MenuItem value=""><em>Все</em></MenuItem>
-                                                <MenuItem value="true">Включен</MenuItem>
-                                                <MenuItem value="false">Отключен</MenuItem>
-                                            </Select>
-                                        </FormControl>
-                                        <Button 
-                                            variant="outlined" 
-                                            onClick={resetFilters}
-                                            sx={{ height: '40px' }}
-                                        >
-                                            Сбросить
-                                        </Button>
-                                    </Box>
-                                </Box>
-                            </Paper>
+                                <Typography variant="body2" color="text.secondary">
+                                    Перезапускает все legacy-службы net_port для текущего пользователя.
+                                </Typography>
+                            </Box>
+                            <Button
+                                variant="outlined"
+                                color="primary"
+                                startIcon={<RestartAltIcon />}
+                                onClick={handleRestartAll}
+                                disabled={isEmpty(serversData)}
+                            >
+                                Перезагрузить все
+                            </Button>
+                        </Box>
+                    </CardContent>
+                </Card>
+            </Grid>
+
+            <Grid item xs={12}>
+                <Paper sx={{ p: 1, mb: 1.5 }}>
+                    <Typography variant="subtitle1" sx={{ fontSize: "0.95rem", mb: 1 }}>
+                        Фильтры
+                    </Typography>
+                    <Grid container spacing={1}>
+                        <Grid item xs={12} sm={3}>
+                            <TextField
+                                fullWidth
+                                label="Название"
+                                value={nameFilter}
+                                onChange={(e) => setNameFilter(e.target.value)}
+                                size="small"
+                                sx={{ "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
+                            />
+                        </Grid>
+                        <Grid item xs={12} sm={3}>
+                            <TextField
+                                fullWidth
+                                label="Входящий порт"
+                                value={inputPortFilter}
+                                onChange={(e) => setInputPortFilter(e.target.value)}
+                                size="small"
+                                type="number"
+                                sx={{ "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
+                            />
+                        </Grid>
+                        <Grid item xs={12} sm={3}>
+                            <TextField
+                                fullWidth
+                                label="Исходящий порт"
+                                value={outputPortFilter}
+                                onChange={(e) => setOutputPortFilter(e.target.value)}
+                                size="small"
+                                type="number"
+                                sx={{ "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
+                            />
+                        </Grid>
+                        <Grid item xs={12} sm={3}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel sx={{ fontSize: "0.875rem" }}>Статус</InputLabel>
+                                <Select
+                                    value={enableFilter}
+                                    label="Статус"
+                                    onChange={(e) => setEnableFilter(e.target.value)}
+                                    sx={{ fontSize: "0.875rem" }}
+                                >
+                                    <MenuItem value="" sx={{ fontSize: "0.875rem" }}>
+                                        Все
+                                    </MenuItem>
+                                    <MenuItem value="true" sx={{ fontSize: "0.875rem" }}>
+                                        Включен
+                                    </MenuItem>
+                                    <MenuItem value="false" sx={{ fontSize: "0.875rem" }}>
+                                        Отключен
+                                    </MenuItem>
+                                </Select>
+                            </FormControl>
                         </Grid>
                     </Grid>
-                </Box>
-            ) : (
-                <></>
-            )}
-            
-            {isLoaded && !isEmpty(filteredServers) ? (
-                <>
-                    {tableView ? (
-                        <ServerTableView 
-                            serversData={filteredServers}
-                            deleteHandler={deleteHandler}
-                            editHandler={editHandler}
-                        />
-                    ) : (
-                        filteredServers
-                            .sort(function (a, b) {
-                                return a.id - b.id;
-                            })
-                            .map((rs) => (
-                                <ServerSettingsData
-                                    key={rs.id}
-                                    data={rs}
-                                    editHandler={() => {
-                                        editHandler(rs.id);
-                                    }}
-                                    removeHandle={() => {
-                                        deleteHandler(rs.id);
-                                    }}
-                                />
-                            ))
-                    )}
-                    <CommonDialog
-                        open={open}
-                        title={"Удаление сервера"}
-                        text={
-                            "Вы действительно уверены, что хотите удалить сервер?"
-                        }
-                        handleCancel={() => setOpen(false)}
-                        handleSubmit={() => removeModalHandler()}
-                    />
-                </>
-            ) : (
-                <Loader title={"Доступных серверов нет"} />
-            )}
-        </>
+                </Paper>
+            </Grid>
+
+            <Grid item xs={12}>
+                <ServerTableView
+                    serversData={filteredServers}
+                    onEdit={(id) => history(`/servers/edit/${id}`)}
+                    onDelete={openDeleteConfirm}
+                />
+            </Grid>
+
+            <CommonDialog
+                open={openDeleteDialog}
+                title="Удаление сервера"
+                text={`Вы уверены, что хотите удалить сервер "${serverToDelete?.description || serverToDelete?.id}"?`}
+                handleCancel={() => {
+                    setOpenDeleteDialog(false);
+                    setServerToDelete(null);
+                }}
+                handleSubmit={handleDeleteServer}
+            />
+        </Grid>
     );
 };
 

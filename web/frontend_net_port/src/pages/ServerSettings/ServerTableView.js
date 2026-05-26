@@ -1,75 +1,103 @@
-import React from 'react';
-import { useNavigate } from "react-router-dom";
+import React from "react";
 
-import Paper from '@mui/material/Paper';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableContainer from '@mui/material/TableContainer';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
-import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
-import ClearIcon from '@mui/icons-material/Clear';
-import EditIcon from '@mui/icons-material/Edit';
+import Paper from "@mui/material/Paper";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
+import IconButton from "@mui/material/IconButton";
+import Tooltip from "@mui/material/Tooltip";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
 
-const ServerTableView = ({ serversData, deleteHandler, editHandler }) => {
-    const history = useNavigate();
-
-    const handleEdit = (id) => {
-        history(`/servers/edit/${id}`);
-    };
-
-    const handleDelete = (id) => {
-        deleteHandler(id);
-    };
-
+const ServerTableView = ({ serversData, onEdit, onDelete }) => {
     return (
-        <TableContainer component={Paper} sx={{ mt: 2 }}>
+        <TableContainer component={Paper}>
             <Table sx={{ minWidth: 650 }} aria-label="servers table">
                 <TableHead>
                     <TableRow>
-                        <TableCell><b>Описание</b></TableCell>
-                        <TableCell align="right"><b>Входящий порт</b></TableCell>
-                        <TableCell align="right"><b>Исходящий порт</b></TableCell>
-                        <TableCell align="right"><b>Статус</b></TableCell>
-                        <TableCell align="right"><b>SSL вход</b></TableCell>
-                        <TableCell align="right"><b>SSL выход</b></TableCell>
-                        <TableCell align="right"><b>Действия</b></TableCell>
+                        <TableCell>Описание</TableCell>
+                        <TableCell align="right">Входящий порт</TableCell>
+                        <TableCell align="right">Исходящий порт</TableCell>
+                        <TableCell>Статус</TableCell>
+                        <TableCell align="center">SSL вход</TableCell>
+                        <TableCell align="center">SSL выход</TableCell>
+                        <TableCell>Действия</TableCell>
                     </TableRow>
                 </TableHead>
                 <TableBody>
-                    {serversData.map((server) => (
-                        <TableRow
-                            key={server.id}
-                            sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
-                        >
-                            <TableCell component="th" scope="row">
-                                {server.description || `Сервер ${server.id}`}
-                            </TableCell>
-                            <TableCell align="right">{server.input_port || '---'}</TableCell>
-                            <TableCell align="right">{server.output_port || '---'}</TableCell>
-                            <TableCell align="right">{server.enable ? 'Включен' : 'Отключен'}</TableCell>
-                            <TableCell align="right">{server.enable_input_ssl ? 'Да' : 'Нет'}</TableCell>
-                            <TableCell align="right">{server.enable_ssl ? 'Да' : 'Нет'}</TableCell>
-                            <TableCell align="right">
-                                <IconButton 
-                                    color="primary" 
-                                    onClick={() => handleEdit(server.id)}
-                                    size="small"
-                                >
-                                    <EditIcon />
-                                </IconButton>
-                                <IconButton 
-                                    color="error" 
-                                    onClick={() => handleDelete(server.id)}
-                                    size="small"
-                                >
-                                    <ClearIcon />
-                                </IconButton>
+                    {serversData.length === 0 ? (
+                        <TableRow>
+                            <TableCell colSpan={7} align="center">
+                                Нет серверов
                             </TableCell>
                         </TableRow>
-                    ))}
+                    ) : (
+                        serversData
+                            .slice()
+                            .sort((a, b) => a.id - b.id)
+                            .map((server) => (
+                                <TableRow key={server.id} hover>
+                                    <TableCell>
+                                        {server.description || `Сервер ${server.id}`}
+                                    </TableCell>
+                                    <TableCell align="right">
+                                        {server.input_port || "-"}
+                                    </TableCell>
+                                    <TableCell align="right">
+                                        {server.output_port || "-"}
+                                    </TableCell>
+                                    <TableCell>
+                                        <Chip
+                                            label={server.enable ? "включен" : "отключен"}
+                                            color={server.enable ? "success" : "default"}
+                                            size="small"
+                                        />
+                                    </TableCell>
+                                    <TableCell align="center">
+                                        <Chip
+                                            label={server.enable_input_ssl ? "Да" : "Нет"}
+                                            size="small"
+                                            variant="outlined"
+                                            color={server.enable_input_ssl ? "info" : "default"}
+                                        />
+                                    </TableCell>
+                                    <TableCell align="center">
+                                        <Chip
+                                            label={server.enable_ssl ? "Да" : "Нет"}
+                                            size="small"
+                                            variant="outlined"
+                                            color={server.enable_ssl ? "info" : "default"}
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        <Box display="flex" gap={0.5}>
+                                            <Tooltip title="Редактировать">
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => onEdit(server.id)}
+                                                >
+                                                    <EditIcon />
+                                                </IconButton>
+                                            </Tooltip>
+                                            <Tooltip title="Удалить">
+                                                <IconButton
+                                                    size="small"
+                                                    color="error"
+                                                    onClick={() => onDelete(server)}
+                                                >
+                                                    <DeleteIcon />
+                                                </IconButton>
+                                            </Tooltip>
+                                        </Box>
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                    )}
                 </TableBody>
             </Table>
         </TableContainer>

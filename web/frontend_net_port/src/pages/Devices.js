@@ -40,6 +40,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 
 import { Loader } from "../components/Loader";
 import CommonDialog from "../components/CommonDialog";
+import DevicePortBadges from "../components/DevicePortBadges";
 import { useDeviceStatusSocket } from "../hooks/useDeviceStatusSocket";
 
 import updateAbility from "../config/permission";
@@ -66,6 +67,7 @@ const Devices = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
     const [cookies, , removeCookie] = useCookies();
     const [isLoaded, setIsLoaded] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [devicesData, setDevicesData] = useState([]);
     const history = useNavigate();
     const location = useLocation();
@@ -124,9 +126,11 @@ const Devices = ({ children, ...rest }) => {
 
     const fetchDevices = async (abortController) => {
         let response_error = false;
+        setIsRefreshing(true);
 
         if (isEmpty(cookies.user)) {
             history("/main");
+            setIsRefreshing(false);
             return;
         }
 
@@ -153,8 +157,14 @@ const Devices = ({ children, ...rest }) => {
                 response_error = true;
             });
 
-        if (response_error) return;
-        if (abortController?.signal?.aborted) return;
+        if (response_error) {
+            setIsRefreshing(false);
+            return;
+        }
+        if (abortController?.signal?.aborted) {
+            setIsRefreshing(false);
+            return;
+        }
 
         if (devices.status === 200) {
             // Handle paginated response (data is { data: [], limit, skip, total })
@@ -162,6 +172,7 @@ const Devices = ({ children, ...rest }) => {
             setDevicesData(devicesArray);
             setIsLoaded(true);
         }
+        setIsRefreshing(false);
     };
 
     useEffect(() => {
@@ -306,50 +317,44 @@ const Devices = ({ children, ...rest }) => {
                         </Box>
                     </Alert>
                 )}
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                    <Typography variant="h4">Устройства</Typography>
-                    <Box>
+                <Box
+                    sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        mb: 2,
+                        flexWrap: "wrap",
+                        gap: 1,
+                    }}
+                >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+                        <Typography variant="h4" sx={{ m: 0 }}>
+                            Устройства
+                        </Typography>
                         <Button
                             variant="contained"
                             startIcon={<AddIcon />}
-                            sx={{ mr: 2 }}
                             onClick={() => history("/devices/new")}
                         >
                             Добавить устройство
                         </Button>
-                        <FormControlLabel
-                            control={
-                                <Switch
-                                    checked={liveUpdatesEnabled}
-                                    onChange={(event) => setLiveUpdatesEnabled(event.target.checked)}
-                                    color="primary"
-                                />
-                            }
-                            label={
-                                <Typography variant="body2">
-                                    Live-статусы: {liveUpdatesEnabled ? "ВКЛ" : "ВЫКЛ"}
-                                </Typography>
-                            }
+                    </Box>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, ml: "auto" }}>
+                        <Button
+                            variant="contained"
+                            color="primary"
+                            startIcon={<RefreshIcon />}
+                            onClick={() => fetchDevices()}
+                            disabled={isRefreshing}
+                        >
+                            {isRefreshing ? "Обновление..." : "Обновить"}
+                        </Button>
+                        <Chip
+                            label={liveUpdatesEnabled ? "Live: ВКЛ" : "Live: ВЫКЛ"}
+                            color={liveUpdatesEnabled ? "success" : "default"}
+                            onClick={() => setLiveUpdatesEnabled((value) => !value)}
+                            sx={{ cursor: "pointer" }}
                         />
-                        <FormControlLabel
-                            control={
-                                <Switch
-                                    checked={autoConnectEnabled}
-                                    onChange={handleAutoConnectToggle}
-                                    color="primary"
-                                />
-                            }
-                            label={
-                                <Typography variant="body2">
-                                    Авто-подключение: {autoConnectEnabled ? "ВКЛ" : "ВЫКЛ"}
-                                </Typography>
-                            }
-                        />
-                        <Tooltip title="Обновить">
-                            <IconButton onClick={() => fetchDevices()} sx={{ ml: 1 }}>
-                                <RefreshIcon />
-                            </IconButton>
-                        </Tooltip>
                     </Box>
                 </Box>
             </Grid>
@@ -357,17 +362,42 @@ const Devices = ({ children, ...rest }) => {
             <Grid item xs={12}>
                 <Card>
                     <CardContent>
-                        <Typography variant="h6" gutterBottom>
-                            Статус авто-подключения
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                            Статусы устройств обновляются в реальном времени через WebSocket.
-                            При включенном авто-подключении система автоматически пытается
-                            восстановить соединение с устройствами при потере связи.
-                            {autoConnectEnabled
-                                ? " Сейчас функция активна."
-                                : " Сейчас функция отключена."}
-                        </Typography>
+                        <Box
+                            sx={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                                gap: 1,
+                            }}
+                        >
+                            <Box>
+                                <Typography variant="h6" gutterBottom sx={{ mb: 0.5 }}>
+                                    Авто-подключение
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    При включенном авто-подключении система автоматически пытается
+                                    восстановить соединение с устройствами при потере связи.
+                                    {autoConnectEnabled
+                                        ? " Сейчас функция активна."
+                                        : " Сейчас функция отключена."}
+                                </Typography>
+                            </Box>
+                            <FormControlLabel
+                                control={
+                                    <Switch
+                                        checked={autoConnectEnabled}
+                                        onChange={handleAutoConnectToggle}
+                                        color="primary"
+                                    />
+                                }
+                                label={
+                                    <Typography variant="body2">
+                                        {autoConnectEnabled ? "ВКЛ" : "ВЫКЛ"}
+                                    </Typography>
+                                }
+                            />
+                        </Box>
                     </CardContent>
                 </Card>
             </Grid>
@@ -446,7 +476,7 @@ const Devices = ({ children, ...rest }) => {
                                 <TableCell>Название</TableCell>
                                 <TableCell>Тип</TableCell>
                                 <TableCell>Статус</TableCell>
-                                <TableCell>Назначенный порт</TableCell>
+                                <TableCell sx={{ minWidth: 110 }}>Назначенный порт</TableCell>
                                 <TableCell>Внутренний порт</TableCell>
                                 <TableCell>Последняя активность</TableCell>
                                 <TableCell>Действия</TableCell>
@@ -491,50 +521,8 @@ const Devices = ({ children, ...rest }) => {
                                                 )}
                                             </Box>
                                         </TableCell>
-                                        <TableCell sx={{ verticalAlign: "top" }}>
-                                            {(() => {
-                                                const activePort = device.assigned_port || device.session_port;
-                                                const displayPort = activePort || device.preferred_port;
-                                                if (!displayPort) {
-                                                    return "Не назначен";
-                                                }
-                                                return (
-                                                    <Box
-                                                        sx={{
-                                                            display: "flex",
-                                                            flexDirection: "column",
-                                                            alignItems: "stretch",
-                                                            gap: 0.5,
-                                                            width: 72,
-                                                        }}
-                                                    >
-                                                        <Chip
-                                                            label={String(displayPort)}
-                                                            size="small"
-                                                            variant="outlined"
-                                                            sx={{ justifyContent: "center" }}
-                                                        />
-                                                        {!activePort && device.preferred_port ? (
-                                                            <Chip
-                                                                label="зарезерв."
-                                                                size="small"
-                                                                variant="outlined"
-                                                                sx={{ justifyContent: "center" }}
-                                                            />
-                                                        ) : null}
-                                                        {device.preferred_port &&
-                                                        activePort === device.preferred_port ? (
-                                                            <Chip
-                                                                label="фикс."
-                                                                size="small"
-                                                                color="info"
-                                                                variant="outlined"
-                                                                sx={{ justifyContent: "center" }}
-                                                            />
-                                                        ) : null}
-                                                    </Box>
-                                                );
-                                            })()}
+                                        <TableCell sx={{ verticalAlign: "top", minWidth: 110, whiteSpace: "normal" }}>
+                                            <DevicePortBadges device={device} />
                                         </TableCell>
                                         <TableCell>
                                             {device.internal_port || "-"}

@@ -35,7 +35,9 @@ import { formatBytes, formatSpeed } from "../utils/statsFormat";
 import logo from "../assets/netport-120-120.png";
 
 const computeHeaderSummary = (statistics, devices, servers) => {
-    const activeServers = (servers || []).filter((server) => server.enable).length;
+    const serverList = servers || [];
+    const hasLegacyServers = serverList.length > 0;
+    const activeServers = serverList.filter((server) => server.enable).length;
     const deviceList = devices || [];
     const onlineDevices = deviceList.filter((device) => device.online).length;
     const activeConnections = deviceList.reduce(
@@ -78,6 +80,7 @@ const computeHeaderSummary = (statistics, devices, servers) => {
     );
 
     return {
+        hasLegacyServers,
         activeServers,
         totalDevices: deviceList.length,
         onlineDevices,
@@ -174,6 +177,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const [deviceStatisticsData, setDeviceStatisticsData] = useState([]);
     const [serversData, setServersData] = useState([]);
     const [headerSummary, setHeaderSummary] = useState({
+        hasLegacyServers: false,
         activeServers: 0,
         totalDevices: 0,
         onlineDevices: 0,
@@ -320,14 +324,16 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                             {/* Statistics Info */}
                             {cookies.user && (
                                 <Box sx={{ display: 'flex', alignItems: 'center', mr: 2, flexWrap: 'wrap', gap: 0.5 }}>
-                                    <Typography
-                                        variant="body2"
-                                        sx={statChipSx}
-                                        onClick={() => openOverviewModal("overview")}
-                                        title="Показать общую статистику"
-                                    >
-                                        Серверов: {headerSummary.activeServers}
-                                    </Typography>
+                                    {headerSummary.hasLegacyServers && (
+                                        <Typography
+                                            variant="body2"
+                                            sx={statChipSx}
+                                            onClick={() => openOverviewModal("overview")}
+                                            title="Показать общую статистику"
+                                        >
+                                            Серверов: {headerSummary.activeServers}
+                                        </Typography>
+                                    )}
                                     <Typography
                                         variant="body2"
                                         sx={statChipSx}

@@ -690,6 +690,7 @@ exports.Devices = class Devices extends Service {
         'devices.user_id',
         'devices.last_heartbeat',
         'devices.assigned_port',
+        'devices.preferred_port',
         'device_sessions.assigned_port as session_port',
         'device_sessions.bytes_sent',
         'device_sessions.bytes_received',
