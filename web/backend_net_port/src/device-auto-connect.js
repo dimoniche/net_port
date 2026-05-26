@@ -15,7 +15,7 @@ async function runAutoConnectCycle(app) {
   const staleDevices = await knex('devices')
     .join('users', 'devices.user_id', 'users.id')
     .where('users.auto_connect_enabled', true)
-    .where('devices.status', 'active')
+    .whereIn('devices.status', ['active', 'connecting'])
     .where(function markOfflineOnly() {
       this.whereNull('devices.last_heartbeat')
         .orWhere(
@@ -30,7 +30,7 @@ async function runAutoConnectCycle(app) {
     try {
       const updated = await knex('devices')
         .where('id', device.id)
-        .where('status', 'active')
+        .whereIn('status', ['active', 'connecting'])
         .update({
           status: 'connecting',
           updated_at: knex.fn.now()

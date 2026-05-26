@@ -105,6 +105,10 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time
         return -1;
     }
 
+    if (servers_count == 0) {
+        logMsg(LOG_INFO, "Starting without legacy switcher servers (device management mode)\n");
+    }
+
     memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
     strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
     proxy_settings.statistics_retention_period = statistics_retention_period;

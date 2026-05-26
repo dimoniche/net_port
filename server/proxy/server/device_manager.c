@@ -187,6 +187,22 @@ int device_manager_start(void)
     }
     
     logMsg(LOG_INFO, "Device manager control server listening on port %d\n", g_config.control_port);
+
+    db_lock();
+    PGconn *conn = get_db_connection();
+    if (conn) {
+        PGresult *res = PQexec(conn, "SELECT cleanup_expired_sessions()");
+        if (PQresultStatus(res) == PGRES_TUPLES_OK && PQntuples(res) > 0) {
+            char *freed = PQgetvalue(res, 0, 0);
+            if (freed && atoi(freed) > 0) {
+                logMsg(LOG_INFO, "Startup cleanup released %s expired device port(s)\n", freed);
+            }
+        }
+        if (res) {
+            PQclear(res);
+        }
+    }
+    db_unlock();
     
     // Start control thread
     g_running = true;

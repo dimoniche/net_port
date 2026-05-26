@@ -103,10 +103,12 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
     logMsg(LOG_DEBUG, "qntuples = %d\n", qntuples);
     if (!qntuples)
     {
-        logMsg(LOG_ERR, "NO PORTS!");
+        logMsg(LOG_INFO, "No legacy switcher servers configured for user %d\n", user_id);
+        *servers_count = 0;
+        *servers = NULL;
         PQclear(result);
         db_unlock();
-        return -1;
+        return 0;
     }
 
     *servers_count = qntuples;
