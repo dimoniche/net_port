@@ -118,6 +118,13 @@ apply_sql_migrations() {
     fi
   done
 
+  log "Granting application privileges to ${DB_USER}"
+  psql_cmd -v ON_ERROR_STOP=0 -c "
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"${DB_USER}\";
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"${DB_USER}\";
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO \"${DB_USER}\";
+  " || warn "Could not grant privileges (may require superuser for postgres-owned tables)"
+
   if ! psql_cmd -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='devices'" | grep -q 1; then
     local init_device="$ROOT/init_device_db.sql"
     [ -f "$init_device" ] || init_device="/etc/postgresql/init_device_db.sql"

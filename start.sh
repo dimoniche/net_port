@@ -281,6 +281,31 @@ apply_device_delete_notify() {
 }
 apply_device_delete_notify
 
+apply_app_grants() {
+    echo "Granting application privileges to '$DB_USER'..."
+    if [ "$USE_LOCAL_DB" = "true" ]; then
+        su - postgres -c "psql -d net_port -v ON_ERROR_STOP=1 -c \"
+            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \\\"$DB_USER\\\";
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \\\"$DB_USER\\\";
+            GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO \\\"$DB_USER\\\";
+        \"" 2>/dev/null || true
+    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -v ON_ERROR_STOP=0 -c "
+            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"$DB_USER\";
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"$DB_USER\";
+            GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO \"$DB_USER\";
+        " 2>/dev/null || true
+        if [ -n "${DB_SUPERUSER:-}" ] && [ -n "${DB_SUPERUSER_PASSWORD:-}" ]; then
+            PGPASSWORD="$DB_SUPERUSER_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_SUPERUSER" -d net_port -v ON_ERROR_STOP=0 -c "
+                GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"$DB_USER\";
+                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"$DB_USER\";
+                GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO \"$DB_USER\";
+            " 2>/dev/null || true
+        fi
+    fi
+}
+apply_app_grants
+
 # Add admin user with hashed password from environment
 cd /root/net_port/source/web/backend_net_port && bash -c "source $NVM_DIR/nvm.sh && NODE_PATH=/root/net_port/source/web/backend_net_port/node_modules node ../utils/add_test_user.js"
 

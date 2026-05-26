@@ -15,3 +15,12 @@ CREATE INDEX IF NOT EXISTS idx_device_traffic_samples_device_time
 
 CREATE INDEX IF NOT EXISTS idx_device_traffic_samples_session_time
     ON device_traffic_samples(session_id, recorded_at DESC);
+
+-- When migration runs as postgres, grant access to the application role.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin') THEN
+    GRANT ALL PRIVILEGES ON TABLE device_traffic_samples TO admin;
+    GRANT USAGE, SELECT ON SEQUENCE device_traffic_samples_id_seq TO admin;
+  END IF;
+END $$;
