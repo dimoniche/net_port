@@ -81,6 +81,6 @@ COPY nginx.conf /etc/nginx/sites-available/default
 COPY start.sh /root/net_port/start.sh
 RUN chmod +x /root/net_port/start.sh
 
-EXPOSE 80 8080 5432 8443 6000-6999
+EXPOSE 80 8080 5432 8443 5000-5999 6000-6999
 
 CMD ["/root/net_port/start.sh"]
