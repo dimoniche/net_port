@@ -90,6 +90,14 @@ const DeviceSettingsEdit = ({ children, ...rest }) => {
                 internalPort = parsed;
             }
         }
+        const preferredPortRaw = formData.get("preferred_port");
+        let preferredPort = null;
+        if (preferredPortRaw && preferredPortRaw.toString().trim() !== "") {
+            const parsed = parseInt(preferredPortRaw, 10);
+            if (!isNaN(parsed)) {
+                preferredPort = parsed;
+            }
+        }
         const updatedDeviceData = {
             name: formData.get("name"),
             description: formData.get("description"),
@@ -97,6 +105,7 @@ const DeviceSettingsEdit = ({ children, ...rest }) => {
             status: formData.get("status") || "inactive",
             internal_address: formData.get("internal_address"),
             internal_port: internalPort,
+            preferred_port: preferredPort,
             protocol: formData.get("protocol"),
         };
 
@@ -221,8 +230,20 @@ const DeviceSettingsEdit = ({ children, ...rest }) => {
                                 variant="outlined"
                                 type="number"
                                 inputProps={{ min: 1, max: 65535 }}
-                                defaultValue={deviceData.internal_port}
+                                defaultValue={deviceData.internal_port ?? ""}
                                 helperText="Порт устройства внутри сети"
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <TextField
+                                fullWidth
+                                label="Фиксированный порт"
+                                name="preferred_port"
+                                variant="outlined"
+                                type="number"
+                                inputProps={{ min: 6000, max: 6998, step: 2 }}
+                                defaultValue={deviceData.preferred_port ?? ""}
+                                helperText="Чётный порт 6000–6998. Пусто = автоматически.)"
                             />
                         </Grid>
                         <Grid item xs={12} md={6}>

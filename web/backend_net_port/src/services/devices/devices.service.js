@@ -12,6 +12,58 @@ function isAdminUser(user) {
   return user?.role === 'admin' || user?.role_name === 'admin';
 }
 
+function normalizePreferredPort(value) {
+  if (value === '' || value === null || value === undefined) {
+    return null;
+  }
+
+  const port = Number(value);
+  if (!Number.isInteger(port)) {
+    throw new Error('Fixed port must be an integer');
+  }
+  if (port < 6000 || port > 6998) {
+    throw new Error('Fixed port must be between 6000 and 6998');
+  }
+  if (port % 2 !== 0) {
+    throw new Error('Fixed port must be an even number (6000, 6002, ...)');
+  }
+
+  return port;
+}
+
+async function reservePreferredPort(knex, deviceUuid, preferredPort) {
+  const result = await knex.raw(
+    'SELECT reserve_device_port_pair(?::uuid, ?::integer) AS reserved',
+    [deviceUuid, preferredPort]
+  );
+  const row = result.rows?.[0] || result[0];
+  if (!row?.reserved) {
+    throw new Error('Fixed port is not available or already assigned to another device');
+  }
+}
+
+async function releasePreferredPort(knex, deviceUuid, preferredPort = null) {
+  await knex.raw(
+    'SELECT release_device_port_reservation(?::uuid, ?::integer)',
+    [deviceUuid, preferredPort]
+  );
+}
+
+async function assertPreferredPortCanChange(knex, deviceId, device, nextPreferredPort) {
+  if (nextPreferredPort === device.preferred_port) {
+    return;
+  }
+
+  const activeSession = await knex('device_sessions')
+    .where({ device_id: deviceId, status: 'active' })
+    .where('expires_at', '>', knex.fn.now())
+    .first();
+
+  if (activeSession) {
+    throw new Error('Cannot change fixed port while device has an active session');
+  }
+}
+
 function sendDeviceControlCommand(deviceId, action) {
   const host = process.env.DEVICE_CONTROL_HOST || '127.0.0.1';
   const port = Number(process.env.DEVICE_CONTROL_PORT || 8443);
@@ -278,6 +330,10 @@ exports.Devices = class Devices extends Service {
     const authTokenHash = crypto.createHash('sha256').update(authToken).digest('hex');
     
     // Prepare device data
+    const preferredPort = Object.prototype.hasOwnProperty.call(data, 'preferred_port')
+      ? normalizePreferredPort(data.preferred_port)
+      : null;
+
     const deviceData = {
       id: uuidv4(),
       device_id: deviceId,
@@ -288,6 +344,7 @@ exports.Devices = class Devices extends Service {
       auth_token_hash: authTokenHash,
       internal_address: data.internal_address || '127.0.0.1',
       internal_port: data.internal_port || null,
+      preferred_port: preferredPort,
       protocol: data.protocol || 'tcp',
       capabilities: JSON.stringify(data.capabilities || ['tcp']),
       metadata: JSON.stringify(data.metadata || {}),
@@ -298,6 +355,10 @@ exports.Devices = class Devices extends Service {
     
     // Insert device
     await knex('devices').insert(deviceData);
+
+    if (preferredPort !== null) {
+      await reservePreferredPort(knex, deviceData.id, preferredPort);
+    }
     
     // Return device with auth token (only shown once)
     return {
@@ -327,6 +388,21 @@ exports.Devices = class Devices extends Service {
       ...data,
       updated_at: new Date()
     };
+
+    if (Object.prototype.hasOwnProperty.call(data, 'preferred_port')) {
+      const preferredPort = normalizePreferredPort(data.preferred_port);
+      await assertPreferredPortCanChange(knex, id, device, preferredPort);
+      updateData.preferred_port = preferredPort;
+
+      if (preferredPort !== device.preferred_port) {
+        if (device.preferred_port) {
+          await releasePreferredPort(knex, id, device.preferred_port);
+        }
+        if (preferredPort !== null) {
+          await reservePreferredPort(knex, id, preferredPort);
+        }
+      }
+    }
     
     // Handle JSON fields
     if (data.capabilities) {
@@ -365,6 +441,10 @@ exports.Devices = class Devices extends Service {
     // Only admin or device owner can delete
     if (!isAdminUser(user) && device.user_id !== user.id) {
       throw new Error('Permission denied');
+    }
+
+    if (device.preferred_port) {
+      await releasePreferredPort(knex, id, device.preferred_port);
     }
     
     // Delete device (cascade will delete sessions and statistics)
@@ -474,6 +554,10 @@ exports.Devices = class Devices extends Service {
       if (session.assigned_port) {
         await knex.raw('SELECT free_device_port_pair(?)', [session.assigned_port]);
       }
+    }
+
+    if (device.preferred_port) {
+      await reservePreferredPort(knex, id, device.preferred_port);
     }
 
     const updatedDevice = await broadcastDeviceById(this.app, id);

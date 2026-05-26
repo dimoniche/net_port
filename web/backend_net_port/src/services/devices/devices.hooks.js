@@ -14,6 +14,7 @@ const deviceSchema = {
     type: { type: 'string', enum: ['iot_gateway', 'sensor', 'camera', 'router', 'other'] },
     internal_address: { type: 'string', maxLength: 45 },
     internal_port: { type: ['integer', 'null'], minimum: 1, maximum: 65535 },
+    preferred_port: { type: ['integer', 'null'], minimum: 6000, maximum: 6998 },
     protocol: { type: 'string', enum: ['tcp', 'udp'] },
     capabilities: { type: 'array' },
     metadata: { type: 'object' },
@@ -85,6 +86,18 @@ module.exports = {
         if (!data.metadata) {
           data.metadata = {};
         }
+
+        if (Object.prototype.hasOwnProperty.call(data, 'preferred_port')) {
+          if (data.preferred_port === '' || data.preferred_port === undefined) {
+            data.preferred_port = null;
+          } else {
+            const port = Number(data.preferred_port);
+            if (!Number.isInteger(port) || port < 6000 || port > 6998 || port % 2 !== 0) {
+              throw new Error('Fixed port must be an even integer between 6000 and 6998');
+            }
+            data.preferred_port = port;
+          }
+        }
         
         // Set user_id if not provided
         if (!data.user_id && user) {
@@ -112,6 +125,19 @@ module.exports = {
             throw new Error('Permission denied');
           }
         }
+
+        if (Object.prototype.hasOwnProperty.call(context.data || {}, 'preferred_port')) {
+          const value = context.data.preferred_port;
+          if (value === '' || value === undefined) {
+            context.data.preferred_port = null;
+          } else {
+            const port = Number(value);
+            if (!Number.isInteger(port) || port < 6000 || port > 6998 || port % 2 !== 0) {
+              throw new Error('Fixed port must be an even integer between 6000 and 6998');
+            }
+            context.data.preferred_port = port;
+          }
+        }
         
         return context;
       }
@@ -132,6 +158,19 @@ module.exports = {
           
           if (device.user_id !== user.id) {
             throw new Error('Permission denied');
+          }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(context.data || {}, 'preferred_port')) {
+          const value = context.data.preferred_port;
+          if (value === '' || value === undefined) {
+            context.data.preferred_port = null;
+          } else {
+            const port = Number(value);
+            if (!Number.isInteger(port) || port < 6000 || port > 6998 || port % 2 !== 0) {
+              throw new Error('Fixed port must be an even integer between 6000 and 6998');
+            }
+            context.data.preferred_port = port;
           }
         }
         

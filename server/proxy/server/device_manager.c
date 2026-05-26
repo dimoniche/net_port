@@ -693,19 +693,29 @@ static int register_device_session(const char *device_id, const char *client_ip,
 
     PGresult *res = PQexecParams(conn,
         "WITH dev AS ("
-        "  SELECT id FROM devices WHERE device_id = $1 "
+        "  SELECT id, preferred_port FROM devices WHERE device_id = $1 "
         "  AND status IN ('active', 'pending', 'connecting')"
         "), "
         "pair AS ("
         "  SELECT pa1.port AS input_port, pa2.port AS tunnel_port "
-        "  FROM port_allocations pa1 "
-        "  JOIN port_allocations pa2 ON pa2.port = pa1.port + 1 AND pa2.status = 'free' "
-        "  WHERE pa1.status = 'free' "
-        "    AND pa1.port >= 6000 AND pa1.port < 7000 "
+        "  FROM dev "
+        "  JOIN port_allocations pa1 ON ("
+        "    (dev.preferred_port IS NULL AND pa1.status = 'free' AND pa1.device_id IS NULL) "
+        "    OR (dev.preferred_port IS NOT NULL AND pa1.port = dev.preferred_port "
+        "        AND pa1.status IN ('free', 'reserved') "
+        "        AND (pa1.device_id IS NULL OR pa1.device_id = dev.id))"
+        "  ) "
+        "  JOIN port_allocations pa2 ON pa2.port = pa1.port + 1 "
+        "    AND ("
+        "      (dev.preferred_port IS NULL AND pa2.status = 'free' AND pa2.device_id IS NULL) "
+        "      OR (dev.preferred_port IS NOT NULL AND pa2.status IN ('free', 'reserved') "
+        "          AND (pa2.device_id IS NULL OR pa2.device_id = dev.id))"
+        "    ) "
+        "  WHERE pa1.port >= 6000 AND pa1.port < 7000 "
         "    AND pa1.port % 2 = 0 "
         "    AND (pa1.expires_at IS NULL OR pa1.expires_at <= NOW()) "
         "    AND (pa2.expires_at IS NULL OR pa2.expires_at <= NOW()) "
-        "  ORDER BY pa1.port "
+        "  ORDER BY CASE WHEN dev.preferred_port IS NOT NULL THEN 0 ELSE 1 END, pa1.port "
         "  LIMIT 1 "
         "  FOR UPDATE OF pa1 SKIP LOCKED"
         "), "
@@ -730,7 +740,8 @@ static int register_device_session(const char *device_id, const char *client_ip,
         4, NULL, params, NULL, NULL, 0);
 
     if (PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0) {
-        logMsg(LOG_ERR, "Failed to register device session: %s\n", PQerrorMessage(conn));
+        logMsg(LOG_ERR, "Failed to register device session (check fixed port availability): %s\n",
+               PQerrorMessage(conn));
         PQclear(res);
         db_unlock();
         return -1;

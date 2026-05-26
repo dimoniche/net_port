@@ -17,6 +17,7 @@ CREATE TABLE devices (
     status VARCHAR(20) DEFAULT 'inactive' CHECK (status IN ('active', 'inactive', 'pending', 'blocked', 'connecting', 'restarting', 'error')),
     auth_token_hash VARCHAR(255) NOT NULL,
     assigned_port INTEGER,
+    preferred_port INTEGER,
     internal_address VARCHAR(45),
     internal_port INTEGER,
     protocol VARCHAR(10) DEFAULT 'tcp' CHECK (protocol IN ('tcp', 'udp')),
@@ -29,6 +30,11 @@ CREATE TABLE devices (
     
     -- Indexes for performance
     CONSTRAINT valid_port_range CHECK (assigned_port IS NULL OR (assigned_port >= 6000 AND assigned_port <= 7000)),
+    CONSTRAINT valid_preferred_port CHECK (
+        preferred_port IS NULL OR (
+            preferred_port >= 6000 AND preferred_port <= 6998 AND preferred_port % 2 = 0
+        )
+    ),
     CONSTRAINT valid_internal_port CHECK (internal_port IS NULL OR (internal_port >= 1 AND internal_port <= 65535))
 );
 
@@ -37,6 +43,7 @@ CREATE INDEX idx_devices_status ON devices(status);
 CREATE INDEX idx_devices_user_id ON devices(user_id);
 CREATE INDEX idx_devices_last_heartbeat ON devices(last_heartbeat);
 CREATE INDEX idx_devices_assigned_port ON devices(assigned_port) WHERE assigned_port IS NOT NULL;
+CREATE UNIQUE INDEX idx_devices_preferred_port ON devices(preferred_port) WHERE preferred_port IS NOT NULL;
 
 -- Table for active device sessions
 CREATE TABLE device_sessions (
@@ -78,7 +85,9 @@ CREATE TABLE port_allocations (
     -- Ensure port is unique and properly managed
     CONSTRAINT valid_allocation CHECK (
         (status = 'allocated' AND device_id IS NOT NULL AND session_id IS NOT NULL) OR
-        (status IN ('free', 'reserved', 'blocked') AND device_id IS NULL AND session_id IS NULL)
+        (status = 'free' AND device_id IS NULL AND session_id IS NULL) OR
+        (status = 'reserved' AND device_id IS NOT NULL AND session_id IS NULL) OR
+        (status = 'blocked' AND device_id IS NULL AND session_id IS NULL)
     )
 );
 

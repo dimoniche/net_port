@@ -36,6 +36,14 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                 internalPort = parsed;
             }
         }
+        const preferredPortRaw = formData.get("preferred_port");
+        let preferredPort = null;
+        if (preferredPortRaw && preferredPortRaw.toString().trim() !== "") {
+            const parsed = parseInt(preferredPortRaw, 10);
+            if (!isNaN(parsed)) {
+                preferredPort = parsed;
+            }
+        }
         const deviceData = {
             device_id: formData.get("device_id"),
             name: formData.get("name"),
@@ -44,6 +52,7 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
             status: "inactive",
             internal_address: formData.get("internal_address") || '127.0.0.1',
             internal_port: internalPort,
+            preferred_port: preferredPort,
             protocol: formData.get("protocol") || 'tcp',
             user_id: cookies.user?.id,
         };
@@ -158,6 +167,17 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 type="number"
                                 inputProps={{ min: 1, max: 65535 }}
                                 helperText="Порт устройства внутри сети"
+                            />
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <TextField
+                                fullWidth
+                                label="Фиксированный порт"
+                                name="preferred_port"
+                                variant="outlined"
+                                type="number"
+                                inputProps={{ min: 6000, max: 6998, step: 2 }}
+                                helperText="Чётный порт 6000–6998. Пусто = автоматически.)"
                             />
                         </Grid>
                         <Grid item xs={12} md={6}>

@@ -31,8 +31,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS devices_status_notify ON devices;
-CREATE TRIGGER devices_status_notify
-  AFTER INSERT OR UPDATE OF status, assigned_port, last_heartbeat OR DELETE
+  CREATE TRIGGER devices_status_notify
+  AFTER INSERT OR UPDATE OF status, assigned_port, preferred_port, last_heartbeat OR DELETE
   ON devices
   FOR EACH ROW EXECUTE PROCEDURE notify_device_status_change();
 

@@ -462,13 +462,35 @@ const Devices = ({ children, ...rest }) => {
                                             )}
                                         </TableCell>
                                         <TableCell>
-                                            {device.assigned_port || device.session_port ? (
-                                                <>
-                                                    {device.assigned_port || device.session_port}
-                                                </>
-                                            ) : (
-                                                "Не назначен"
-                                            )}
+                                            {(() => {
+                                                const activePort = device.assigned_port || device.session_port;
+                                                const displayPort = activePort || device.preferred_port;
+                                                if (!displayPort) {
+                                                    return "Не назначен";
+                                                }
+                                                return (
+                                                    <>
+                                                        {displayPort}
+                                                        {!activePort && device.preferred_port ? (
+                                                            <Chip
+                                                                label="зарезерв."
+                                                                size="small"
+                                                                variant="outlined"
+                                                                sx={{ ml: 1 }}
+                                                            />
+                                                        ) : null}
+                                                        {device.preferred_port && activePort === device.preferred_port ? (
+                                                            <Chip
+                                                                label="фикс."
+                                                                size="small"
+                                                                color="info"
+                                                                variant="outlined"
+                                                                sx={{ ml: 1 }}
+                                                            />
+                                                        ) : null}
+                                                    </>
+                                                );
+                                            })()}
                                         </TableCell>
                                         <TableCell>
                                             {device.internal_port || "-"}
