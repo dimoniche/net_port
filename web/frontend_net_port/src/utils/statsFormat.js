@@ -21,14 +21,67 @@ export const formatSpeed = (speed) => {
     return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 };
 
-export const formatTimestamp = (timestamp) => {
-    if (!timestamp) return "-";
-    const date = new Date(timestamp);
-    const day = String(date.getDate()).padStart(2, "0");
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const hours = String(date.getHours()).padStart(2, "0");
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    return `${day}.${month} ${hours}:${minutes}`;
+export const parseDbTimestamp = (value) => {
+    if (value == null || value === "") {
+        return null;
+    }
+
+    if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : value;
+    }
+
+    const text = String(value).trim();
+    if (!text) {
+        return null;
+    }
+
+    if (/[zZ]$/.test(text) || /[+-]\d{2}(:?\d{2})?$/.test(text)) {
+        const date = new Date(text);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    const normalized = text.includes("T") ? text : text.replace(" ", "T");
+    const withoutMs = normalized.split(".")[0];
+    const date = new Date(`${withoutMs}Z`);
+    return Number.isNaN(date.getTime()) ? null : date;
+};
+
+export const formatTimestamp = (timestamp, options = {}) => {
+    const date = parseDbTimestamp(timestamp);
+    if (!date) {
+        return "-";
+    }
+
+    return date.toLocaleString("ru-RU", {
+        year: options.shortYear ? "2-digit" : "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: options.withSeconds ? "2-digit" : undefined,
+    });
+};
+
+export const formatChartAxisLabel = (timestamp, timeRange) => {
+    const date = parseDbTimestamp(timestamp);
+    if (!date) {
+        return "-";
+    }
+
+    if (timeRange === "1hour" || timeRange === "6hours") {
+        return date.toLocaleTimeString("ru-RU", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+        });
+    }
+
+    return date.toLocaleString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
 };
 
 export const timeRangeToHours = (timeRange) => {
@@ -72,14 +125,9 @@ export const getServerRangeTimes = (timeRange) => {
             startTime.setDate(endTime.getDate() - 1);
     }
 
-    const formatLocalDateTime = (date) => {
-        const pad = (num) => String(num).padStart(2, "0");
-        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-    };
-
     return {
-        startTime: formatLocalDateTime(startTime),
-        endTime: formatLocalDateTime(endTime),
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
     };
 };
 
@@ -89,18 +137,7 @@ const bucketKey = (date, timeRange) => {
     return Math.floor(ms / bucketMs) * bucketMs;
 };
 
-const formatBucketLabel = (date, timeRange) => {
-    const hours = String(date.getHours()).padStart(2, "0");
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    const seconds = String(date.getSeconds()).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-
-    if (timeRange === "1hour" || timeRange === "6hours") {
-        return `${hours}:${minutes}:${seconds}`;
-    }
-    return `${day}.${month} ${hours}:${minutes}`;
-};
+const formatBucketLabel = (date, timeRange) => formatChartAxisLabel(date, timeRange);
 
 export const mergeAggregatedChartData = ({ serverSeries, deviceSeries, timeRange }) => {
     const buckets = new Map();
@@ -125,7 +162,7 @@ export const mergeAggregatedChartData = ({ serverSeries, deviceSeries, timeRange
 
     deviceSeries.forEach(({ samples }) => {
         (samples || []).forEach((sample) => {
-            addToBucket(new Date(sample.recorded_at), {
+            addToBucket(parseDbTimestamp(sample.recorded_at), {
                 receivedDelta: Number(sample.bytes_received_delta || 0),
                 sentDelta: Number(sample.bytes_sent_delta || 0),
                 connections: Number(sample.active_connections || 0),
@@ -135,7 +172,9 @@ export const mergeAggregatedChartData = ({ serverSeries, deviceSeries, timeRange
 
     serverSeries.forEach(({ points }) => {
         const sorted = [...(points || [])].sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            (a, b) =>
+                parseDbTimestamp(a.timestamp).getTime() -
+                parseDbTimestamp(b.timestamp).getTime()
         );
 
         sorted.forEach((point, index) => {
@@ -147,7 +186,7 @@ export const mergeAggregatedChartData = ({ serverSeries, deviceSeries, timeRange
                 ? Number(point.bytes_sent || 0) - Number(prev.bytes_sent || 0)
                 : Number(point.bytes_sent || 0);
 
-            addToBucket(new Date(point.timestamp), {
+            addToBucket(parseDbTimestamp(point.timestamp), {
                 receivedDelta: Math.max(0, receivedDelta),
                 sentDelta: Math.max(0, sentDelta),
                 connections: Number(point.connections_count || 0),

@@ -25,6 +25,7 @@ import { Loader } from "../components/Loader";
 import ServerStatsModal from "../components/ServerStatsModal";
 import DeviceStatsModal from "../components/DeviceStatsModal";
 import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
+import { formatTimestamp } from "../utils/statsFormat";
 
 const Statistics = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
@@ -193,17 +194,8 @@ const Statistics = ({ children, ...rest }) => {
         return `Сервер #${serverId}`;
     };
 
-    const formatTimestamp = (timestamp) => {
-        if (!timestamp) return "-";
-        const date = new Date(timestamp);
-        const day = String(date.getDate()).padStart(2, "0");
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const year = String(date.getFullYear()).slice(-2);
-        const hours = String(date.getHours()).padStart(2, "0");
-        const minutes = String(date.getMinutes()).padStart(2, "0");
-
-        return `${day}.${month}.${year} ${hours}:${minutes}`;
-    };
+    const formatStatTimestamp = (timestamp) =>
+        formatTimestamp(timestamp, { shortYear: true });
 
     const handleResetServerStatistics = async (serverId) => {
         try {
@@ -313,7 +305,7 @@ const Statistics = ({ children, ...rest }) => {
                                                         <TableCell>{formatSpeed(stat.avg_receive_speed)}</TableCell>
                                                         <TableCell>{formatSpeed(stat.avg_send_speed)}</TableCell>
                                                         <TableCell>{stat.connections_count}</TableCell>
-                                                        <TableCell>{formatTimestamp(stat.timestamp)}</TableCell>
+                                                        <TableCell>{formatStatTimestamp(stat.timestamp)}</TableCell>
                                                         <TableCell>
                                                             <IconButton
                                                                 onClick={(e) => {
@@ -391,7 +383,7 @@ const Statistics = ({ children, ...rest }) => {
                                                         {formatBytes(device.hourly_bytes_received)} / {formatBytes(device.hourly_bytes_sent)}
                                                     </TableCell>
                                                     <TableCell>{device.active_connections || 0}</TableCell>
-                                                    <TableCell>{formatTimestamp(device.last_activity)}</TableCell>
+                                                    <TableCell>{formatStatTimestamp(device.last_activity)}</TableCell>
                                                     <TableCell>
                                                         <IconButton
                                                             onClick={(e) => {

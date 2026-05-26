@@ -27,38 +27,13 @@ import {
     ResponsiveContainer,
 } from "recharts";
 
-const formatBytes = (bytes) => {
-    const bytesNum = typeof bytes === "string" ? parseInt(bytes, 10) : bytes;
-    if (!bytesNum) return "0 Bytes";
-    const k = 1024;
-    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytesNum) / Math.log(k));
-    return parseFloat((bytesNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-};
-
-const formatSpeed = (speed) => {
-    if (speed === null || speed === undefined || isNaN(speed) || speed === 0) {
-        return "-";
-    }
-    const speedNum = typeof speed === "string" ? parseFloat(speed) : speed;
-    if (isNaN(speedNum) || speedNum < 1) {
-        return "-";
-    }
-    const k = 1024;
-    const sizes = ["Bytes/s", "KB/s", "MB/s", "GB/s", "TB/s"];
-    const i = Math.floor(Math.log(speedNum) / Math.log(k));
-    return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-};
-
-const formatTimestamp = (timestamp) => {
-    if (!timestamp) return "-";
-    const date = new Date(timestamp);
-    const day = String(date.getDate()).padStart(2, "0");
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const hours = String(date.getHours()).padStart(2, "0");
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    return `${day}.${month} ${hours}:${minutes}`;
-};
+import {
+    formatBytes,
+    formatSpeed,
+    formatTimestamp,
+    formatChartAxisLabel,
+    parseDbTimestamp,
+} from "../utils/statsFormat";
 
 const timeRangeToHours = (timeRange) => {
     switch (timeRange) {
@@ -85,24 +60,15 @@ const buildChartFromSamples = (samples, timeRange) => {
         cumulativeSent += Number(sample.bytes_sent_delta || 0);
         cumulativeReceived += Number(sample.bytes_received_delta || 0);
 
-        const date = new Date(sample.recorded_at);
-        const hours = String(date.getHours()).padStart(2, "0");
-        const minutes = String(date.getMinutes()).padStart(2, "0");
-        const seconds = String(date.getSeconds()).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-
-        const timestampLabel =
-            timeRange === "1hour" || timeRange === "6hours"
-                ? `${hours}:${minutes}:${seconds}`
-                : `${day}.${month} ${hours}:${minutes}`;
+        const date = parseDbTimestamp(sample.recorded_at);
+        const timestampLabel = formatChartAxisLabel(sample.recorded_at, timeRange);
 
         let avgSendSpeed = 0;
         let avgReceiveSpeed = 0;
         if (index > 0) {
             const prev = samples[index - 1];
-            const dt =
-                (date.getTime() - new Date(prev.recorded_at).getTime()) / 1000;
+            const prevDate = parseDbTimestamp(prev.recorded_at);
+            const dt = (date.getTime() - prevDate.getTime()) / 1000;
             if (dt > 0) {
                 avgSendSpeed = Number(sample.bytes_sent_delta || 0) / dt;
                 avgReceiveSpeed = Number(sample.bytes_received_delta || 0) / dt;
@@ -211,19 +177,10 @@ const DeviceStatsModal = ({ open, onClose, device, devicesData }) => {
             }
 
             const baseData = history.map((item) => {
-                const date = new Date(item.period_start);
-                const hoursLabel = String(date.getHours()).padStart(2, "0");
-                const minutesLabel = String(date.getMinutes()).padStart(2, "0");
-                const dayLabel = String(date.getDate()).padStart(2, "0");
-                const monthLabel = String(date.getMonth() + 1).padStart(2, "0");
-
-                const timestampLabel =
-                    timeRange === "6hours" || timeRange === "24hours"
-                        ? `${hoursLabel}:${minutesLabel}`
-                        : `${dayLabel}.${monthLabel} ${hoursLabel}:${minutesLabel}`;
+                const date = parseDbTimestamp(item.period_start);
 
                 return {
-                    timestamp: timestampLabel,
+                    timestamp: formatChartAxisLabel(item.period_start, timeRange),
                     fullTimestamp: formatTimestamp(item.period_start),
                     bytesReceived: item.bytes_received || 0,
                     bytesSent: item.bytes_sent || 0,

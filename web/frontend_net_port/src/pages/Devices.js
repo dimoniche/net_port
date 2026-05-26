@@ -4,6 +4,7 @@ import isEmpty from "lodash/isEmpty";
 import { useCookies } from "react-cookie";
 
 import { ApiContext } from "../context/ApiContext";
+import { formatTimestamp } from "../utils/statsFormat";
 
 import Paper from "@mui/material/Paper";
 import Button from "@mui/material/Button";
@@ -251,8 +252,7 @@ const Devices = ({ children, ...rest }) => {
 
     const formatDate = (dateString) => {
         if (!dateString) return "Никогда";
-        const date = new Date(dateString);
-        return date.toLocaleString("ru-RU");
+        return formatTimestamp(dateString, { withSeconds: true });
     };
 
     const filteredDevices = devicesData.filter((device) => {

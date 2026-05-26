@@ -58,11 +58,7 @@ exports.Statistics = class Statistics {
       });
     }
 
-    // Convert timestamps to local timezone
-    return result.map(row => ({
-      ...row,
-      timestamp: this.convertToLocalTimezone(row.timestamp)
-    }));
+    return result;
   }
 
   async get(id, param) {
@@ -92,19 +88,13 @@ exports.Statistics = class Statistics {
   }
 
   async getByServerAndTimeRange(serverId, startTime, endTime) {
-    // Parse time strings to ensure proper handling of local time
-    let start = new Date(startTime);
-    const tzo = 3 * 60;//-start.getTimezoneOffset();
-    start = new Date(start.getTime() - (tzo * 60 * 1000))
-    let end = new Date(endTime);
-    end = new Date(end.getTime() - (tzo * 60 * 1000))
-    
-    // If the dates are invalid, try to parse them as local time strings
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       throw new Error('Invalid date format provided');
     }
 
-    // Получаем статистику для сервера за определенный период
     const result = await this.db
       .from('statistic')
       .where('server_id', Number(serverId))
@@ -113,14 +103,7 @@ exports.Statistics = class Statistics {
       .select('*')
       .orderBy('timestamp', 'asc');
 
-    // Ensure we return an array in all cases
-    const rows = Array.isArray(result) ? result : (result.rows || []);
-
-    // Convert timestamps to local timezone
-    return rows.map(row => ({
-      ...row,
-      timestamp: this.convertToLocalTimezone(row.timestamp)
-    }));
+    return Array.isArray(result) ? result : (result.rows || []);
   }
 
   // Method to reset statistics for a specific server
@@ -128,21 +111,6 @@ exports.Statistics = class Statistics {
     // Delete all records for the specified server
     await this.db('statistic').where('server_id', Number(serverId)).del();
     return { success: true, message: `Statistics for server ${serverId} have been reset` };
-  }
-
-  // Helper method to convert UTC timestamp to local timezone
-  convertToLocalTimezone(utcTimestamp) {
-    if (!utcTimestamp) return utcTimestamp;
-
-    // Convert UTC timestamp to local timezone
-    let date = new Date(utcTimestamp);
-    const tzo = 3 * 60;//-date.getTimezoneOffset();
-    date = new Date(date.getTime() + (tzo * 60 * 1000))
-
-    // Format as ISO-like string in local timezone
-    // We want to preserve the local time values, not convert the moment
-    const pad = (num) => String(num).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   }
 };
 

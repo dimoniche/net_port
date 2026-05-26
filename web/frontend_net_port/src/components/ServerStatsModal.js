@@ -24,35 +24,13 @@ import {
   ResponsiveContainer
 } from "recharts";
 
-// Функция для форматирования байтов в читаемый формат
-const formatBytes = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-// Функция для форматирования скорости в читаемый формат
-const formatSpeed = (speed) => {
-    // Проверяем на null, undefined, NaN или нулевое значение
-    if (speed === null || speed === undefined || isNaN(speed) || speed === 0) {
-        return '-';
-    }
-    
-    // Преобразуем в число, если пришло строковое значение
-    const speedNum = typeof speed === 'string' ? parseFloat(speed) : speed;
-    
-    // Проверяем еще раз после преобразования
-    if (isNaN(speedNum) || speedNum < 1) {
-        return '-';
-    }
-    
-    const k = 1024;
-    const sizes = ['Bytes/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
-    const i = Math.floor(Math.log(speedNum) / Math.log(k));
-    return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
+import {
+    formatBytes,
+    formatSpeed,
+    formatTimestamp,
+    formatChartAxisLabel,
+    parseDbTimestamp,
+} from "../utils/statsFormat";
 
 const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
     const { api } = useContext(ApiContext);
@@ -143,21 +121,11 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                         startTime.setDate(endTime.getDate() - 1);
                 }
     
-                // Format dates to local time strings that preserve timezone info
-                const formatLocalDateTime = (date) => {
-                    const pad = (num) => String(num).padStart(2, '0');
-                    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-                };
-    
-                console.log('API Request:', `/statistics/${serverId}/range`, {
-                    startTime: formatLocalDateTime(startTime),
-                    endTime: formatLocalDateTime(endTime)
-                }); // Debug log
-    
+                // Format dates as UTC ISO strings for backend queries
                 const response = await api.get(`/statistics/${serverId}/range`, {
                     params: {
-                        startTime: formatLocalDateTime(startTime),
-                        endTime: formatLocalDateTime(endTime)
+                        startTime: startTime.toISOString(),
+                        endTime: endTime.toISOString()
                     }
                 });
 
@@ -170,56 +138,15 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                 if (Array.isArray(response.data) && response.data.length > 0) {
                     // Сначала форматируем базовые данные
                     const baseData = response.data.map((item) => {
-                        // Create a date object from the timestamp
-                        // Since the backend now returns data in local time, we treat it as such
-                        let date;
-                        if (typeof item.timestamp === 'string' && item.timestamp.includes('T')) {
-                            // For ISO-like strings, parse manually to avoid timezone conversion
-                            const parts = item.timestamp.split('T');
-                            if (parts.length === 2) {
-                                const datePart = parts[0];
-                                const timePart = parts[1].split('.')[0].split(':');
-                                const dateParts = datePart.split('-');
-                                if (dateParts.length === 3 && timePart.length >= 2) {
-                                    date = new Date(
-                                        parseInt(dateParts[0]),
-                                        parseInt(dateParts[1]) - 1, // Month is 0-indexed
-                                        parseInt(dateParts[2]),
-                                        parseInt(timePart[0]) || 0,
-                                        parseInt(timePart[1]) || 0,
-                                        parseInt(timePart[2]) || 0
-                                    );
-                                }
-                            }
-                        }
-                        
-                        // Fallback to regular Date parsing if manual parsing failed
-                        if (!date || isNaN(date.getTime())) {
-                            date = new Date(item.timestamp);
-                        }
-                        
-                        // Use compact time format: HH:MM for short periods, DD.MM HH:MM for longer periods
-                        const hours = String(date.getHours()).padStart(2, '0');
-                        const minutes = String(date.getMinutes()).padStart(2, '0');
-                        const day = String(date.getDate()).padStart(2, '0');
-                        const month = String(date.getMonth() + 1).padStart(2, '0');
-    
-                        // For time ranges less than 1 day, show only time
-                        // For longer ranges, show date and time
-                        let timestampLabel;
-                        if (timeRange === '1hour' || timeRange === '6hours') {
-                            timestampLabel = `${hours}:${minutes}`;
-                        } else {
-                            timestampLabel = `${day}.${month} ${hours}:${minutes}`;
-                        }
-                        
+                        const date = parseDbTimestamp(item.timestamp);
+
                         return {
-                            timestamp: timestampLabel,
-                            fullTimestamp: date.toLocaleString(), // Keep full timestamp for tooltip
+                            timestamp: formatChartAxisLabel(item.timestamp, timeRange),
+                            fullTimestamp: formatTimestamp(item.timestamp),
                             bytesReceived: item.bytes_received || 0,
                             bytesSent: item.bytes_sent || 0,
                             connections: item.connections_count || 0,
-                            date: date // Сохраняем объект даты для вычислений
+                            date,
                         };
                     });
                     
