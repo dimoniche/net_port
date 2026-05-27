@@ -30,14 +30,18 @@ import { Can } from "./Abilities";
 import updateAbility from "../config/permission";
 import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
 import OverviewStatsModal from "./OverviewStatsModal";
-import { formatBytes, formatSpeed } from "../utils/statsFormat";
+import { formatBytes, formatSpeed, parseSpeedNumber } from "../utils/statsFormat";
+import { getEnabledLegacyServers } from "../utils/legacyServers";
 
 import logo from "../assets/netport-120-120.png";
 
 const computeHeaderSummary = (statistics, devices, servers) => {
-    const serverList = servers || [];
-    const hasLegacyServers = serverList.length > 0;
-    const activeServers = serverList.filter((server) => server.enable).length;
+    const enabledLegacyServers = getEnabledLegacyServers(servers);
+    const hasLegacyServers = enabledLegacyServers.length > 0;
+    const enabledServerIds = new Set(
+        enabledLegacyServers.map((server) => Number(server.id))
+    );
+    const activeServers = enabledLegacyServers.length;
     const deviceList = devices || [];
     const onlineDevices = deviceList.filter((device) => device.online).length;
     const activeConnections = deviceList.reduce(
@@ -45,11 +49,15 @@ const computeHeaderSummary = (statistics, devices, servers) => {
         0
     );
 
-    const serverReceived = (statistics || []).reduce(
+    const relevantStatistics = (statistics || []).filter((stat) =>
+        enabledServerIds.has(Number(stat.server_id))
+    );
+
+    const serverReceived = relevantStatistics.reduce(
         (sum, stat) => sum + (parseInt(stat.bytes_received, 10) || 0),
         0
     );
-    const serverSent = (statistics || []).reduce(
+    const serverSent = relevantStatistics.reduce(
         (sum, stat) => sum + (parseInt(stat.bytes_sent, 10) || 0),
         0
     );
@@ -62,20 +70,20 @@ const computeHeaderSummary = (statistics, devices, servers) => {
         0
     );
 
-    const serverReceiveSpeed = (statistics || []).reduce(
-        (sum, stat) => sum + (parseFloat(stat.avg_receive_speed) || 0),
+    const serverReceiveSpeed = relevantStatistics.reduce(
+        (sum, stat) => sum + parseSpeedNumber(stat.avg_receive_speed),
         0
     );
-    const serverSendSpeed = (statistics || []).reduce(
-        (sum, stat) => sum + (parseFloat(stat.avg_send_speed) || 0),
+    const serverSendSpeed = relevantStatistics.reduce(
+        (sum, stat) => sum + parseSpeedNumber(stat.avg_send_speed),
         0
     );
     const deviceReceiveSpeed = deviceList.reduce(
-        (sum, device) => sum + (Number(device.avg_receive_speed) || 0),
+        (sum, device) => sum + parseSpeedNumber(device.avg_receive_speed),
         0
     );
     const deviceSendSpeed = deviceList.reduce(
-        (sum, device) => sum + (Number(device.avg_send_speed) || 0),
+        (sum, device) => sum + parseSpeedNumber(device.avg_send_speed),
         0
     );
 
@@ -260,8 +268,10 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
 
         try {
             const [statistics, servers, deviceStatistics] = await Promise.all([
-                api.get(`/statistics`),
-                api.get(`/servers`),
+                api.get(`/statistics`, {
+                    params: cookies.user?.id ? { user_id: cookies.user.id } : undefined,
+                }),
+                api.get(`/servers/0?user_id=${cookies.user.id}`),
                 api.get(`/devices/statistics/summary`),
             ]);
 
@@ -302,13 +312,13 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 <CssBaseline />
                 <Box sc={{ flexGrow: 1 }}>
                     <AppBar position="fixed" open={open} openRight={openRight}>
-                        <Toolbar>
+                        <Toolbar sx={{ gap: 1, overflow: "hidden" }}>
                             <IconButton
                                 color="inherit"
                                 aria-label="open drawer"
                                 onClick={handleDrawerOpen}
                                 edge="start"
-                                sx={{ mr: 2, ...(open && { display: "none" }) }}
+                                sx={{ ...(open && { display: "none" }) }}
                             >
                                 <MenuIcon />
                             </IconButton>
@@ -316,18 +326,32 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                 variant="h6"
                                 noWrap
                                 component="div"
-                                sx={{ flexGrow: 1 }}
+                                sx={{ flexShrink: 0, mr: 1 }}
                             >
                                 NET PORT
                             </Typography>
                             
                             {/* Statistics Info */}
                             {cookies.user && (
-                                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2, flexWrap: 'wrap', gap: 0.5 }}>
+                                <Box
+                                    sx={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        flex: 1,
+                                        minWidth: 0,
+                                        justifyContent: "flex-end",
+                                        flexWrap: "nowrap",
+                                        gap: 0.75,
+                                        overflowX: "auto",
+                                        overflowY: "hidden",
+                                        py: 0.25,
+                                        "&::-webkit-scrollbar": { height: 4 },
+                                    }}
+                                >
                                     {headerSummary.hasLegacyServers && (
                                         <Typography
                                             variant="body2"
-                                            sx={statChipSx}
+                                            sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
                                             onClick={() => openOverviewModal("overview")}
                                             title="Показать общую статистику"
                                         >
@@ -336,7 +360,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                     )}
                                     <Typography
                                         variant="body2"
-                                        sx={statChipSx}
+                                        sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
                                         onClick={() => openOverviewModal("connections")}
                                         title="Показать график устройств и соединений"
                                     >
@@ -348,7 +372,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                     {headerSummary.activeConnections > 0 && (
                                         <Typography
                                             variant="body2"
-                                            sx={statChipSx}
+                                            sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
                                             onClick={() => openOverviewModal("connections")}
                                             title="Показать график соединений"
                                         >
@@ -357,7 +381,16 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                     )}
                                     <Typography
                                         variant="body2"
-                                        sx={statChipSx}
+                                        sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
+                                        onClick={() => openOverviewModal("traffic")}
+                                        title="Показать график скорости"
+                                    >
+                                        Скорость: ↓{formatSpeed(headerSummary.totalSpeed.receive)} ↑
+                                        {formatSpeed(headerSummary.totalSpeed.send)}
+                                    </Typography>
+                                    <Typography
+                                        variant="body2"
+                                        sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
                                         onClick={() => openOverviewModal("traffic")}
                                         title="Показать график трафика"
                                     >
@@ -365,27 +398,11 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                     </Typography>
                                     <Typography
                                         variant="body2"
-                                        sx={statChipSx}
+                                        sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
                                         onClick={() => openOverviewModal("traffic")}
                                         title="Показать график трафика"
                                     >
                                         Отправлено: {formatBytes(headerSummary.totalBytes.sent)}
-                                    </Typography>
-                                    <Typography
-                                        variant="body2"
-                                        sx={statChipSx}
-                                        onClick={() => openOverviewModal("traffic")}
-                                        title="Показать график скорости"
-                                    >
-                                        Прием: {formatSpeed(headerSummary.totalSpeed.receive)}
-                                    </Typography>
-                                    <Typography
-                                        variant="body2"
-                                        sx={statChipSx}
-                                        onClick={() => openOverviewModal("traffic")}
-                                        title="Показать график скорости"
-                                    >
-                                        Передача: {formatSpeed(headerSummary.totalSpeed.send)}
                                     </Typography>
                                 </Box>
                             )}

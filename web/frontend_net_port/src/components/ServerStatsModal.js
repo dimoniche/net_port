@@ -52,7 +52,9 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
             return `Сервер #${serverId}`;
         }
 
-        let server = serversData.find(s => s.id === serverId);
+        let server = serversData.find(
+            (s) => Number(s.id) === Number(serverId)
+        );
 
         if (server) {
             return server.description || server.name || `Сервер #${serverId}`;

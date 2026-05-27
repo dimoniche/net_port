@@ -1,60 +1,73 @@
 'use strict';
 
+const {
+  resolveStatisticsUserId,
+  computeSpeed
+} = require('./statistics.helpers');
+
 exports.Statistics = class Statistics {
   constructor(dbInstance) {
     this.db = dbInstance;
   }
 
-  async find(params) {
-    // Сначала получаем последние записи для каждого сервера
-    const latestQuery = `
-      SELECT s1.*
-      FROM statistic s1
-      INNER JOIN (
-        SELECT server_id, MAX(timestamp) as max_timestamp
-        FROM statistic
-        GROUP BY server_id
-      ) s2 ON s1.server_id = s2.server_id AND s1.timestamp = s2.max_timestamp
-      INNER JOIN servers srv ON srv.id = s1.server_id
-      ORDER BY s1.server_id
-    `;
+  async fetchEnabledServers(params = {}) {
+    const userId = resolveStatisticsUserId(params);
+    let query = this.db('servers')
+      .where('enable', true)
+      .whereNot(function excludePlaceholder() {
+        this.where('input_port', 5998).where('output_port', 5999);
+      })
+      .orderBy('id');
 
-    const latestResult = await this.db.raw(latestQuery);
-    const latestRows = latestResult.rows || (latestResult[0] && latestResult[0].rows) || latestResult;
+    if (userId != null) {
+      query = query.where('user_id', userId);
+    }
 
-    // Затем для каждой последней записи получаем предыдущую запись
+    return query.select('id', 'description', 'input_port', 'output_port');
+  }
+
+  async fetchLatestStatisticRow(serverId) {
+    return this.db('statistic')
+      .where('server_id', Number(serverId))
+      .orderBy('timestamp', 'desc')
+      .select('*')
+      .first();
+  }
+
+  async find(params = {}) {
+    const servers = await this.fetchEnabledServers(params);
     const result = [];
-    for (const row of latestRows) {
-      const prevQuery = `
-        SELECT bytes_received, bytes_sent, timestamp
-        FROM statistic
-        WHERE server_id = ${row.server_id} AND timestamp < '${row.timestamp}'
-        ORDER BY timestamp DESC
-        LIMIT 1
-      `;
 
-      const prevResult = await this.db.raw(prevQuery);
-      const prevRows = prevResult.rows || (prevResult[0] && prevResult[0].rows) || prevResult;
+    for (const server of servers) {
+      const row = await this.fetchLatestStatisticRow(server.id);
 
-      const prevRow = prevRows.length > 0 ? prevRows[0] : null;
-
-      // Рассчитываем скорость
-      let avgReceiveSpeed = null;
-      let avgSendSpeed = null;
-
-      if (prevRow) {
-        const timeDiff = (new Date(row.timestamp).getTime() - new Date(prevRow.timestamp).getTime()) / 1000; // в секундах
-        
-        if (timeDiff > 0) {
-          avgReceiveSpeed = (row.bytes_received - prevRow.bytes_received) / timeDiff;
-          avgSendSpeed = (row.bytes_sent - prevRow.bytes_sent) / timeDiff;
-        }
+      if (!row) {
+        result.push({
+          server_id: server.id,
+          bytes_received: 0,
+          bytes_sent: 0,
+          connections_count: 0,
+          timestamp: null,
+          avg_receive_speed: null,
+          avg_send_speed: null
+        });
+        continue;
       }
+
+      const prevResult = await this.db('statistic')
+        .where('server_id', row.server_id)
+        .where('timestamp', '<', row.timestamp)
+        .orderBy('timestamp', 'desc')
+        .select('bytes_received', 'bytes_sent', 'timestamp')
+        .limit(1);
+
+      const prevRow = prevResult.length > 0 ? prevResult[0] : null;
+      const speeds = computeSpeed(row, prevRow);
 
       result.push({
         ...row,
-        avg_receive_speed: avgReceiveSpeed,
-        avg_send_speed: avgSendSpeed
+        avg_receive_speed: speeds.avg_receive_speed,
+        avg_send_speed: speeds.avg_send_speed
       });
     }
 
@@ -62,7 +75,6 @@ exports.Statistics = class Statistics {
   }
 
   async get(id, param) {
-    // Получаем последнее значение статистики для конкретного сервера
     return this.db
       .from('statistic')
       .where('server_id', Number(id))
@@ -71,20 +83,8 @@ exports.Statistics = class Statistics {
       .limit(1);
   }
 
-  async getLatest() {
-    // Получаем последнюю статистику для всех серверов
-    const query = `
-      SELECT s1.* 
-      FROM statistic s1
-      INNER JOIN (
-        SELECT server_id, MAX(timestamp) as max_timestamp
-        FROM statistic
-        GROUP BY server_id
-      ) s2 ON s1.server_id = s2.server_id AND s1.timestamp = s2.max_timestamp
-      ORDER BY s1.server_id
-    `;
-    
-    return this.db.raw(query);
+  async getLatest(params = {}) {
+    return this.find(params);
   }
 
   async getByServerAndTimeRange(serverId, startTime, endTime) {
@@ -106,11 +106,8 @@ exports.Statistics = class Statistics {
     return Array.isArray(result) ? result : (result.rows || []);
   }
 
-  // Method to reset statistics for a specific server
   async resetByServer(serverId) {
-    // Delete all records for the specified server
     await this.db('statistic').where('server_id', Number(serverId)).del();
     return { success: true, message: `Statistics for server ${serverId} have been reset` };
   }
 };
-

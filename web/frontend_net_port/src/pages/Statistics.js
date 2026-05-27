@@ -25,8 +25,12 @@ import { Loader } from "../components/Loader";
 import ServerStatsModal from "../components/ServerStatsModal";
 import DeviceStatsModal from "../components/DeviceStatsModal";
 import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
-import { formatTimestamp } from "../utils/statsFormat";
+import { formatTimestamp, parseDbTimestamp } from "../utils/statsFormat";
 import DevicePortBadges from "../components/DevicePortBadges";
+import {
+    getEnabledLegacyServers,
+    hasEnabledLegacyServers,
+} from "../utils/legacyServers";
 
 const statisticsTableContainerSx = {
     width: "100%",
@@ -127,7 +131,11 @@ const Statistics = ({ children, ...rest }) => {
         });
     }, []);
 
-    const hasLegacyServers = serversData.length > 0;
+    const enabledLegacyServers = useMemo(
+        () => getEnabledLegacyServers(serversData),
+        [serversData]
+    );
+    const hasLegacyServers = enabledLegacyServers.length > 0;
 
     const realtimeHandlers = useMemo(() => {
         const handlers = {
@@ -153,9 +161,18 @@ const Statistics = ({ children, ...rest }) => {
             return;
         }
 
-        const statistics = await api.get(`/statistics`);
+        const statistics = await api.get(`/statistics`, {
+            params: cookies.user?.id ? { user_id: cookies.user.id } : undefined,
+        });
         if (statistics.status === 200) {
-            setStatisticsData(statistics.data);
+            const enabledIds = new Set(
+                getEnabledLegacyServers(serverList).map((server) => Number(server.id))
+            );
+            setStatisticsData(
+                (statistics.data || []).filter((stat) =>
+                    enabledIds.has(Number(stat.server_id))
+                )
+            );
         }
     };
 
@@ -175,7 +192,9 @@ const Statistics = ({ children, ...rest }) => {
         }
 
         try {
-            const serversResponse = await api.get(`/servers`);
+            const serversResponse = await api.get(
+                `/servers/0?user_id=${cookies.user.id}`
+            );
             const serverList = serversResponse.status === 200 ? serversResponse.data : [];
 
             if (serversResponse.status === 200) {
@@ -250,7 +269,9 @@ const Statistics = ({ children, ...rest }) => {
             return `Сервер #${serverId}`;
         }
 
-        const server = serversData.find((s) => s.id === serverId);
+        const server = serversData.find(
+            (s) => Number(s.id) === Number(serverId)
+        );
         if (server) {
             return server.description || server.name || `Сервер #${serverId}`;
         }
@@ -345,7 +366,8 @@ const Statistics = ({ children, ...rest }) => {
 
                     {hasLegacyServers && tab === 0 && (
                         <>
-                            {isLoaded && !isEmpty(statisticsData) ? (
+                            {isLoaded ? (
+                                !isEmpty(statisticsData) ? (
                                 <StatisticsTableShell ariaLabel="server statistics table">
                                     <TableHead>
                                         <TableRow>
@@ -361,7 +383,12 @@ const Statistics = ({ children, ...rest }) => {
                                     </TableHead>
                                     <TableBody>
                                         {statisticsData
-                                            .sort((a, b) => b.timestamp - a.timestamp)
+                                            .slice()
+                                            .sort(
+                                                (a, b) =>
+                                                    (parseDbTimestamp(b.timestamp)?.getTime() || 0) -
+                                                    (parseDbTimestamp(a.timestamp)?.getTime() || 0)
+                                            )
                                             .map((stat) => (
                                                 <TableRow
                                                     key={`${stat.server_id}-${stat.timestamp}`}
@@ -395,8 +422,11 @@ const Statistics = ({ children, ...rest }) => {
                                             ))}
                                     </TableBody>
                                 </StatisticsTableShell>
+                                ) : (
+                                <Loader title={"Ожидание первых данных статистики серверов"} />
+                                )
                             ) : (
-                                <Loader title={"Статистика серверов не доступна"} />
+                                <Loader title={"Загрузка..."} />
                             )}
                         </>
                     )}

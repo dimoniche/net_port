@@ -7,17 +7,32 @@ export const formatBytes = (bytes) => {
     return parseFloat((bytesNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 };
 
+export const parseSpeedNumber = (speed) => {
+    if (speed === null || speed === undefined || speed === "") {
+        return 0;
+    }
+
+    const speedNum = typeof speed === "string" ? parseFloat(speed) : Number(speed);
+    return Number.isFinite(speedNum) && speedNum > 0 ? speedNum : 0;
+};
+
 export const formatSpeed = (speed) => {
-    if (speed === null || speed === undefined || isNaN(speed) || speed === 0) {
-        return "-";
+    const speedNum = parseSpeedNumber(speed);
+
+    if (speedNum === 0) {
+        return "0 B/s";
     }
-    const speedNum = typeof speed === "string" ? parseFloat(speed) : speed;
-    if (isNaN(speedNum) || speedNum < 1) {
-        return "-";
+
+    if (speedNum < 1) {
+        return `${speedNum.toFixed(2)} B/s`;
     }
+
     const k = 1024;
-    const sizes = ["Bytes/s", "KB/s", "MB/s", "GB/s", "TB/s"];
-    const i = Math.floor(Math.log(speedNum) / Math.log(k));
+    const sizes = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"];
+    const i = Math.min(
+        sizes.length - 1,
+        Math.max(0, Math.floor(Math.log(speedNum) / Math.log(k)))
+    );
     return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 };
 
