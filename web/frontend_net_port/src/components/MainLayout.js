@@ -332,22 +332,23 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                             </Typography>
                             
                             {/* Statistics Info */}
-                            {cookies.user && (
-                                <Box
-                                    sx={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        flex: 1,
-                                        minWidth: 0,
-                                        justifyContent: "flex-end",
-                                        flexWrap: "nowrap",
-                                        gap: 0.75,
-                                        overflowX: "auto",
-                                        overflowY: "hidden",
-                                        py: 0.25,
-                                        "&::-webkit-scrollbar": { height: 4 },
-                                    }}
-                                >
+                            <Box
+                                sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    flex: 1,
+                                    minWidth: 0,
+                                    justifyContent: "flex-end",
+                                    flexWrap: "nowrap",
+                                    gap: 0.75,
+                                    overflowX: cookies.user ? "auto" : "hidden",
+                                    overflowY: "hidden",
+                                    py: 0.25,
+                                    "&::-webkit-scrollbar": { height: 4 },
+                                }}
+                            >
+                                {cookies.user && (
+                                    <>
                                     {headerSummary.hasLegacyServers && (
                                         <Typography
                                             variant="body2"
@@ -404,21 +405,49 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                     >
                                         Отправлено: {formatBytes(headerSummary.totalBytes.sent)}
                                     </Typography>
-                                </Box>
+                                    </>
+                                )}
+                            </Box>
+
+                            <Box
+                                sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    flexShrink: 0,
+                                    gap: 0.5,
+                                    ml: 1,
+                                }}
+                            >
+                            {cookies.user && (
+                                <Tooltip title="Текущий пользователь">
+                                    <Typography sx={{ whiteSpace: "nowrap" }}>
+                                        {cookies.user.login}
+                                    </Typography>
+                                </Tooltip>
                             )}
-                            
-                            <Tooltip title="Текущий пользователь">
-                                <Typography>
-                                    {cookies.user !== undefined
-                                        ? cookies.user.login
-                                        : ""}
-                                </Typography>
-                            </Tooltip>
-                            {cookies.user !== undefined ? (
+                            {location.pathname !== "/main" ? (
+                                <Tooltip title="Помощь">
+                                    <IconButton
+                                        color="inherit"
+                                        aria-label="open drawer"
+                                        onClick={handleDrawerOpenRight}
+                                        edge="end"
+                                        sx={{
+                                            ...(openRight && {
+                                                display: "none",
+                                            }),
+                                        }}
+                                    >
+                                        <HelpCenterIcon />
+                                    </IconButton>
+                                </Tooltip>
+                            ) : null}
+                            {cookies.user ? (
                                 <Tooltip title="Выход">
                                     <IconButton
                                         color="inherit"
                                         onClick={handleLogout}
+                                        edge="end"
                                     >
                                         <ExitToAppIcon />
                                     </IconButton>
@@ -428,31 +457,13 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                     <IconButton
                                         color="inherit"
                                         onClick={handleLogin}
+                                        edge="end"
                                     >
                                         <LoginIcon />
                                     </IconButton>
                                 </Tooltip>
                             )}
-                            {location.pathname !== "/main" ? (
-                                <Tooltip title="Помощь">
-                                    <IconButton
-                                        color="inherit"
-                                        aria-label="open drawer"
-                                        onClick={handleDrawerOpenRight}
-                                        edge="start"
-                                        sx={{
-                                            mr: 2,
-                                            ...(openRight && {
-                                                display: "none",
-                                            }),
-                                        }}
-                                    >
-                                        <HelpCenterIcon />
-                                    </IconButton>
-                                </Tooltip>
-                            ) : (
-                                <></>
-                            )}
+                            </Box>
                         </Toolbar>
                     </AppBar>
                 </Box>
