@@ -77,7 +77,8 @@ COPY sql/user_auto_connect.sql /etc/postgresql/user_auto_connect.sql
 COPY sql/device_delete_notify.sql /etc/postgresql/device_delete_notify.sql
 COPY sql/device_connecting_status_fix.sql /etc/postgresql/device_connecting_status_fix.sql
 COPY sql/grant_app_privileges.sql /etc/postgresql/grant_app_privileges.sql
-RUN chown postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/port_release_fix.sql /etc/postgresql/server_port_separation.sql /etc/postgresql/internal_port_range_fix.sql /etc/postgresql/device_traffic_samples.sql /etc/postgresql/device_preferred_port.sql /etc/postgresql/user_auto_connect.sql /etc/postgresql/device_delete_notify.sql /etc/postgresql/device_connecting_status_fix.sql /etc/postgresql/grant_app_privileges.sql
+COPY sql/statistic_empty_snapshot_cleanup.sql /etc/postgresql/statistic_empty_snapshot_cleanup.sql
+RUN chown postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/port_release_fix.sql /etc/postgresql/server_port_separation.sql /etc/postgresql/internal_port_range_fix.sql /etc/postgresql/device_traffic_samples.sql /etc/postgresql/device_preferred_port.sql /etc/postgresql/user_auto_connect.sql /etc/postgresql/device_delete_notify.sql /etc/postgresql/device_connecting_status_fix.sql /etc/postgresql/grant_app_privileges.sql /etc/postgresql/statistic_empty_snapshot_cleanup.sql
 
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY start.sh /root/net_port/start.sh

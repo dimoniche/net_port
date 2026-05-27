@@ -2,7 +2,9 @@
 
 const {
   resolveStatisticsUserId,
-  computeSpeed
+  computeSpeed,
+  isEmptyStatisticRow,
+  filterEmptyStatisticSnapshots
 } = require('./statistics.helpers');
 
 exports.Statistics = class Statistics {
@@ -27,10 +29,45 @@ exports.Statistics = class Statistics {
   }
 
   async fetchLatestStatisticRow(serverId) {
+    const meaningful = await this.db('statistic')
+      .where('server_id', Number(serverId))
+      .where(function hasTraffic() {
+        this.where('bytes_received', '>', 0)
+          .orWhere('bytes_sent', '>', 0)
+          .orWhere('connections_count', '>', 0);
+      })
+      .orderBy('timestamp', 'desc')
+      .first();
+
+    if (meaningful) {
+      return meaningful;
+    }
+
     return this.db('statistic')
       .where('server_id', Number(serverId))
       .orderBy('timestamp', 'desc')
-      .select('*')
+      .first();
+  }
+
+  async fetchPreviousStatisticRow(serverId, beforeTimestamp) {
+    const meaningful = await this.db('statistic')
+      .where('server_id', Number(serverId))
+      .where('timestamp', '<', beforeTimestamp)
+      .where(function hasTraffic() {
+        this.where('bytes_received', '>', 0)
+          .orWhere('bytes_sent', '>', 0);
+      })
+      .orderBy('timestamp', 'desc')
+      .first();
+
+    if (meaningful) {
+      return meaningful;
+    }
+
+    return this.db('statistic')
+      .where('server_id', Number(serverId))
+      .where('timestamp', '<', beforeTimestamp)
+      .orderBy('timestamp', 'desc')
       .first();
   }
 
@@ -41,27 +78,20 @@ exports.Statistics = class Statistics {
     for (const server of servers) {
       const row = await this.fetchLatestStatisticRow(server.id);
 
-      if (!row) {
+      if (!row || isEmptyStatisticRow(row)) {
         result.push({
           server_id: server.id,
           bytes_received: 0,
           bytes_sent: 0,
           connections_count: 0,
-          timestamp: null,
+          timestamp: row?.timestamp || null,
           avg_receive_speed: null,
           avg_send_speed: null
         });
         continue;
       }
 
-      const prevResult = await this.db('statistic')
-        .where('server_id', row.server_id)
-        .where('timestamp', '<', row.timestamp)
-        .orderBy('timestamp', 'desc')
-        .select('bytes_received', 'bytes_sent', 'timestamp')
-        .limit(1);
-
-      const prevRow = prevResult.length > 0 ? prevResult[0] : null;
+      const prevRow = await this.fetchPreviousStatisticRow(server.id, row.timestamp);
       const speeds = computeSpeed(row, prevRow);
 
       result.push({
@@ -75,12 +105,8 @@ exports.Statistics = class Statistics {
   }
 
   async get(id, param) {
-    return this.db
-      .from('statistic')
-      .where('server_id', Number(id))
-      .select('*')
-      .orderBy('timestamp', 'desc')
-      .limit(1);
+    const row = await this.fetchLatestStatisticRow(Number(id));
+    return row ? [row] : [];
   }
 
   async getLatest(params = {}) {
@@ -103,7 +129,8 @@ exports.Statistics = class Statistics {
       .select('*')
       .orderBy('timestamp', 'asc');
 
-    return Array.isArray(result) ? result : (result.rows || []);
+    const rows = Array.isArray(result) ? result : (result.rows || []);
+    return filterEmptyStatisticSnapshots(rows);
   }
 
   async resetByServer(serverId) {

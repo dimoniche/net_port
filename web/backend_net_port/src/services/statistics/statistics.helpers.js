@@ -33,7 +33,7 @@ function resolveStatisticsUserId(params = {}) {
 }
 
 function computeSpeed(currentRow, previousRow) {
-  if (!previousRow) {
+  if (!previousRow || isEmptyStatisticRow(currentRow)) {
     return { avg_receive_speed: null, avg_send_speed: null };
   }
 
@@ -54,9 +54,49 @@ function computeSpeed(currentRow, previousRow) {
   };
 }
 
+function isEmptyStatisticRow(row) {
+  if (!row) {
+    return true;
+  }
+
+  return Number(row.bytes_received || 0) === 0
+    && Number(row.bytes_sent || 0) === 0
+    && Number(row.connections_count || 0) === 0;
+}
+
+function filterEmptyStatisticSnapshots(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return rows;
+  }
+
+  return rows.filter((row, index, all) => {
+    if (!isEmptyStatisticRow(row)) {
+      return true;
+    }
+
+    const ts = new Date(row.timestamp).getTime();
+    if (!Number.isFinite(ts)) {
+      return true;
+    }
+
+    const hasNearbyData = all.some((other, otherIndex) => {
+      if (otherIndex === index || isEmptyStatisticRow(other)) {
+        return false;
+      }
+
+      const otherTs = new Date(other.timestamp).getTime();
+      return Number.isFinite(otherTs) && Math.abs(otherTs - ts) <= 5000;
+    });
+
+    return !hasNearbyData;
+  });
+}
+
 module.exports = {
   isLegacyPlaceholderServer,
   isEnabledLegacyServer,
   resolveStatisticsUserId,
-  computeSpeed
+  computeSpeed,
+  isEmptyStatisticRow,
+  filterEmptyStatisticSnapshots
 };

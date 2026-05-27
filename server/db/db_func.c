@@ -166,6 +166,13 @@ int32_t get_user_server_ports(int user_id, proxy_server_t** servers, uint16_t *s
 int save_server_statistics(proxy_server_t *server)
 {
     char query[512];
+
+    if (server->statistics.bytes_received == 0
+        && server->statistics.bytes_sent == 0
+        && server->statistics.connections_count == 0) {
+        logMsg(LOG_DEBUG, "Skipping empty statistics snapshot for server %d\n", server->id);
+        return 0;
+    }
     
     // Формируем запрос на вставку статистики
     snprintf(query, sizeof(query), "INSERT INTO statistic (server_id, bytes_received, bytes_sent, connections_count) VALUES (%d, %lu, %lu, %d)",
