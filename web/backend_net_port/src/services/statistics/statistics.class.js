@@ -71,34 +71,54 @@ exports.Statistics = class Statistics {
       .first();
   }
 
+  async buildServerStatisticsRow(serverId) {
+    const server = await this.db('servers')
+      .where('id', Number(serverId))
+      .where('enable', true)
+      .whereNot(function excludePlaceholder() {
+        this.where('input_port', 5998).where('output_port', 5999);
+      })
+      .first('id', 'user_id');
+
+    if (!server) {
+      return null;
+    }
+
+    const row = await this.fetchLatestStatisticRow(server.id);
+
+    if (!row || isEmptyStatisticRow(row)) {
+      return {
+        server_id: server.id,
+        user_id: server.user_id,
+        bytes_received: 0,
+        bytes_sent: 0,
+        connections_count: 0,
+        timestamp: row?.timestamp || null,
+        avg_receive_speed: null,
+        avg_send_speed: null
+      };
+    }
+
+    const prevRow = await this.fetchPreviousStatisticRow(server.id, row.timestamp);
+    const speeds = computeSpeed(row, prevRow);
+
+    return {
+      ...row,
+      user_id: server.user_id,
+      avg_receive_speed: speeds.avg_receive_speed,
+      avg_send_speed: speeds.avg_send_speed
+    };
+  }
+
   async find(params = {}) {
     const servers = await this.fetchEnabledServers(params);
     const result = [];
 
     for (const server of servers) {
-      const row = await this.fetchLatestStatisticRow(server.id);
-
-      if (!row || isEmptyStatisticRow(row)) {
-        result.push({
-          server_id: server.id,
-          bytes_received: 0,
-          bytes_sent: 0,
-          connections_count: 0,
-          timestamp: row?.timestamp || null,
-          avg_receive_speed: null,
-          avg_send_speed: null
-        });
-        continue;
+      const row = await this.buildServerStatisticsRow(server.id);
+      if (row) {
+        result.push(row);
       }
-
-      const prevRow = await this.fetchPreviousStatisticRow(server.id, row.timestamp);
-      const speeds = computeSpeed(row, prevRow);
-
-      result.push({
-        ...row,
-        avg_receive_speed: speeds.avg_receive_speed,
-        avg_send_speed: speeds.avg_send_speed
-      });
     }
 
     return result;

@@ -137,17 +137,13 @@ const Statistics = ({ children, ...rest }) => {
     );
     const hasLegacyServers = enabledLegacyServers.length > 0;
 
-    const realtimeHandlers = useMemo(() => {
-        const handlers = {
+    const realtimeHandlers = useMemo(
+        () => ({
             'statistics:device-updated': mergeDeviceStatistics,
-        };
-
-        if (hasLegacyServers) {
-            handlers['statistics:server-updated'] = mergeServerStatistics;
-        }
-
-        return handlers;
-    }, [mergeServerStatistics, mergeDeviceStatistics, hasLegacyServers]);
+            'statistics:server-updated': mergeServerStatistics,
+        }),
+        [mergeServerStatistics, mergeDeviceStatistics]
+    );
 
     useRealtimeSocket({
         token: cookies.token,

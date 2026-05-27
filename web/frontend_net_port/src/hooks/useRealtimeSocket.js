@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { SOCKET_URL } from '../consts';
 
@@ -11,6 +11,11 @@ export function useRealtimeSocket({ token, enabled, handlers = {} }) {
   useEffect(() => {
     handlersRef.current = handlers;
   }, [handlers]);
+
+  const handlerKeys = useMemo(
+    () => Object.keys(handlers).sort().join('\0'),
+    [handlers]
+  );
 
   useEffect(() => {
     if (!enabled || !token) {
@@ -44,7 +49,24 @@ export function useRealtimeSocket({ token, enabled, handlers = {} }) {
       });
     };
 
-    const eventNames = Object.keys(handlersRef.current);
+    socket.on('connect', authenticate);
+    socket.io.on('reconnect', authenticate);
+
+    return () => {
+      socket.off('connect', authenticate);
+      socket.io.off('reconnect', authenticate);
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [enabled, token]);
+
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket || !enabled || !token) {
+      return undefined;
+    }
+
+    const eventNames = handlerKeys ? handlerKeys.split('\0') : [];
     const wrappedHandlers = eventNames.map((eventName) => {
       const listener = (payload) => {
         handlersRef.current[eventName]?.(payload);
@@ -53,19 +75,12 @@ export function useRealtimeSocket({ token, enabled, handlers = {} }) {
       return { eventName, listener };
     });
 
-    socket.on('connect', authenticate);
-    socket.io.on('reconnect', authenticate);
-
     return () => {
-      socket.off('connect', authenticate);
-      socket.io.off('reconnect', authenticate);
       wrappedHandlers.forEach(({ eventName, listener }) => {
         socket.off(eventName, listener);
       });
-      socket.disconnect();
-      socketRef.current = null;
     };
-  }, [enabled, token]);
+  }, [enabled, token, handlerKeys]);
 
   return socketRef;
 }

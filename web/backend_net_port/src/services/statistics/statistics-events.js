@@ -19,7 +19,11 @@ function emitRealtimeEvent(app, event, payload, channels) {
 }
 
 function emitServerStatisticsUpdate(app, stat) {
-  emitRealtimeEvent(app, 'statistics:server-updated', stat, ['authenticated', 'admin']);
+  const channels = ['admin'];
+  if (stat.user_id != null) {
+    channels.push(`user:${stat.user_id}`);
+  }
+  emitRealtimeEvent(app, 'statistics:server-updated', stat, channels);
 }
 
 function emitDeviceStatisticsUpdate(app, deviceRow) {
@@ -32,8 +36,7 @@ function emitDeviceStatisticsUpdate(app, deviceRow) {
 
 async function fetchServerStatisticsRow(knex, serverId) {
   const statistics = new Statistics(knex);
-  const rows = await statistics.find({});
-  return rows.find((row) => Number(row.server_id) === Number(serverId)) || null;
+  return statistics.buildServerStatisticsRow(serverId);
 }
 
 async function broadcastServerStatisticsRow(app, serverId) {
