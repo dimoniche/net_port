@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useMemo } from "react";
+import React, { useState, useEffect, useContext, useMemo, useCallback, useRef } from "react";
 import { ApiContext } from "../context/ApiContext";
 
 import Dialog from "@mui/material/Dialog";
@@ -57,7 +57,16 @@ const OverviewStatsModal = ({
     const [tab, setTab] = useState(TAB_MAP[focus] ?? 0);
     const [chartData, setChartData] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState(null);
+    const chartDataRef = useRef([]);
+    const statisticsDataRef = useRef(statisticsData);
+    const deviceStatisticsDataRef = useRef(deviceStatisticsData);
+
+    useEffect(() => {
+        statisticsDataRef.current = statisticsData;
+        deviceStatisticsDataRef.current = deviceStatisticsData;
+    }, [statisticsData, deviceStatisticsData]);
 
     useEffect(() => {
         if (open) {
@@ -93,15 +102,25 @@ const OverviewStatsModal = ({
         return [...servers, ...devices];
     }, [statisticsData, deviceStatisticsData, serversData]);
 
-    const fetchChartData = async () => {
-        setIsLoading(true);
+    const fetchChartData = useCallback(async ({ silent = false } = {}) => {
+        const hasExistingData = chartDataRef.current.length > 0;
+
+        if (silent && hasExistingData) {
+            setIsRefreshing(true);
+        } else {
+            setIsLoading(true);
+        }
         setError(null);
 
         try {
             const serverIds = [
-                ...new Set((statisticsData || []).map((stat) => stat.server_id).filter(Boolean)),
+                ...new Set(
+                    (statisticsDataRef.current || [])
+                        .map((stat) => stat.server_id)
+                        .filter(Boolean)
+                ),
             ];
-            const devices = deviceStatisticsData || [];
+            const devices = deviceStatisticsDataRef.current || [];
             const { startTime, endTime } = getServerRangeTimes(timeRange);
             const hours = timeRangeToHours(timeRange);
 
@@ -142,37 +161,39 @@ const OverviewStatsModal = ({
                 timeRange,
             });
 
+            chartDataRef.current = merged;
+            setChartData(merged);
+
             if (merged.length === 0) {
-                setChartData([]);
                 setError("Нет данных за выбранный период");
             } else {
-                setChartData(merged);
                 setError(null);
             }
         } catch (err) {
             console.error("Error fetching overview chart data:", err);
-            setError("Не удалось загрузить данные для графика");
-            setChartData([]);
+            if (!silent || !hasExistingData) {
+                setError("Не удалось загрузить данные для графика");
+                chartDataRef.current = [];
+                setChartData([]);
+            }
         } finally {
             setIsLoading(false);
+            setIsRefreshing(false);
         }
-    };
+    }, [api, timeRange]);
 
     useEffect(() => {
-        let intervalId;
-
-        if (open) {
-            fetchChartData();
-            intervalId = setInterval(fetchChartData, 30000);
+        if (!open) {
+            return undefined;
         }
 
+        fetchChartData({ silent: false });
+        const intervalId = setInterval(() => fetchChartData({ silent: true }), 30000);
+
         return () => {
-            if (intervalId) {
-                clearInterval(intervalId);
-            }
+            clearInterval(intervalId);
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, timeRange, statisticsData, deviceStatisticsData]);
+    }, [open, timeRange, fetchChartData]);
 
     const renderChart = (lines) => (
         <Box sx={{ width: "100%", height: 360, minHeight: 360 }}>
@@ -294,11 +315,14 @@ const OverviewStatsModal = ({
 
                 {isLoading ? (
                     <Loader title="Загрузка данных..." />
-                ) : error && chartData.length === 0 ? (
-                    <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-                        {error}
-                    </Typography>
-                ) : tab === 0 ? (
+                ) : (
+                    <Box
+                        sx={{
+                            opacity: isRefreshing ? 0.72 : 1,
+                            transition: "opacity 0.2s ease",
+                        }}
+                    >
+                        {tab === 0 ? (
                     <>
                         <Typography variant="subtitle1" gutterBottom>
                             Распределение по источникам
@@ -346,6 +370,10 @@ const OverviewStatsModal = ({
                             </>
                         )}
                     </>
+                ) : error && chartData.length === 0 ? (
+                    <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
+                        {error}
+                    </Typography>
                 ) : tab === 1 ? (
                     renderChart([
                         { dataKey: "bytesReceived", name: "Байт получено", stroke: "#8884d8", yAxisId: "left" },
@@ -362,6 +390,8 @@ const OverviewStatsModal = ({
                             yAxisId: "connections",
                         },
                     ])
+                )}
+                    </Box>
                 )}
             </DialogContent>
             <DialogActions>
