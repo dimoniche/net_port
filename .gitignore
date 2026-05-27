@@ -2,6 +2,10 @@
 /.idea
 /cmake-build*
 build
+CMakeCache.txt
+CMakeFiles
+cmake_install.cmake
+Makefile
 .cache
 node_modules
 combined.log

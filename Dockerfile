@@ -51,7 +51,8 @@ WORKDIR /root/net_port/source
 # Локальные исходники (включая device management)
 COPY . /root/net_port/source/
 
-RUN mkdir -p build && cd build && cmake .. && make -j"$(nproc)"
+RUN rm -rf build CMakeCache.txt CMakeFiles cmake_install.cmake Makefile && \
+    mkdir -p build && cd build && cmake .. && make -j"$(nproc)"
 
 RUN mkdir -p /root/net_port && \
     cp build/server/module_net_port_server-* /root/net_port/ && \
