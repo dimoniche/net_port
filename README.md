@@ -12,7 +12,7 @@
 | **Legacy-серверы** | Проброс `input_port` → `output_port` (5000+, per-user), статистика в PostgreSQL |
 | **Веб-интерфейс** | React: устройства, серверы, статистика, настройки, скачивание клиентов |
 | **Realtime** | WebSocket: статус устройств, обновление статистики (PostgreSQL `NOTIFY`) |
-| **Клиенты** | Linux amd64 (в образе), armhf/aarch64 — [`artifacts/clients/`](artifacts/clients/README.md) |
+| **Клиенты** | Linux amd64 (в образе), armhf/aarch64, Windows `.exe` — [`artifacts/clients/`](artifacts/clients/README.md) |
 | **Наблюдаемость** | `/health`, `/metrics` (Prometheus), алерты в [`deploy/prometheus/alerts/`](deploy/prometheus/alerts/net_port.yml) |
 
 ## Архитектура
@@ -106,8 +106,11 @@ Linux **amd64** собирается при `docker build`. Для **ARM**:
 ```bash
 ./scripts/build-client-cross.sh armhf
 ./scripts/build-client-cross.sh aarch64
+./scripts/build-client-windows.sh
 docker build -t net_port:latest .
 ```
+
+**Windows:** клиент в режиме legacy proxy (`--host_in`, `-p_in`, `--host_out`, `-p_out`). Регистрация устройств (порт 8443) — только Linux-клиент.
 
 Инструкция: [`artifacts/clients/README.md`](artifacts/clients/README.md).
 

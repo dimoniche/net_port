@@ -14,12 +14,16 @@ chmod +x scripts/build-client-cross.sh
 
 # ARM64 (Pi 4/5, многие SBC)
 ./scripts/build-client-cross.sh aarch64
+
+# Windows x64 (MinGW, legacy proxy)
+./scripts/build-client-windows.sh
 ```
 
 Результат:
 
 - `module_net_port_client-0.0.4-armhf`
 - `module_net_port_client-0.0.4-aarch64`
+- `module_net_port_client-0.0.4.exe`
 
 Linux amd64 собирается автоматически в `Dockerfile` (`build/client/`).
 
@@ -48,6 +52,7 @@ cp client/module_net_port_client-0.0.4 ../artifacts/clients/module_net_port_clie
 
 ```bash
 ./scripts/build-client-cross.sh armhf    # при необходимости
+./scripts/build-client-windows.sh        # Windows .exe
 docker build -t net_port:latest .
 ```
 

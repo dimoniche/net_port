@@ -32,4 +32,14 @@ export const CLIENT_DOWNLOAD_CATALOG = {
     color: 'secondary',
     description: 'Raspberry Pi 4/5, Orange Pi и другие 64-bit ARM',
   },
+  [`${CLIENT_BINARY_NAME}.exe`]: {
+    id: 'windows-amd64',
+    name: `Windows x64 — v${CLIENT_VERSION_LABEL}`,
+    filename: `${CLIENT_BINARY_NAME}.exe`,
+    platform: 'Windows',
+    architecture: 'x86_64',
+    color: 'info',
+    description:
+      'Legacy proxy (фиксированные порты). Регистрация устройств (8443) — используйте Linux-клиент.',
+  },
 };

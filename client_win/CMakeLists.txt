@@ -9,7 +9,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 0)
-set(VERSION_PATCH 1)
+set(VERSION_PATCH 4)
 set(BUILD_REVISION 0)
 set(SOFT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 set(MODULE_NAME module_net_port_client)
@@ -59,6 +59,6 @@ add_executable(${EXEC_NAME}
 
 target_link_libraries(${EXEC_NAME}
         client_proxy_common
-        ws2_32 wsock32
-        -lrt
+        ws2_32
+        wsock32
 )

@@ -113,4 +113,6 @@ done
 update_frontend_consts "${NEW}"
 
 echo "Bumped ${CURRENT} -> ${NEW}"
-echo "Next: rebuild C targets and frontend; for arm clients run scripts/build-client-cross.sh"
+echo "Next: rebuild C targets and frontend"
+echo "  ./scripts/build-client-cross.sh armhf|aarch64"
+echo "  ./scripts/build-client-windows.sh"
