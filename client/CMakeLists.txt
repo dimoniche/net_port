@@ -72,6 +72,7 @@ add_executable(${EXEC_NAME}
         proxy/client/device_heartbeat.c
         resources/signal_handler.c
         resources/time_counter.c
+        resources/client_update.c
 )
 
 target_link_libraries(${EXEC_NAME}

@@ -17,12 +17,23 @@
 #include "hal_time.h"
 #include "time_counter.h"
 #include "proxy_client_device_integration.h"
+#include "client_update.h"
 
 #include <sys/stat.h>
 
 static uint64_t last_monotonic_time;
 
 static char *progname;
+
+static int has_flag(int argc, char **argv, const char *flag)
+{
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], flag) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static void print_usage(void)
 {
@@ -47,6 +58,11 @@ static void print_usage(void)
     fprintf(stderr, "         --registration-port   - device control server port (default 8443)\n");
     fprintf(stderr, "         --port-host-base N    - map server ports to host (Docker: 49000)\n");
     fprintf(stderr, "         --tunnel-port N       - override tunnel connect port (e.g. 49003)\n");
+    fprintf(stderr, "         --check-update          - check for newer client on server (needs curl)\n");
+    fprintf(stderr, "         --auto-update           - download and restart if newer (needs curl, sha256sum)\n");
+    fprintf(stderr, "         --update-server URL     - web base URL, e.g. http://host:13080 (default: http://REGISTRATION_SERVER)\n");
+    fprintf(stderr, "         --update-arch ARCH      - amd64 | armhf | aarch64 (default: compile-time)\n");
+    fprintf(stderr, "         --install-dir PATH      - install directory for auto-update (default: binary dir)\n");
     fprintf(stderr, "\nDevice mode uses internal_address/internal_port from server when -p_out/--host_out are omitted.\n");
     fprintf(stderr, "\nExamples:\n");
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --connections 5 --timeout 60\n", progname);
@@ -195,11 +211,29 @@ int main(int argc, char** argv) {
             has_device_args = true;
             show_help = false;
         }
+        if (strcmp(argv[i], "--check-update") == 0 ||
+            strcmp(argv[i], "--auto-update") == 0 ||
+            strcmp(argv[i], "--update-server") == 0 ||
+            strcmp(argv[i], "--update-arch") == 0 ||
+            strcmp(argv[i], "--install-dir") == 0) {
+            show_help = false;
+        }
     }
 
     if(show_help) {
         print_usage();
         return 0;
+    }
+
+    if (has_flag(argc, argv, "--check-update") && !has_flag(argc, argv, "--auto-update")) {
+        return client_check_and_update(argc, argv, false);
+    }
+
+    if (has_flag(argc, argv, "--auto-update")) {
+        int update_result = client_check_and_update(argc, argv, true);
+        if (update_result < 0) {
+            return 1;
+        }
     }
 
     if (has_device_args) {

@@ -165,6 +165,8 @@ const ClientDownload = () => {
         Актуальная версия клиента: <strong>{CLIENT_VERSION_LABEL}</strong>. Скачайте бинарник ниже,
         создайте устройство в разделе «Устройства», скопируйте <code>device_id</code> и токен,
         затем запустите клиент на хосте устройства.
+        На Linux доступно автообновление с сервера: флаги <code>--check-update</code> и{' '}
+        <code>--auto-update</code> (нужны <code>curl</code> и <code>sha256sum</code>).
       </Alert>
 
       {loadError && (

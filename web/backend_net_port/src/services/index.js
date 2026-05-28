@@ -9,6 +9,7 @@ const { Devices } = require('./devices/devices.service.js');
 const hooks = require('./devices/devices.hooks');
 const { authenticate } = require('@feathersjs/authentication').hooks;
 const { listClientDownloads } = require('../client-downloads');
+const { getLatestClientRelease, checkClientUpdate } = require('../client-releases');
 
 // eslint-disable-next-line no-unused-vars
 module.exports = function (app) {
@@ -265,5 +266,30 @@ module.exports = function (app) {
       downloads,
       files: downloads.map((item) => item.filename)
     });
+  });
+
+  app.get(`${prefix}/clients/latest`, (req, res) => {
+    const latest = getLatestClientRelease(req.query);
+    if (!latest) {
+      res.status(503).json({ error: 'Published version is not configured' });
+      return;
+    }
+    if (!latest.available) {
+      res.status(404).json({
+        error: 'Client binary not found on server',
+        ...latest
+      });
+      return;
+    }
+    res.json(latest);
+  });
+
+  app.get(`${prefix}/clients/latest/check`, (req, res) => {
+    const result = checkClientUpdate(req.query);
+    if (!result.latest && result.reason === 'version_unavailable') {
+      res.status(503).json(result);
+      return;
+    }
+    res.json(result);
   });
 };

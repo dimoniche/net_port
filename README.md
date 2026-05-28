@@ -99,6 +99,23 @@ chmod +x module_net_port_client-0.0.4
 
 `--port-host-base` — если клиент за NAT/Docker и внешний порт хоста отличается от внутреннего (например проброс `49000:6000`).
 
+### Автообновление клиента
+
+Проверка версии на сервере (нужны `curl`, для установки — `sha256sum`):
+
+```bash
+# Только проверить
+./module_net_port_client-0.0.4 --check-update \
+  --update-server http://SERVER:13080 --update-arch armhf
+
+# Скачать новую версию и перезапуститься (symlink module_net_port_client)
+./module_net_port_client --auto-update \
+  --update-server http://SERVER:13080 \
+  --registration-server SERVER --device-id ... --device-token ...
+```
+
+API: `GET /api/v1/clients/latest/check?current=0.0.4&platform=linux&arch=armhf`, `GET /api/v1/clients/latest`.
+
 ## Клиенты для разных архитектур
 
 Linux **amd64** собирается при `docker build`. Для **ARM**:
