@@ -37,7 +37,18 @@ docker compose up -d net_port
 
 ### Миграции БД
 
-При старте контейнера `start.sh` применяет SQL из `sql/` и `init_device_db.sql`. Новые миграции добавляйте в `sql/` и регистрируйте в `start.sh` / `Dockerfile`.
+При старте контейнера `start.sh` вызывает `scripts/run-migrations.sh`. Учёт версий — таблица `schema_migrations` (миграции в `sql/migrations/NNN_name.sql`).
+
+Новая миграция: добавьте следующий номер в `sql/migrations/` (см. `sql/migrations/README.md`). Регистрация в `start.sh` / `Dockerfile` не нужна — каталог копируется целиком.
+
+```bash
+# Вручную (локальная БД в контейнере)
+USE_LOCAL_DB=true DB_USER=admin DB_PASSWORD=secret ./scripts/run-migrations.sh
+```
+
+```sql
+SELECT version, name, applied_at FROM schema_migrations ORDER BY version;
+```
 
 ## Мониторинг
 

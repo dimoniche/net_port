@@ -59,7 +59,7 @@ RUN mkdir -p /root/net_port && \
     cp build/server/module_net_port_server-* /root/net_port/ && \
     cp build/client/module_net_port_client-* /root/net_port/
 
-# Доп. архитектуры: положите бинарники в artifacts/clients/ (scripts/build-client-cross.sh)
+# Доп. клиенты (ARM, Windows .exe): scripts/build-client-cross.sh / build-client-windows.sh
 COPY artifacts/clients/ /root/net_port/source/build/client/
 
 WORKDIR /root/net_port/source/web/backend_net_port
@@ -72,18 +72,9 @@ RUN mkdir -p /var/www/html && cp -r build/* /var/www/html/
 
 COPY init_db.sql /etc/postgresql/init_db.sql
 COPY init_device_db.sql /etc/postgresql/init_device_db.sql
-COPY sql/port_release_fix.sql /etc/postgresql/port_release_fix.sql
-COPY sql/server_port_separation.sql /etc/postgresql/server_port_separation.sql
-COPY sql/internal_port_range_fix.sql /etc/postgresql/internal_port_range_fix.sql
-COPY sql/device_traffic_samples.sql /etc/postgresql/device_traffic_samples.sql
-COPY sql/device_preferred_port.sql /etc/postgresql/device_preferred_port.sql
-COPY sql/user_auto_connect.sql /etc/postgresql/user_auto_connect.sql
-COPY sql/device_delete_notify.sql /etc/postgresql/device_delete_notify.sql
-COPY sql/device_connecting_status_fix.sql /etc/postgresql/device_connecting_status_fix.sql
+COPY sql/migrations/ /etc/postgresql/migrations/
 COPY sql/grant_app_privileges.sql /etc/postgresql/grant_app_privileges.sql
-COPY sql/statistic_empty_snapshot_cleanup.sql /etc/postgresql/statistic_empty_snapshot_cleanup.sql
-COPY sql/cumulative_statistics_totals.sql /etc/postgresql/cumulative_statistics_totals.sql
-RUN chown postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/port_release_fix.sql /etc/postgresql/server_port_separation.sql /etc/postgresql/internal_port_range_fix.sql /etc/postgresql/device_traffic_samples.sql /etc/postgresql/device_preferred_port.sql /etc/postgresql/user_auto_connect.sql /etc/postgresql/device_delete_notify.sql /etc/postgresql/device_connecting_status_fix.sql /etc/postgresql/grant_app_privileges.sql /etc/postgresql/statistic_empty_snapshot_cleanup.sql /etc/postgresql/cumulative_statistics_totals.sql
+RUN chown -R postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/migrations /etc/postgresql/grant_app_privileges.sql
 
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY start.sh /root/net_port/start.sh

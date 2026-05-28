@@ -58,6 +58,7 @@ include_directories(
         ${OPENSSL_INCLUDE_DIR}
         ${JANSSON_INCLUDE_DIRS}
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
+        ${CMAKE_CURRENT_LIST_DIR}/resources
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
         ${PROJECT_BINARY_DIR}

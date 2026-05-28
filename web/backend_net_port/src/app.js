@@ -58,25 +58,48 @@ app.use('/files', express.static(frontendFilesPath, {
   }
 }));
 
-const { resolveBuildClientPath } = require('./client-downloads');
+const { resolveBuildClientPaths } = require('./client-downloads');
 
-const buildClientPath = resolveBuildClientPath();
-if (buildClientPath) {
-  console.log(`Using build client path: ${buildClientPath}`);
+const buildClientPaths = resolveBuildClientPaths();
+if (buildClientPaths.length > 0) {
+  console.log(`Client download dirs: ${buildClientPaths.join(', ')}`);
 }
 
-// Only serve from build directory if it exists
-if (buildClientPath) {
-  app.use('/files/build', express.static(buildClientPath, {
-    setHeaders: (res, filePath) => {
-      const filename = path.basename(filePath);
-       if (filename.includes('.exe') || filename.includes('module_net_port_client')) {
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      }
+if (buildClientPaths.length > 0) {
+  app.use('/files/build', (req, res, next) => {
+    const filename = path.basename(decodeURIComponent(req.path || ''));
+    if (!isClientArtifactName(filename)) {
+      return next();
     }
-  }));
+
+    for (const clientDir of buildClientPaths) {
+      const filePath = path.join(clientDir, filename);
+      let stat;
+      try {
+        stat = fs.statSync(filePath);
+      } catch {
+        continue;
+      }
+      if (!stat.isFile()) {
+        continue;
+      }
+
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      if (req.method === 'HEAD') {
+        res.setHeader('Content-Length', String(stat.size));
+        return res.end();
+      }
+      return res.sendFile(filePath);
+    }
+
+    return next();
+  });
 } else {
   console.log('Build client directory not found, /files/build endpoint disabled');
+}
+
+function isClientArtifactName(name) {
+  return name.startsWith('module_net_port_client-') && !name.endsWith('.dir');
 }
 
 // Serve SSL certificates from multiple possible locations

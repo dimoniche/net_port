@@ -152,7 +152,7 @@ net_port/
 ├── web/
 │   ├── backend_net_port/   # Feathers API
 │   └── frontend_net_port/  # React UI
-├── sql/                 # Миграции БД
+├── sql/migrations/      # Версионированные миграции (schema_migrations)
 ├── artifacts/clients/   # armhf/aarch64 бинарники для образа
 ├── deploy/prometheus/   # Prometheus + алерты
 ├── scripts/             # build-docker, bump-version, integration tests

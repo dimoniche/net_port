@@ -3,28 +3,49 @@
 const fs = require('fs');
 const path = require('path');
 
-const possibleBuildPaths = [
-  path.join(__dirname, '../../build/client'),
+/** Порядок важен: первый каталог с файлом побеждает при дубликатах. */
+const CLIENT_SEARCH_DIRS = [
   '/root/net_port/source/build/client',
   path.join(__dirname, '../../../build/client'),
+  path.join(__dirname, '../../../artifacts/clients'),
+  '/root/net_port/source/artifacts/clients',
+  path.join(__dirname, '../../build/client'),
   path.join(__dirname, '../../../../build/client'),
   path.join(__dirname, '../../../../net_port/build/client'),
   '/root/net_port'
 ];
 
-function resolveBuildClientPath() {
-  for (const possiblePath of possibleBuildPaths) {
-    if (!fs.existsSync(possiblePath)) {
+function isClientArtifactName(name) {
+  return name.startsWith('module_net_port_client-') && !name.endsWith('.dir');
+}
+
+function dirHasClientBinary(dir) {
+  try {
+    return fs.readdirSync(dir).some(isClientArtifactName);
+  } catch {
+    return false;
+  }
+}
+
+function resolveBuildClientPaths() {
+  const seen = new Set();
+  const result = [];
+
+  for (const possiblePath of CLIENT_SEARCH_DIRS) {
+    const resolved = path.resolve(possiblePath);
+    if (seen.has(resolved) || !fs.existsSync(resolved) || !dirHasClientBinary(resolved)) {
       continue;
     }
-    const hasClientBinary = fs
-      .readdirSync(possiblePath)
-      .some((name) => name.startsWith('module_net_port_client-') && !name.endsWith('.dir'));
-    if (hasClientBinary) {
-      return possiblePath;
-    }
+    seen.add(resolved);
+    result.push(resolved);
   }
-  return null;
+
+  return result;
+}
+
+function resolveBuildClientPath() {
+  const dirs = resolveBuildClientPaths();
+  return dirs[0] ?? null;
 }
 
 function listClientDownloadFilenames() {
@@ -32,30 +53,47 @@ function listClientDownloadFilenames() {
 }
 
 function listClientDownloads() {
-  const clientDir = resolveBuildClientPath();
-  if (!clientDir) {
+  const dirs = resolveBuildClientPaths();
+  if (dirs.length === 0) {
     return [];
   }
 
-  return fs
-    .readdirSync(clientDir)
-    .filter((name) => name.startsWith('module_net_port_client-') && !name.endsWith('.dir'))
-    .filter((name) => {
-      try {
-        return fs.statSync(path.join(clientDir, name)).isFile();
-      } catch {
-        return false;
+  const byFilename = new Map();
+
+  for (const clientDir of dirs) {
+    let names;
+    try {
+      names = fs.readdirSync(clientDir);
+    } catch {
+      continue;
+    }
+
+    for (const filename of names) {
+      if (!isClientArtifactName(filename) || byFilename.has(filename)) {
+        continue;
       }
-    })
-    .map((filename) => {
-      const { size } = fs.statSync(path.join(clientDir, filename));
-      return { filename, sizeBytes: size };
-    })
-    .sort((a, b) => a.filename.localeCompare(b.filename));
+
+      const filePath = path.join(clientDir, filename);
+      try {
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile()) {
+          continue;
+        }
+        byFilename.set(filename, { filename, sizeBytes: stat.size });
+      } catch {
+        // skip unreadable entries
+      }
+    }
+  }
+
+  return Array.from(byFilename.values()).sort((a, b) =>
+    a.filename.localeCompare(b.filename)
+  );
 }
 
 module.exports = {
   resolveBuildClientPath,
+  resolveBuildClientPaths,
   listClientDownloadFilenames,
   listClientDownloads
 };

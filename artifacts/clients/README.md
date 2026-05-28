@@ -25,7 +25,11 @@ chmod +x scripts/build-client-cross.sh
 - `module_net_port_client-0.0.4-aarch64`
 - `module_net_port_client-0.0.4.exe`
 
-Linux amd64 собирается автоматически в `Dockerfile` (`build/client/`).
+| Платформа | Как попадает в образ |
+|-----------|----------------------|
+| Linux amd64 | `cmake` в `Dockerfile` → `build/client/` |
+| Windows x64 | MinGW-стадия в `Dockerfile` (автоматически) |
+| ARM armhf / aarch64 | `./scripts/build-client-cross.sh` → `artifacts/clients/` перед `docker build` |
 
 ## Почему не `apt install libssl-dev:armhf` на Ubuntu 24/26?
 

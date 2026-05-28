@@ -1,0 +1,7 @@
+-- Migration registry for Net Port (applied once by scripts/run-migrations.sh).
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

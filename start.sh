@@ -21,6 +21,18 @@ echo "DB_PASSWORD=$DB_PASSWORD" >> /root/net_port/source/web/backend_net_port/.e
 echo "DB_HOST=$DB_HOST" >> /root/net_port/source/web/backend_net_port/.env
 echo "DB_PORT=$DB_PORT" >> /root/net_port/source/web/backend_net_port/.env
 
+# Синхронизация бинарников из artifacts/clients в build/client (Windows .exe, ARM и т.д.)
+NET_PORT_SOURCE="${NET_PORT_SOURCE:-/root/net_port/source}"
+CLIENT_BUILD_DIR="$NET_PORT_SOURCE/build/client"
+CLIENT_ARTIFACTS_DIR="$NET_PORT_SOURCE/artifacts/clients"
+if [ -d "$CLIENT_ARTIFACTS_DIR" ]; then
+    mkdir -p "$CLIENT_BUILD_DIR"
+    for artifact in "$CLIENT_ARTIFACTS_DIR"/module_net_port_client-*; do
+        [ -f "$artifact" ] || continue
+        cp -f "$artifact" "$CLIENT_BUILD_DIR/"
+    done
+fi
+
 # Only initialize and start local PostgreSQL if using local DB
 if [ "$USE_LOCAL_DB" = "true" ]; then
     # Check if PostgreSQL data directory is initialized
@@ -155,192 +167,8 @@ else
     echo "External PostgreSQL initialization completed."
 fi
 
-apply_port_release_fix() {
-    local fix=""
-    if [ -f /etc/postgresql/port_release_fix.sql ]; then
-        fix="/etc/postgresql/port_release_fix.sql"
-    elif [ -f /root/net_port/source/sql/port_release_fix.sql ]; then
-        fix="/root/net_port/source/sql/port_release_fix.sql"
-    else
-        return 0
-    fi
-    echo "Applying port release migration..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
-    fi
-}
-apply_port_release_fix
-
-apply_server_port_separation() {
-    local fix=""
-    if [ -f /etc/postgresql/server_port_separation.sql ]; then
-        fix="/etc/postgresql/server_port_separation.sql"
-    elif [ -f /root/net_port/source/sql/server_port_separation.sql ]; then
-        fix="/root/net_port/source/sql/server_port_separation.sql"
-    else
-        return 0
-    fi
-    echo "Applying server/device port separation migration..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
-    fi
-}
-apply_server_port_separation
-
-apply_internal_port_range_fix() {
-    local fix=""
-    if [ -f /etc/postgresql/internal_port_range_fix.sql ]; then
-        fix="/etc/postgresql/internal_port_range_fix.sql"
-    elif [ -f /root/net_port/source/sql/internal_port_range_fix.sql ]; then
-        fix="/root/net_port/source/sql/internal_port_range_fix.sql"
-    else
-        return 0
-    fi
-    echo "Applying internal_port range migration..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
-    fi
-}
-apply_internal_port_range_fix
-
-apply_device_traffic_samples() {
-    local fix=""
-    if [ -f /etc/postgresql/device_traffic_samples.sql ]; then
-        fix="/etc/postgresql/device_traffic_samples.sql"
-    elif [ -f /root/net_port/source/sql/device_traffic_samples.sql ]; then
-        fix="/root/net_port/source/sql/device_traffic_samples.sql"
-    else
-        return 0
-    fi
-    echo "Applying device traffic samples migration..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
-    fi
-}
-apply_device_traffic_samples
-
-apply_device_preferred_port() {
-    local fix=""
-    if [ -f /etc/postgresql/device_preferred_port.sql ]; then
-        fix="/etc/postgresql/device_preferred_port.sql"
-    elif [ -f /root/net_port/source/sql/device_preferred_port.sql ]; then
-        fix="/root/net_port/source/sql/device_preferred_port.sql"
-    else
-        return 0
-    fi
-    echo "Applying device preferred port migration..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
-    fi
-}
-apply_device_preferred_port
-
-apply_user_auto_connect() {
-    local fix=""
-    if [ -f /etc/postgresql/user_auto_connect.sql ]; then
-        fix="/etc/postgresql/user_auto_connect.sql"
-    elif [ -f /root/net_port/source/sql/user_auto_connect.sql ]; then
-        fix="/root/net_port/source/sql/user_auto_connect.sql"
-    else
-        return 0
-    fi
-    echo "Applying user auto-connect migration..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
-    fi
-}
-apply_user_auto_connect
-
-apply_device_delete_notify() {
-    local fix=""
-    if [ -f /etc/postgresql/device_delete_notify.sql ]; then
-        fix="/etc/postgresql/device_delete_notify.sql"
-    elif [ -f /root/net_port/source/sql/device_delete_notify.sql ]; then
-        fix="/root/net_port/source/sql/device_delete_notify.sql"
-    else
-        return 0
-    fi
-    echo "Applying device delete notify migration..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
-    fi
-}
-apply_device_delete_notify
-
-apply_statistic_empty_snapshot_cleanup() {
-    local fix=""
-    if [ -f /etc/postgresql/statistic_empty_snapshot_cleanup.sql ]; then
-        fix="/etc/postgresql/statistic_empty_snapshot_cleanup.sql"
-    elif [ -f /root/net_port/source/sql/statistic_empty_snapshot_cleanup.sql ]; then
-        fix="/root/net_port/source/sql/statistic_empty_snapshot_cleanup.sql"
-    else
-        return 0
-    fi
-    echo "Cleaning duplicate empty statistic snapshots..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
-    fi
-}
-apply_statistic_empty_snapshot_cleanup
-
-apply_cumulative_statistics_totals() {
-    local fix=""
-    if [ -f /etc/postgresql/cumulative_statistics_totals.sql ]; then
-        fix="/etc/postgresql/cumulative_statistics_totals.sql"
-    elif [ -f /root/net_port/source/sql/cumulative_statistics_totals.sql ]; then
-        fix="/root/net_port/source/sql/cumulative_statistics_totals.sql"
-    else
-        return 0
-    fi
-    echo "Applying cumulative statistics totals migration..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
-    fi
-}
-apply_cumulative_statistics_totals
-
-apply_app_grants() {
-    echo "Granting application privileges to '$DB_USER'..."
-    if [ "$USE_LOCAL_DB" = "true" ]; then
-        su - postgres -c "psql -d net_port -v ON_ERROR_STOP=1 -c \"
-            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \\\"$DB_USER\\\";
-            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \\\"$DB_USER\\\";
-            GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO \\\"$DB_USER\\\";
-        \"" 2>/dev/null || true
-    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
-        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -v ON_ERROR_STOP=0 -c "
-            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"$DB_USER\";
-            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"$DB_USER\";
-            GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO \"$DB_USER\";
-        " 2>/dev/null || true
-        if [ -n "${DB_SUPERUSER:-}" ] && [ -n "${DB_SUPERUSER_PASSWORD:-}" ]; then
-            PGPASSWORD="$DB_SUPERUSER_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_SUPERUSER" -d net_port -v ON_ERROR_STOP=0 -c "
-                GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"$DB_USER\";
-                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"$DB_USER\";
-                GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO \"$DB_USER\";
-            " 2>/dev/null || true
-        fi
-    fi
-}
-apply_app_grants
+export USE_LOCAL_DB
+bash /root/net_port/source/scripts/run-migrations.sh
 
 # Add admin user with hashed password from environment
 cd /root/net_port/source/web/backend_net_port && bash -c "source $NVM_DIR/nvm.sh && NODE_PATH=/root/net_port/source/web/backend_net_port/node_modules node ../utils/add_test_user.js"
