@@ -5,6 +5,8 @@ const net = require('net');
 const path = require('path');
 const express = require('@feathersjs/express');
 
+const { scrapeRegistrationLogs } = require('./registration-log-metrics');
+
 const METRICS_CACHE_MS = Number(process.env.METRICS_CACHE_MS || 5000);
 
 let cachedMetrics = '';
@@ -48,11 +50,16 @@ async function collectPrometheusMetrics(knex) {
     return cachedMetrics;
   }
 
+  const health = await collectHealthStatus(knex);
+  const registrationErrorsTotal = scrapeRegistrationLogs();
+
   const [
     devicesTotal,
     devicesActive,
     devicesConnecting,
     devicesOnline,
+    devicesOffline,
+    devicesStaleConnecting,
     portsAllocated,
     portsReserved,
     portsFree,
@@ -64,6 +71,22 @@ async function collectPrometheusMetrics(knex) {
     knex('devices').where('status', 'connecting').count('* as count').first(),
     knex('devices')
       .where('last_heartbeat', '>', knex.raw("NOW() - interval '2 minutes'"))
+      .count('* as count')
+      .first(),
+    knex('devices')
+      .where('status', 'active')
+      .where(function offlineFilter() {
+        this.whereNull('last_heartbeat').orWhere(
+          'last_heartbeat',
+          '<',
+          knex.raw("NOW() - interval '2 minutes'")
+        );
+      })
+      .count('* as count')
+      .first(),
+    knex('devices')
+      .where('status', 'connecting')
+      .where('updated_at', '<', knex.raw("NOW() - interval '10 minutes'"))
       .count('* as count')
       .first(),
     knex('port_allocations').where('status', 'allocated').count('* as count').first(),
@@ -111,6 +134,30 @@ async function collectPrometheusMetrics(knex) {
     '# HELP net_port_devices_online Devices with heartbeat in last 2 minutes.',
     '# TYPE net_port_devices_online gauge',
     `net_port_devices_online ${Number(devicesOnline?.count || 0)}`,
+    '',
+    '# HELP net_port_devices_offline Active devices without recent heartbeat.',
+    '# TYPE net_port_devices_offline gauge',
+    `net_port_devices_offline ${Number(devicesOffline?.count || 0)}`,
+    '',
+    '# HELP net_port_devices_stale_connecting Devices in connecting over 10 minutes.',
+    '# TYPE net_port_devices_stale_connecting gauge',
+    `net_port_devices_stale_connecting ${Number(devicesStaleConnecting?.count || 0)}`,
+    '',
+    '# HELP net_port_health_ok 1 if /health would return 200.',
+    '# TYPE net_port_health_ok gauge',
+    `net_port_health_ok ${health.status === 'ok' ? 1 : 0}`,
+    '',
+    '# HELP net_port_check_database 1 if database check passes.',
+    '# TYPE net_port_check_database gauge',
+    `net_port_check_database ${health.checks.database ? 1 : 0}`,
+    '',
+    '# HELP net_port_check_device_control 1 if device control port accepts TCP.',
+    '# TYPE net_port_check_device_control gauge',
+    `net_port_check_device_control ${health.checks.device_control ? 1 : 0}`,
+    '',
+    '# HELP net_port_registration_errors_total Registration failures parsed from C server logs.',
+    '# TYPE net_port_registration_errors_total counter',
+    `net_port_registration_errors_total ${registrationErrorsTotal}`,
     '',
     '# HELP net_port_ports_allocated Allocated external port pairs.',
     '# TYPE net_port_ports_allocated gauge',

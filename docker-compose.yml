@@ -11,6 +11,7 @@ services:
       - "49000-49099:6000-6099"
       - "15432:5432"
       - "8443:8443"
+      - "9099:9090"
     environment:
       - DB_USER=admin
       - DB_PASSWORD=lbvsx123

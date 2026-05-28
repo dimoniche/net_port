@@ -28,6 +28,10 @@ function resolveBuildClientPath() {
 }
 
 function listClientDownloadFilenames() {
+  return listClientDownloads().map((item) => item.filename);
+}
+
+function listClientDownloads() {
   const clientDir = resolveBuildClientPath();
   if (!clientDir) {
     return [];
@@ -43,10 +47,15 @@ function listClientDownloadFilenames() {
         return false;
       }
     })
-    .sort();
+    .map((filename) => {
+      const { size } = fs.statSync(path.join(clientDir, filename));
+      return { filename, sizeBytes: size };
+    })
+    .sort((a, b) => a.filename.localeCompare(b.filename));
 }
 
 module.exports = {
   resolveBuildClientPath,
-  listClientDownloadFilenames
+  listClientDownloadFilenames,
+  listClientDownloads
 };

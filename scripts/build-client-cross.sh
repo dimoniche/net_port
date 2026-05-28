@@ -6,10 +6,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 ARCH="${1:-armhf}"
-read_version() {
-  grep "^set($1 " client/CMakeLists.txt | awk '{print $2}' | tr -d ')'
-}
-VERSION="$(read_version VERSION_MAJOR).$(read_version VERSION_MINOR).$(read_version VERSION_PATCH)"
+if [[ -f "${ROOT}/VERSION" ]]; then
+  VERSION="$(tr -d '[:space:]' < "${ROOT}/VERSION")"
+else
+  read_version() {
+    grep "^set($1 " client/CMakeLists.txt | awk '{print $2}' | tr -d ')'
+  }
+  VERSION="$(read_version VERSION_MAJOR).$(read_version VERSION_MINOR).$(read_version VERSION_PATCH)"
+fi
 MODULE="module_net_port_client"
 OUT_DIR="${ROOT}/artifacts/clients"
 TARGET="${MODULE}-${VERSION}"

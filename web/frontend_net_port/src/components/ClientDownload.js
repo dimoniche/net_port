@@ -20,6 +20,48 @@ import {
   CLIENT_DOWNLOAD_CATALOG,
   CLIENT_VERSION_LABEL,
 } from '../consts/client';
+import { formatBytes } from '../utils/statsFormat';
+
+async function fetchBuildFileSizeBytes(filename) {
+  try {
+    const response = await fetch(`/files/build/${encodeURIComponent(filename)}`, {
+      method: 'HEAD',
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const length = response.headers.get('content-length');
+    return length ? Number(length) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function enrichClientDownloads(downloads) {
+  return Promise.all(
+    downloads.map(async ({ filename, sizeBytes }) => {
+      const meta = CLIENT_DOWNLOAD_CATALOG[filename];
+      if (!meta) {
+        return null;
+      }
+
+      let resolvedSize = sizeBytes;
+      if (resolvedSize == null || Number.isNaN(resolvedSize)) {
+        resolvedSize = await fetchBuildFileSizeBytes(filename);
+      }
+
+      return {
+        ...meta,
+        sizeBytes: resolvedSize,
+        sizeLabel:
+          resolvedSize != null && resolvedSize > 0
+            ? formatBytes(resolvedSize)
+            : '—',
+        icon: <ComputerIcon />,
+      };
+    })
+  ).then((items) => items.filter(Boolean));
+}
 
 const ClientDownload = () => {
   const { api } = useContext(ApiContext);
@@ -40,16 +82,15 @@ const ClientDownload = () => {
           return;
         }
 
-        const files = response.data?.files || [];
-        const available = files
-          .map((filename) => CLIENT_DOWNLOAD_CATALOG[filename])
-          .filter(Boolean)
-          .map((client) => ({
-            ...client,
-            icon: <ComputerIcon />,
-          }));
+        let downloads = response.data?.downloads;
+        if (!downloads?.length && response.data?.files?.length) {
+          downloads = response.data.files.map((filename) => ({ filename }));
+        }
 
-        setClientFiles(available);
+        const available = await enrichClientDownloads(downloads || []);
+        if (!cancelled) {
+          setClientFiles(available);
+        }
       } catch (err) {
         if (!cancelled) {
           setLoadError(err);
@@ -183,7 +224,12 @@ const ClientDownload = () => {
                       sx={{ mr: 1, mb: 1 }}
                       color="secondary"
                     />
-                    <Chip label={client.size} size="small" sx={{ mb: 1 }} variant="outlined" />
+                    <Chip
+                    label={client.sizeLabel}
+                    size="small"
+                    sx={{ mb: 1 }}
+                    variant="outlined"
+                  />
                   </Box>
                 </CardContent>
 

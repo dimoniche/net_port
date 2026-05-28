@@ -10,7 +10,6 @@ export const CLIENT_DOWNLOAD_CATALOG = {
     filename: CLIENT_BINARY_NAME,
     platform: 'Linux',
     architecture: 'x86_64',
-    size: '~120 KB',
     color: 'success',
     description:
       'Клиент с регистрацией устройств (8443), heartbeat и динамических портов 6000–7000',
@@ -21,7 +20,6 @@ export const CLIENT_DOWNLOAD_CATALOG = {
     filename: `${CLIENT_BINARY_NAME}-armhf`,
     platform: 'Linux',
     architecture: 'armhf',
-    size: '~120 KB',
     color: 'primary',
     description: 'Raspberry Pi и другие 32-bit ARM (arm-linux-gnueabihf)',
   },
@@ -31,7 +29,6 @@ export const CLIENT_DOWNLOAD_CATALOG = {
     filename: `${CLIENT_BINARY_NAME}-aarch64`,
     platform: 'Linux',
     architecture: 'aarch64',
-    size: '~120 KB',
     color: 'secondary',
     description: 'Raspberry Pi 4/5, Orange Pi и другие 64-bit ARM',
   },

@@ -60,6 +60,12 @@ curl -s http://localhost/health | jq   # через nginx
 | `net_port_devices_active` | Статус `active` |
 | `net_port_devices_connecting` | Ожидают регистрации |
 | `net_port_devices_online` | Heartbeat за 2 мин |
+| `net_port_devices_offline` | `active`, но без heartbeat 2 мин |
+| `net_port_devices_stale_connecting` | `connecting` дольше 10 мин |
+| `net_port_health_ok` | 1 = `/health` вернёт 200 |
+| `net_port_check_database` | Проверка PostgreSQL |
+| `net_port_check_device_control` | TCP 8443 |
+| `net_port_registration_errors_total` | Ошибки регистрации из логов C-сервера |
 | `net_port_ports_allocated` | Выделенные порты |
 | `net_port_ports_reserved` | Зарезервированные (fixed) |
 | `net_port_ports_available` | Свободные чётные 6000–6998 |
@@ -74,6 +80,27 @@ docker compose --profile monitoring up -d
 ```
 
 Конфиг: `deploy/prometheus/prometheus.yml`, алерты: `deploy/prometheus/alerts/net_port.yml`.
+
+| Алерт | Условие |
+|-------|---------|
+| `NetPortHealthDegraded` | `net_port_health_ok == 0` 2 мин (аналог HTTP 503) |
+| `NetPortDevicesOffline` | активные устройства без heartbeat 5 мин |
+| `NetPortRegistrationErrorsHigh` | >10 ошибок регистрации в логах за 10 мин |
+| `NetPortDeviceControlDown` | порт 8443 недоступен |
+| `NetPortStaleConnecting` | регистрация не завершается >10 мин |
+
+Для уведомлений (email/Slack) подключите [Alertmanager](https://prometheus.io/docs/alerting/latest/alertmanager/) к Prometheus.
+
+### Версия клиента/сервера
+
+Единый bump (обновляет `VERSION`, CMakeLists client/server, `consts/client.js`):
+
+```bash
+./scripts/bump-version.sh patch   # 0.0.4 -> 0.0.5
+./scripts/bump-version.sh 0.1.0   # явная версия
+```
+
+После bump: пересборка образа и при необходимости `./scripts/build-client-cross.sh`.
 
 Если Prometheus уже развёрнут отдельно, добавьте job:
 

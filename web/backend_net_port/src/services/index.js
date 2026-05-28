@@ -8,7 +8,7 @@ const configureSettings = require('./settings/settings.service.js');
 const { Devices } = require('./devices/devices.service.js');
 const hooks = require('./devices/devices.hooks');
 const { authenticate } = require('@feathersjs/authentication').hooks;
-const { listClientDownloadFilenames } = require('../client-downloads');
+const { listClientDownloads } = require('../client-downloads');
 
 // eslint-disable-next-line no-unused-vars
 module.exports = function (app) {
@@ -260,6 +260,10 @@ module.exports = function (app) {
 
   const prefix = app.get('prefix') || '';
   app.get(`${prefix}/clients/downloads`, (req, res) => {
-    res.json({ files: listClientDownloadFilenames() });
+    const downloads = listClientDownloads();
+    res.json({
+      downloads,
+      files: downloads.map((item) => item.filename)
+    });
   });
 };
