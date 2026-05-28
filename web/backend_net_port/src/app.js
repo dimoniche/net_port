@@ -58,29 +58,7 @@ app.use('/files', express.static(frontendFilesPath, {
   }
 }));
 
-// Serve compiled client binary (must contain module_net_port_client-* built artifact)
-const possibleBuildPaths = [
-  path.join(__dirname, '../../../build/client'),              // Docker: source/build/client
-  '/root/net_port/source/build/client',                       // Docker absolute
-  path.join(__dirname, '../../../../build/client'),           // Local dev from repo root
-  path.join(__dirname, '../../../../net_port/build/client'),  // Local dev alternate layout
-  '/root/net_port',                                           // Docker: binaries copied to /root/net_port
-];
-
-function resolveBuildClientPath() {
-  for (const possiblePath of possibleBuildPaths) {
-    if (!fs.existsSync(possiblePath)) {
-      continue;
-    }
-    const hasClientBinary = fs
-      .readdirSync(possiblePath)
-      .some((name) => name.startsWith('module_net_port_client-') && !name.endsWith('.dir'));
-    if (hasClientBinary) {
-      return possiblePath;
-    }
-  }
-  return null;
-}
+const { resolveBuildClientPath } = require('./client-downloads');
 
 const buildClientPath = resolveBuildClientPath();
 if (buildClientPath) {

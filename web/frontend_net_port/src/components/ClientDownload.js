@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Card,
@@ -10,26 +10,66 @@ import {
   Chip,
   Divider,
   Alert,
+  CircularProgress,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import ComputerIcon from '@mui/icons-material/Computer';
-import { CLIENT_BINARY_NAME, CLIENT_VERSION_LABEL } from '../consts/client';
+import { ApiContext } from '../context/ApiContext';
+import {
+  CLIENT_BINARY_NAME,
+  CLIENT_DOWNLOAD_CATALOG,
+  CLIENT_VERSION_LABEL,
+} from '../consts/client';
 
 const ClientDownload = () => {
-  const clientFiles = [
-    {
-      id: 1,
-      name: `Linux (64-bit) — v${CLIENT_VERSION_LABEL}`,
-      filename: CLIENT_BINARY_NAME,
-      description:
-        'Клиент с поддержкой регистрации устройств (порт 8443), heartbeat и динамических портов 6000–7000',
-      icon: <ComputerIcon />,
-      platform: 'Linux',
-      architecture: 'x64',
-      size: '~120 KB',
-      color: 'success',
-    },
-  ];
+  const { api } = useContext(ApiContext);
+  const [clientFiles, setClientFiles] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchAvailableClients = async () => {
+      setIsLoading(true);
+      setLoadError(null);
+
+      try {
+        const response = await api.get('/clients/downloads');
+        if (cancelled) {
+          return;
+        }
+
+        const files = response.data?.files || [];
+        const available = files
+          .map((filename) => CLIENT_DOWNLOAD_CATALOG[filename])
+          .filter(Boolean)
+          .map((client) => ({
+            ...client,
+            icon: <ComputerIcon />,
+          }));
+
+        setClientFiles(available);
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(err);
+          setClientFiles([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchAvailableClients();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  const primaryClientFilename = clientFiles[0]?.filename || CLIENT_BINARY_NAME;
 
   const serviceFile = {
     id: 3,
@@ -68,12 +108,15 @@ const ClientDownload = () => {
     window.open(path, '_blank');
   };
 
-  const deviceExample = `./${CLIENT_BINARY_NAME} \\
+  const deviceExample = useMemo(
+    () => `./${primaryClientFilename} \\
   --device-id DEVICE_ID \\
   --device-token TOKEN \\
   --registration-server SERVER_IP \\
   --registration-port 8443 \\
-  --port-host-base 49000`;
+  --port-host-base 49000`,
+    [primaryClientFilename]
+  );
 
   return (
     <Box sx={{ mt: 3, px: { xs: 1, sm: 2 } }}>
@@ -83,95 +126,116 @@ const ClientDownload = () => {
         затем запустите клиент на хосте устройства.
       </Alert>
 
+      {loadError && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Не удалось получить список клиентов с сервера. Обновите страницу.
+        </Alert>
+      )}
+
       <Typography variant="h5" gutterBottom>
         Клиент для скачивания
       </Typography>
 
-      <Grid container spacing={3}>
-        {clientFiles.map((client) => (
-          <Grid item xs={12} sm={6} md={4} key={client.id}>
-            <Card
-              sx={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                transition: 'transform 0.2s',
-                '&:hover': {
-                  transform: 'translateY(-4px)',
-                  boxShadow: 6,
-                },
-              }}
-            >
-              <CardContent sx={{ flexGrow: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <Box sx={{ mr: 2, color: `${client.color}.main` }}>
-                    {client.icon}
+      {isLoading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress size={32} />
+        </Box>
+      ) : clientFiles.length === 0 ? (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          На сервере нет доступных бинарников клиента. Соберите образ или добавьте файлы в{' '}
+          <code>artifacts/clients/</code> перед <code>docker build</code>.
+        </Alert>
+      ) : (
+        <Grid container spacing={3}>
+          {clientFiles.map((client) => (
+            <Grid item xs={12} sm={6} md={4} key={client.id}>
+              <Card
+                sx={{
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  transition: 'transform 0.2s',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: 6,
+                  },
+                }}
+              >
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    <Box sx={{ mr: 2, color: `${client.color}.main` }}>
+                      {client.icon}
+                    </Box>
+                    <Typography variant="h6" component="div">
+                      {client.name}
+                    </Typography>
                   </Box>
-                  <Typography variant="h6" component="div">
-                    {client.name}
+
+                  <Typography variant="body2" color="text.secondary" paragraph>
+                    {client.description}
                   </Typography>
-                </Box>
 
-                <Typography variant="body2" color="text.secondary" paragraph>
-                  {client.description}
-                </Typography>
+                  <Box sx={{ mt: 2 }}>
+                    <Chip label={client.platform} size="small" sx={{ mr: 1, mb: 1 }} />
+                    <Chip
+                      label={client.architecture}
+                      size="small"
+                      sx={{ mr: 1, mb: 1 }}
+                      color="secondary"
+                    />
+                    <Chip label={client.size} size="small" sx={{ mb: 1 }} variant="outlined" />
+                  </Box>
+                </CardContent>
 
-                <Box sx={{ mt: 2 }}>
-                  <Chip label={client.platform} size="small" sx={{ mr: 1, mb: 1 }} />
-                  <Chip
-                    label={client.architecture}
-                    size="small"
-                    sx={{ mr: 1, mb: 1 }}
-                    color="secondary"
-                  />
-                  <Chip label={client.size} size="small" sx={{ mb: 1 }} variant="outlined" />
-                </Box>
-              </CardContent>
+                <CardActions>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    startIcon={<DownloadIcon />}
+                    onClick={() => handleDownload(client.filename, 'build')}
+                    sx={{ mx: 1, mb: 1 }}
+                  >
+                    Скачать
+                  </Button>
+                </CardActions>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      )}
 
-              <CardActions>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  startIcon={<DownloadIcon />}
-                  onClick={() => handleDownload(client.filename, 'build')}
-                  sx={{ mx: 1, mb: 1 }}
-                >
-                  Скачать
-                </Button>
-              </CardActions>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+      {clientFiles.length > 0 && (
+        <>
+          <Divider sx={{ my: 4 }} />
 
-      <Divider sx={{ my: 4 }} />
+          <Typography variant="h6" gutterBottom>
+            Установка и запуск (устройство)
+          </Typography>
 
-      <Typography variant="h6" gutterBottom>
-        Установка и запуск (устройство)
-      </Typography>
-
-      <Box
-        component="pre"
-        sx={{
-          p: 2,
-          bgcolor: 'grey.900',
-          color: 'grey.100',
-          borderRadius: 1,
-          overflow: 'auto',
-          fontSize: '0.8rem',
-          mb: 2,
-        }}
-      >
-        {`chmod +x ${CLIENT_BINARY_NAME}
+          <Box
+            component="pre"
+            sx={{
+              p: 2,
+              bgcolor: 'grey.900',
+              color: 'grey.100',
+              borderRadius: 1,
+              overflow: 'auto',
+              fontSize: '0.8rem',
+              mb: 2,
+            }}
+          >
+            {`chmod +x ${primaryClientFilename}
 
 ${deviceExample}`}
-      </Box>
+          </Box>
 
-      <Typography variant="body2" color="text.secondary" paragraph>
-        <code>SERVER_IP</code> — адрес сервера Net Port. <code>--registration-port 8443</code> —
-        порт регистрации устройств. <code>--port-host-base</code> нужен, если клиент в Docker или за
-        NAT: внешний порт хоста для туннеля (например 49000 при пробросе 49000:6000).
-      </Typography>
+          <Typography variant="body2" color="text.secondary" paragraph>
+            <code>SERVER_IP</code> — адрес сервера Net Port. <code>--registration-port 8443</code> —
+            порт регистрации устройств. <code>--port-host-base</code> нужен, если клиент в Docker или за
+            NAT: внешний порт хоста для туннеля (например 49000 при пробросе 49000:6000).
+          </Typography>
+        </>
+      )}
 
       <Divider sx={{ my: 4 }} />
 
@@ -263,20 +327,22 @@ ${deviceExample}`}
         </Grid>
       </Grid>
 
-      <Box sx={{ mt: 4, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
-        <Typography variant="subtitle2" gutterBottom>
-          Краткая инструкция
-        </Typography>
-        <Typography variant="body2" color="text.secondary" component="ol" sx={{ pl: 2, m: 0 }}>
-          <li>Скачайте клиент {CLIENT_BINARY_NAME}</li>
-          <li>
-            <code>chmod +x {CLIENT_BINARY_NAME}</code>
-          </li>
-          <li>Создайте устройство в веб-интерфейсе и нажмите «Подключить»</li>
-          <li>Подставьте device_id, token и IP сервера в команду запуска</li>
-          <li>Убедитесь, что на сервере открыты порты 8443 и диапазон туннелей (6000–7000 или проброс)</li>
-        </Typography>
-      </Box>
+      {clientFiles.length > 0 && (
+        <Box sx={{ mt: 4, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Краткая инструкция
+          </Typography>
+          <Typography variant="body2" color="text.secondary" component="ol" sx={{ pl: 2, m: 0 }}>
+            <li>Скачайте клиент {primaryClientFilename}</li>
+            <li>
+              <code>chmod +x {primaryClientFilename}</code>
+            </li>
+            <li>Создайте устройство в веб-интерфейсе и нажмите «Подключить»</li>
+            <li>Подставьте device_id, token и IP сервера в команду запуска</li>
+            <li>Убедитесь, что на сервере открыты порты 8443 и диапазон туннелей (6000–7000 или проброс)</li>
+          </Typography>
+        </Box>
+      )}
     </Box>
   );
 };

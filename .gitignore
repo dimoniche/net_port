@@ -16,3 +16,4 @@ __pycache__
 .vscode/deploy_args.json
 /client_win/out
 .env
+artifacts/clients/module_net_port_client-*

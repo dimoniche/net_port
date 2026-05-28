@@ -54,9 +54,13 @@ COPY . /root/net_port/source/
 RUN rm -rf build CMakeCache.txt CMakeFiles cmake_install.cmake Makefile && \
     mkdir -p build && cd build && cmake .. && make -j"$(nproc)"
 
+# amd64-клиент уже в build/client/ после cmake; в /root/net_port/ — для start.sh
 RUN mkdir -p /root/net_port && \
     cp build/server/module_net_port_server-* /root/net_port/ && \
     cp build/client/module_net_port_client-* /root/net_port/
+
+# Доп. архитектуры: положите бинарники в artifacts/clients/ (scripts/build-client-cross.sh)
+COPY artifacts/clients/ /root/net_port/source/build/client/
 
 WORKDIR /root/net_port/source/web/backend_net_port
 RUN bash -c "source $NVM_DIR/nvm.sh && npm install && npm install bcryptjs"
