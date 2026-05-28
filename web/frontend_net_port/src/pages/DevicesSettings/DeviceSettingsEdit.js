@@ -17,6 +17,7 @@ import Paper from "@mui/material/Paper";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import updateAbility from "../../config/permission";
+import { deviceTypeSelectOptions } from "../../consts/deviceTypes";
 
 const InputFieldWidth = { width: "100%" };
 
@@ -190,9 +191,11 @@ const DeviceSettingsEdit = ({ children, ...rest }) => {
                                 SelectProps={{ native: true }}
                                 helperText="Тип устройства"
                             >
-                                <option value="iot_gateway">IoT Шлюз</option>
-                                <option value="sensor">Датчик</option>
-                                <option value="controller">Контроллер</option>
+                                {deviceTypeSelectOptions(deviceData.type).map(({ value, label }) => (
+                                    <option key={value} value={value}>
+                                        {label}
+                                    </option>
+                                ))}
                             </TextField>
                         </Grid>
                         <Grid item xs={12} md={6}>

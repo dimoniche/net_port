@@ -8,8 +8,10 @@ const {
   normalizePreferredPort,
   validateDeviceId,
   validateDeviceType,
-  validateInternalPort
+  validateInternalPort,
+  assertDeviceIdAvailable
 } = require('./deviceValidation');
+const { isAdminUser, canAccessDevice } = require('../../lib/userRoles');
 
 // Validation schema
 const deviceSchema = {
@@ -33,17 +35,13 @@ module.exports = {
   before: {
     all: [authenticate('jwt')],
     find: [
-      // Apply user filter for non-admin users
       async context => {
         const { user } = context.params;
-        
-        if (user && user.role !== 'admin') {
-          context.params.query = {
-            ...context.params.query,
-            user_id: user.id
-          };
+        if (user && !isAdminUser(user) && context.params.query?.user_id != null) {
+          const query = { ...context.params.query };
+          delete query.user_id;
+          context.params.query = query;
         }
-        
         return context;
       }
     ],
@@ -53,8 +51,7 @@ module.exports = {
         const { user } = context.params;
         const { id } = context;
         
-        if (user && user.role !== 'admin') {
-          // Access the database directly through Knex
+        if (user && !isAdminUser(user)) {
           const knex = context.app.get('db');
           const device = await knex('devices').where({ id }).first();
           
@@ -62,7 +59,7 @@ module.exports = {
             throw new Error('Device not found');
           }
           
-          if (device.user_id !== user.id) {
+          if (!canAccessDevice(user, device)) {
             throw new Error('Permission denied');
           }
         }
@@ -99,6 +96,8 @@ module.exports = {
 
         if (data.device_id) {
           validateDeviceId(data.device_id);
+          const knex = context.app.get('db');
+          await assertDeviceIdAvailable(knex, data.device_id);
         }
         validateDeviceType(data.type);
         if (Object.prototype.hasOwnProperty.call(data, 'internal_port')) {
@@ -119,7 +118,7 @@ module.exports = {
         const { user } = context.params;
         const { id } = context;
         
-        if (user && user.role !== 'admin') {
+        if (user && !isAdminUser(user)) {
           const knex = context.app.get('db');
           const device = await knex('devices').where({ id }).first();
           
@@ -127,8 +126,12 @@ module.exports = {
             throw new Error('Device not found');
           }
           
-          if (device.user_id !== user.id) {
+          if (!canAccessDevice(user, device)) {
             throw new Error('Permission denied');
+          }
+
+          if (device.user_id == null) {
+            context.data = { ...context.data, user_id: user.id };
           }
         }
 
@@ -152,7 +155,7 @@ module.exports = {
         const { user } = context.params;
         const { id } = context;
         
-        if (user && user.role !== 'admin') {
+        if (user && !isAdminUser(user)) {
           const knex = context.app.get('db');
           const device = await knex('devices').where({ id }).first();
           
@@ -160,8 +163,12 @@ module.exports = {
             throw new Error('Device not found');
           }
           
-          if (device.user_id !== user.id) {
+          if (!canAccessDevice(user, device)) {
             throw new Error('Permission denied');
+          }
+
+          if (device.user_id == null) {
+            context.data = { ...context.data, user_id: user.id };
           }
         }
 
@@ -187,12 +194,12 @@ module.exports = {
         const knex = context.app.get('db');
         const device = await knex('devices').where({ id }).first();
         
-        if (user && user.role !== 'admin') {
+        if (user && !isAdminUser(user)) {
           if (!device) {
             throw new Error('Device not found');
           }
           
-          if (device.user_id !== user.id) {
+          if (!canAccessDevice(user, device)) {
             throw new Error('Permission denied');
           }
         }

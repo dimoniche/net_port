@@ -1,5 +1,7 @@
 'use strict';
 
+const { Conflict } = require('@feathersjs/errors');
+
 function normalizePreferredPort(value) {
   if (value === '' || value === null || value === undefined) {
     return null;
@@ -38,6 +40,38 @@ function validateDeviceType(type) {
   }
 }
 
+function deviceIdConflictError(deviceId) {
+  return new Conflict(`Device with id "${deviceId}" already exists`);
+}
+
+async function assertDeviceIdAvailable(knex, deviceId) {
+  if (!deviceId) {
+    return;
+  }
+
+  const existing = await knex('devices').where({ device_id: deviceId }).first('id');
+  if (existing) {
+    throw deviceIdConflictError(deviceId);
+  }
+}
+
+function rethrowDuplicateDeviceIdError(err, deviceId) {
+  if (err instanceof Conflict) {
+    throw err;
+  }
+
+  const constraint = err.constraint || '';
+  const detail = String(err.detail || err.message || '');
+  if (
+    err.code === '23505' &&
+    (constraint === 'devices_device_id_key' || /device_id/i.test(detail))
+  ) {
+    throw deviceIdConflictError(deviceId);
+  }
+
+  throw err;
+}
+
 function validateInternalPort(port) {
   if (port === null || port === undefined || port === '') {
     return null;
@@ -55,5 +89,8 @@ module.exports = {
   normalizePreferredPort,
   validateDeviceId,
   validateDeviceType,
-  validateInternalPort
+  validateInternalPort,
+  deviceIdConflictError,
+  assertDeviceIdAvailable,
+  rethrowDuplicateDeviceIdError
 };

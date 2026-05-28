@@ -5,6 +5,7 @@ import { useCookies } from "react-cookie";
 
 import { ApiContext } from "../context/ApiContext";
 import { formatTimestamp } from "../utils/statsFormat";
+import { DEVICE_TYPES, getDeviceTypeLabel } from "../consts/deviceTypes";
 
 import Paper from "@mui/material/Paper";
 import Button from "@mui/material/Button";
@@ -140,7 +141,6 @@ const Devices = ({ children, ...rest }) => {
         if (deviceIdFilter) params.append("search", deviceIdFilter);
         if (statusFilter) params.append("status", statusFilter);
         if (typeFilter) params.append("type", typeFilter);
-        if (cookies.user?.id) params.append("user_id", cookies.user.id);
 
         const queryString = params.toString();
         const url = `/devices${queryString ? `?${queryString}` : ""}`;
@@ -270,6 +270,10 @@ const Devices = ({ children, ...rest }) => {
             case "connecting":
                 return "warning";
             case "error":
+                return "error";
+            case "pending":
+                return "info";
+            case "blocked":
                 return "error";
             default:
                 return "default";
@@ -443,6 +447,8 @@ const Devices = ({ children, ...rest }) => {
                                     <MenuItem value="inactive" sx={{ fontSize: '0.875rem' }}>Неактивен</MenuItem>
                                     <MenuItem value="connecting" sx={{ fontSize: '0.875rem' }}>Подключается</MenuItem>
                                     <MenuItem value="error" sx={{ fontSize: '0.875rem' }}>Ошибка</MenuItem>
+                                    <MenuItem value="pending" sx={{ fontSize: '0.875rem' }}>Ожидает</MenuItem>
+                                    <MenuItem value="blocked" sx={{ fontSize: '0.875rem' }}>Заблокирован</MenuItem>
                                 </Select>
                             </FormControl>
                         </Grid>
@@ -456,11 +462,11 @@ const Devices = ({ children, ...rest }) => {
                                     sx={{ fontSize: '0.875rem' }}
                                 >
                                     <MenuItem value="" sx={{ fontSize: '0.875rem' }}>Все</MenuItem>
-                                    <MenuItem value="iot_gateway" sx={{ fontSize: '0.875rem' }}>IoT Шлюз</MenuItem>
-                                    <MenuItem value="sensor" sx={{ fontSize: '0.875rem' }}>Датчик</MenuItem>
-                                    <MenuItem value="camera" sx={{ fontSize: '0.875rem' }}>Камера</MenuItem>
-                                    <MenuItem value="router" sx={{ fontSize: '0.875rem' }}>Роутер</MenuItem>
-                                    <MenuItem value="other" sx={{ fontSize: '0.875rem' }}>Другое</MenuItem>
+                                    {DEVICE_TYPES.map(({ value, label }) => (
+                                        <MenuItem key={value} value={value} sx={{ fontSize: '0.875rem' }}>
+                                            {label}
+                                        </MenuItem>
+                                    ))}
                                 </Select>
                             </FormControl>
                         </Grid>
@@ -495,7 +501,7 @@ const Devices = ({ children, ...rest }) => {
                                     <TableRow key={device.id}>
                                         <TableCell>{device.device_id}</TableCell>
                                         <TableCell>{device.name || "-"}</TableCell>
-                                        <TableCell>{device.type || "-"}</TableCell>
+                                        <TableCell>{getDeviceTypeLabel(device.type)}</TableCell>
                                         <TableCell sx={{ verticalAlign: "top" }}>
                                             <Box
                                                 sx={{

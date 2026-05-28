@@ -11,6 +11,7 @@ import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Paper from "@mui/material/Paper";
 import isEmpty from "lodash/isEmpty";
+import { deviceTypeSelectOptions } from "../../consts/deviceTypes";
 
 const NewDeviceSettingsData = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
@@ -81,7 +82,13 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
             }
         } catch (error) {
             setAddError(true);
-            setErrorMessage(error.response?.data?.message || error.message);
+            const apiError = error.response?.data;
+            setErrorMessage(
+                apiError?.message ||
+                    apiError?.error?.message ||
+                    (typeof apiError === "string" ? apiError : null) ||
+                    error.message
+            );
         } finally {
             setSubmitting(false);
         }
@@ -144,9 +151,11 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 SelectProps={{ native: true }}
                                 helperText="Тип устройства"
                             >
-                                <option value="iot_gateway">IoT Шлюз</option>
-                                <option value="sensor">Датчик</option>
-                                <option value="controller">Контроллер</option>
+                                {deviceTypeSelectOptions().map(({ value, label }) => (
+                                    <option key={value} value={value}>
+                                        {label}
+                                    </option>
+                                ))}
                             </TextField>
                         </Grid>
                         <Grid item xs={12} md={6}>

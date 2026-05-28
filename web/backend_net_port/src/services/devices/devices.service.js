@@ -7,11 +7,16 @@ const {
   enrichDeviceWithOnline,
   broadcastDeviceById
 } = require('./device-events');
-const { normalizePreferredPort } = require('./deviceValidation');
-
-function isAdminUser(user) {
-  return user?.role === 'admin' || user?.role_name === 'admin';
-}
+const {
+  normalizePreferredPort,
+  assertDeviceIdAvailable,
+  rethrowDuplicateDeviceIdError
+} = require('./deviceValidation');
+const {
+  isAdminUser,
+  canAccessDevice,
+  applyDeviceOwnershipFilter
+} = require('../../lib/userRoles');
 
 async function reservePreferredPort(knex, deviceUuid, preferredPort) {
   const result = await knex.raw(
@@ -185,7 +190,7 @@ exports.Devices = class Devices extends Service {
   }
 
   async find(params) {
-    const { query = {} } = params;
+    const { query = {}, user } = params;
     const knex = this.Model;
 
     const latestSessions = knex('device_sessions')
@@ -220,6 +225,8 @@ exports.Devices = class Devices extends Service {
     
     if (query.user_id) {
       knexQuery = knexQuery.where('devices.user_id', query.user_id);
+    } else {
+      knexQuery = applyDeviceOwnershipFilter(knexQuery, user, 'devices.user_id');
     }
     
     if (query.search) {
@@ -249,23 +256,25 @@ exports.Devices = class Devices extends Service {
     const result = devices.map(device => enrichDeviceWithOnline(device));
     
     // Get total count for pagination
-    const countQuery = this.Model('devices').count('* as count');
+    let countQuery = this.Model('devices').count('* as count');
     
     // Apply same filters to count query
     if (query.status) {
-      countQuery.where('status', query.status);
+      countQuery = countQuery.where('status', query.status);
     }
     
     if (query.type) {
-      countQuery.where('type', query.type);
+      countQuery = countQuery.where('type', query.type);
     }
     
     if (query.user_id) {
-      countQuery.where('user_id', query.user_id);
+      countQuery = countQuery.where('user_id', query.user_id);
+    } else {
+      countQuery = applyDeviceOwnershipFilter(countQuery, user, 'user_id');
     }
     
     if (query.search) {
-      countQuery.where(function() {
+      countQuery = countQuery.where(function() {
         this.where('device_id', 'ilike', `%${query.search}%`)
           .orWhere('name', 'ilike', `%${query.search}%`)
           .orWhere('description', 'ilike', `%${query.search}%`);
@@ -323,7 +332,8 @@ exports.Devices = class Devices extends Service {
     
     // Generate device ID if not provided
     const deviceId = data.device_id || `device-${uuidv4().substring(0, 8)}`;
-    
+    await assertDeviceIdAvailable(knex, deviceId);
+
     // Generate authentication token
     const authToken = crypto.randomBytes(32).toString('hex');
     const authTokenHash = crypto.createHash('sha256').update(authToken).digest('hex');
@@ -339,7 +349,7 @@ exports.Devices = class Devices extends Service {
       name: data.name || deviceId,
       description: data.description || '',
       type: data.type || 'iot_gateway',
-      status: 'pending',
+      status: data.status || 'inactive',
       auth_token_hash: authTokenHash,
       internal_address: data.internal_address || '127.0.0.1',
       internal_port: data.internal_port || null,
@@ -353,7 +363,11 @@ exports.Devices = class Devices extends Service {
     };
     
     // Insert device
-    await knex('devices').insert(deviceData);
+    try {
+      await knex('devices').insert(deviceData);
+    } catch (err) {
+      rethrowDuplicateDeviceIdError(err, deviceId);
+    }
 
     if (preferredPort !== null) {
       await reservePreferredPort(knex, deviceData.id, preferredPort);
@@ -378,7 +392,7 @@ exports.Devices = class Devices extends Service {
     }
     
     // Only admin or device owner can update
-    if (!isAdminUser(user) && device.user_id !== user.id) {
+    if (!canAccessDevice(user, device)) {
       throw new Error('Permission denied');
     }
     
@@ -438,7 +452,7 @@ exports.Devices = class Devices extends Service {
     }
     
     // Only admin or device owner can delete
-    if (!isAdminUser(user) && device.user_id !== user.id) {
+    if (!canAccessDevice(user, device)) {
       throw new Error('Permission denied');
     }
 
@@ -463,7 +477,7 @@ exports.Devices = class Devices extends Service {
     }
     
     // Only admin or device owner can regenerate token
-    if (!isAdminUser(user) && device.user_id !== user.id) {
+    if (!canAccessDevice(user, device)) {
       throw new Error('Permission denied');
     }
     
@@ -524,7 +538,7 @@ exports.Devices = class Devices extends Service {
     }
     
     // Only admin or device owner can disconnect
-    if (!isAdminUser(user) && device.user_id !== user.id) {
+    if (!canAccessDevice(user, device)) {
       throw new Error('Permission denied');
     }
 
@@ -585,7 +599,7 @@ exports.Devices = class Devices extends Service {
     }
     
     // Only admin or device owner can restart
-    if (!isAdminUser(user) && device.user_id !== user.id) {
+    if (!canAccessDevice(user, device)) {
       throw new Error('Permission denied');
     }
     

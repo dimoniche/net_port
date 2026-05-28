@@ -4,7 +4,8 @@ const {
   normalizePreferredPort,
   validateDeviceId,
   validateDeviceType,
-  validateInternalPort
+  validateInternalPort,
+  deviceIdConflictError
 } = require('../src/services/devices/deviceValidation');
 
 describe('deviceValidation', () => {
@@ -51,6 +52,15 @@ describe('deviceValidation', () => {
 
     it('rejects unknown types', () => {
       expect(() => validateDeviceType('unknown')).toThrow(/Invalid device type/);
+    });
+  });
+
+  describe('deviceIdConflictError', () => {
+    it('returns Conflict with device id in message', () => {
+      const err = deviceIdConflictError('my-device');
+      expect(err.name).toBe('Conflict');
+      expect(err.message).toMatch(/my-device/);
+      expect(err.message).toMatch(/already exists/);
     });
   });
 
