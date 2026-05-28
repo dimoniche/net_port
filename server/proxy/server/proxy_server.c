@@ -725,17 +725,19 @@ connection_input_handler (void* parameter)
     }
 
     // Обновляем статистику - увеличиваем количество соединений
-    thread_data->data->statistics.connections_count++;
+    if (!thread_data->data->is_dynamic_port) {
+        thread_data->data->statistics.connections_count++;
 
-    // Защищаем доступ к статистике семафором
-    sem_wait(&statistics_semaphore);
-    {
-        int stats_server_index = find_server_index_by_id(thread_data->data->id);
-        if (stats_server_index >= 0) {
-            memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+        // Защищаем доступ к статистике семафором
+        sem_wait(&statistics_semaphore);
+        {
+            int stats_server_index = find_server_index_by_id(thread_data->data->id);
+            if (stats_server_index >= 0) {
+                memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+            }
         }
+        sem_post(&statistics_semaphore);
     }
-    sem_post(&statistics_semaphore);
 
     while (!done_output_connection) {
         fd_set read_set;
@@ -946,17 +948,19 @@ connection_input_handler (void* parameter)
     thread_data->is_input_connected = false;
 
     // Обновляем статистику - уменьшаем количество соединений
-    thread_data->data->statistics.connections_count--;
+    if (!thread_data->data->is_dynamic_port) {
+        thread_data->data->statistics.connections_count--;
 
-    // Защищаем доступ к статистике семафором
-    sem_wait(&statistics_semaphore);
-    {
-        int stats_server_index = find_server_index_by_id(thread_data->data->id);
-        if (stats_server_index >= 0) {
-            memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+        // Защищаем доступ к статистике семафором
+        sem_wait(&statistics_semaphore);
+        {
+            int stats_server_index = find_server_index_by_id(thread_data->data->id);
+            if (stats_server_index >= 0) {
+                memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+            }
         }
+        sem_post(&statistics_semaphore);
     }
-    sem_post(&statistics_semaphore);
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);
 
@@ -2006,10 +2010,9 @@ static int start_dynamic_server_at_index(int index, const char *device_id,
     cleanup_dynamic_server_slot(index);
 
     proxy_server_t *server = &servers[index];
-    uint16_t saved_id = (uint16_t)index;
 
     memset(server, 0, sizeof(*server));
-    server->id = saved_id;
+    server->id = 0;
     server->enable = true;
     server->input_port = input_port;
     server->output_port = tunnel_port;

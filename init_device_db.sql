@@ -26,6 +26,8 @@ CREATE TABLE devices (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_heartbeat TIMESTAMP,
+    total_bytes_received BIGINT NOT NULL DEFAULT 0,
+    total_bytes_sent BIGINT NOT NULL DEFAULT 0,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     
     -- Indexes for performance

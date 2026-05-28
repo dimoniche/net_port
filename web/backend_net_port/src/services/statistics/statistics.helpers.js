@@ -32,8 +32,17 @@ function resolveStatisticsUserId(params = {}) {
   return null;
 }
 
+function isMonotonicStatisticPredecessor(previousRow, currentRow) {
+  if (!previousRow || !currentRow) {
+    return false;
+  }
+
+  return Number(previousRow.bytes_received) <= Number(currentRow.bytes_received)
+    && Number(previousRow.bytes_sent) <= Number(currentRow.bytes_sent);
+}
+
 function computeSpeed(currentRow, previousRow) {
-  if (!previousRow || isEmptyStatisticRow(currentRow)) {
+  if (!previousRow || isEmptyStatisticRow(currentRow) || !isMonotonicStatisticPredecessor(previousRow, currentRow)) {
     return { avg_receive_speed: null, avg_send_speed: null };
   }
 
@@ -62,6 +71,32 @@ function isEmptyStatisticRow(row) {
   return Number(row.bytes_received || 0) === 0
     && Number(row.bytes_sent || 0) === 0
     && Number(row.connections_count || 0) === 0;
+}
+
+function filterRegressiveStatisticSnapshots(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return rows;
+  }
+
+  let maxReceived = 0;
+  let maxSent = 0;
+
+  return rows.filter((row) => {
+    const received = Number(row.bytes_received || 0);
+    const sent = Number(row.bytes_sent || 0);
+
+    if (received + sent === 0) {
+      return true;
+    }
+
+    if (received + 1024 < maxReceived && sent + 1024 < maxSent) {
+      return false;
+    }
+
+    maxReceived = Math.max(maxReceived, received);
+    maxSent = Math.max(maxSent, sent);
+    return true;
+  });
 }
 
 function filterEmptyStatisticSnapshots(rows) {
@@ -96,7 +131,9 @@ module.exports = {
   isLegacyPlaceholderServer,
   isEnabledLegacyServer,
   resolveStatisticsUserId,
+  isMonotonicStatisticPredecessor,
   computeSpeed,
   isEmptyStatisticRow,
-  filterEmptyStatisticSnapshots
+  filterEmptyStatisticSnapshots,
+  filterRegressiveStatisticSnapshots
 };

@@ -673,6 +673,8 @@ exports.Devices = class Devices extends Service {
         'devices.last_heartbeat',
         'devices.assigned_port',
         'devices.preferred_port',
+        'devices.total_bytes_sent',
+        'devices.total_bytes_received',
         'device_sessions.assigned_port as session_port',
         'device_sessions.bytes_sent',
         'device_sessions.bytes_received',
@@ -735,8 +737,8 @@ exports.Devices = class Devices extends Service {
 
       return {
         ...device,
-        bytes_sent: Number(device.bytes_sent || 0),
-        bytes_received: Number(device.bytes_received || 0),
+        bytes_sent: Number(device.total_bytes_sent || 0),
+        bytes_received: Number(device.total_bytes_received || 0),
         active_connections: Number(device.active_connections || 0),
         hourly_bytes_sent: Number(hourlyMap[device.id]?.total_bytes_sent || 0),
         hourly_bytes_received: Number(hourlyMap[device.id]?.total_bytes_received || 0),
@@ -864,6 +866,12 @@ exports.Devices = class Devices extends Service {
 
     await knex('device_statistics').where('device_id', device.id).del();
     await knex('device_traffic_samples').where('device_id', device.id).del();
+    await knex('devices')
+      .where({ id: device.id })
+      .update({
+        total_bytes_sent: 0,
+        total_bytes_received: 0
+      });
     await knex('device_sessions')
       .where({ device_id: device.id, status: 'active' })
       .update({

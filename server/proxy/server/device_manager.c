@@ -1308,6 +1308,20 @@ int update_device_statistics(const char *session_token,
     }
 
     PQclear(res);
+
+    res = PQexecParams(conn,
+        "UPDATE devices SET "
+        "total_bytes_sent = COALESCE(total_bytes_sent, 0) + $1::bigint, "
+        "total_bytes_received = COALESCE(total_bytes_received, 0) + $2::bigint, "
+        "updated_at = NOW() "
+        "WHERE id = (SELECT device_id FROM device_sessions WHERE session_token = $3 AND status = 'active')",
+        3, NULL, (const char *[]){ bytes_sent_str, bytes_received_str, session_token }, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        logMsg(LOG_WARNING, "Failed to update device cumulative totals: %s\n", PQerrorMessage(conn));
+    }
+
+    PQclear(res);
     db_unlock();
     return 0;
 }

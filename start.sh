@@ -299,6 +299,24 @@ apply_statistic_empty_snapshot_cleanup() {
 }
 apply_statistic_empty_snapshot_cleanup
 
+apply_cumulative_statistics_totals() {
+    local fix=""
+    if [ -f /etc/postgresql/cumulative_statistics_totals.sql ]; then
+        fix="/etc/postgresql/cumulative_statistics_totals.sql"
+    elif [ -f /root/net_port/source/sql/cumulative_statistics_totals.sql ]; then
+        fix="/root/net_port/source/sql/cumulative_statistics_totals.sql"
+    else
+        return 0
+    fi
+    echo "Applying cumulative statistics totals migration..."
+    if [ "$USE_LOCAL_DB" = "true" ]; then
+        su - postgres -c "psql -d net_port -f $fix" 2>/dev/null || true
+    elif PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -f "$fix" 2>/dev/null || true
+    fi
+}
+apply_cumulative_statistics_totals
+
 apply_app_grants() {
     echo "Granting application privileges to '$DB_USER'..."
     if [ "$USE_LOCAL_DB" = "true" ]; then

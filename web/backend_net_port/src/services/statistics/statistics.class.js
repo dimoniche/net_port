@@ -4,7 +4,9 @@ const {
   resolveStatisticsUserId,
   computeSpeed,
   isEmptyStatisticRow,
-  filterEmptyStatisticSnapshots
+  filterEmptyStatisticSnapshots,
+  filterRegressiveStatisticSnapshots,
+  isMonotonicStatisticPredecessor
 } = require('./statistics.helpers');
 
 exports.Statistics = class Statistics {
@@ -29,28 +31,51 @@ exports.Statistics = class Statistics {
   }
 
   async fetchLatestStatisticRow(serverId) {
-    const meaningful = await this.db('statistic')
-      .where('server_id', Number(serverId))
-      .where(function hasTraffic() {
-        this.where('bytes_received', '>', 0)
-          .orWhere('bytes_sent', '>', 0)
-          .orWhere('connections_count', '>', 0);
-      })
-      .orderBy('timestamp', 'desc')
-      .first();
+    const server = await this.db('servers')
+      .where('id', Number(serverId))
+      .first('total_bytes_received', 'total_bytes_sent');
 
-    if (meaningful) {
-      return meaningful;
+    const [peakRow] = await this.db('statistic')
+      .where('server_id', Number(serverId))
+      .select(
+        this.db.raw('COALESCE(MAX(bytes_received), 0) AS peak_received'),
+        this.db.raw('COALESCE(MAX(bytes_sent), 0) AS peak_sent')
+      );
+
+    const latestSnapshot = await this.db('statistic')
+      .where('server_id', Number(serverId))
+      .orderBy('timestamp', 'desc')
+      .first('timestamp', 'connections_count');
+
+    const bytesReceived = Math.max(
+      Number(server?.total_bytes_received || 0),
+      Number(peakRow?.peak_received || 0)
+    );
+    const bytesSent = Math.max(
+      Number(server?.total_bytes_sent || 0),
+      Number(peakRow?.peak_sent || 0)
+    );
+
+    if (bytesReceived === 0 && bytesSent === 0 && !latestSnapshot) {
+      return null;
     }
 
-    return this.db('statistic')
-      .where('server_id', Number(serverId))
-      .orderBy('timestamp', 'desc')
-      .first();
+    return {
+      server_id: Number(serverId),
+      bytes_received: bytesReceived,
+      bytes_sent: bytesSent,
+      connections_count: Number(latestSnapshot?.connections_count || 0),
+      timestamp: latestSnapshot?.timestamp || null
+    };
   }
 
-  async fetchPreviousStatisticRow(serverId, beforeTimestamp) {
-    const meaningful = await this.db('statistic')
+  async fetchPreviousStatisticRow(serverId, currentRow) {
+    const beforeTimestamp = currentRow?.timestamp;
+    if (!beforeTimestamp) {
+      return null;
+    }
+
+    const candidates = await this.db('statistic')
       .where('server_id', Number(serverId))
       .where('timestamp', '<', beforeTimestamp)
       .where(function hasTraffic() {
@@ -58,10 +83,15 @@ exports.Statistics = class Statistics {
           .orWhere('bytes_sent', '>', 0);
       })
       .orderBy('timestamp', 'desc')
-      .first();
+      .limit(30);
 
-    if (meaningful) {
-      return meaningful;
+    const monotonic = candidates.find((row) => isMonotonicStatisticPredecessor(row, currentRow));
+    if (monotonic) {
+      return monotonic;
+    }
+
+    if (candidates.length > 0) {
+      return candidates[0];
     }
 
     return this.db('statistic')
@@ -99,7 +129,7 @@ exports.Statistics = class Statistics {
       };
     }
 
-    const prevRow = await this.fetchPreviousStatisticRow(server.id, row.timestamp);
+    const prevRow = await this.fetchPreviousStatisticRow(server.id, row);
     const speeds = computeSpeed(row, prevRow);
 
     return {
@@ -150,11 +180,17 @@ exports.Statistics = class Statistics {
       .orderBy('timestamp', 'asc');
 
     const rows = Array.isArray(result) ? result : (result.rows || []);
-    return filterEmptyStatisticSnapshots(rows);
+    return filterRegressiveStatisticSnapshots(filterEmptyStatisticSnapshots(rows));
   }
 
   async resetByServer(serverId) {
     await this.db('statistic').where('server_id', Number(serverId)).del();
+    await this.db('servers')
+      .where('id', Number(serverId))
+      .update({
+        total_bytes_received: 0,
+        total_bytes_sent: 0
+      });
     return { success: true, message: `Statistics for server ${serverId} have been reset` };
   }
 };
