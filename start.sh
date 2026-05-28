@@ -388,7 +388,7 @@ start_server() {
         cd /root/net_port
         SERVER_BIN="$(resolve_server_binary)" || exit 1
         echo "Using server binary: ${SERVER_BIN}"
-        "${SERVER_BIN}" --user 1 -v7 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443 &
+        "${SERVER_BIN}" --user 1 -v1 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443 &
         server_pid=$!
         wait $server_pid || true
         server_exit_code=$?

@@ -58,22 +58,33 @@ app.use('/files', express.static(frontendFilesPath, {
   }
 }));
 
-// Serve compiled client from multiple possible locations
+// Serve compiled client binary (must contain module_net_port_client-* built artifact)
 const possibleBuildPaths = [
-  path.join(__dirname, '../../../../net_port/build/client'),  // Local development
-  path.join(__dirname, '../../../client'),                    // Docker container
-  path.join(__dirname, '../../../../build/client'),           // Alternative path
-  path.join(__dirname, '../..')                               // Alternative path
+  path.join(__dirname, '../../../build/client'),              // Docker: source/build/client
+  '/root/net_port/source/build/client',                       // Docker absolute
+  path.join(__dirname, '../../../../build/client'),           // Local dev from repo root
+  path.join(__dirname, '../../../../net_port/build/client'),  // Local dev alternate layout
+  '/root/net_port',                                           // Docker: binaries copied to /root/net_port
 ];
 
-// Try each build path until we find one that exists
-let buildClientPath = null;
-for (const possiblePath of possibleBuildPaths) {
-  if (fs.existsSync(possiblePath)) {
-    buildClientPath = possiblePath;
-    console.log(`Using build client path: ${buildClientPath}`);
-    break;
+function resolveBuildClientPath() {
+  for (const possiblePath of possibleBuildPaths) {
+    if (!fs.existsSync(possiblePath)) {
+      continue;
+    }
+    const hasClientBinary = fs
+      .readdirSync(possiblePath)
+      .some((name) => name.startsWith('module_net_port_client-') && !name.endsWith('.dir'));
+    if (hasClientBinary) {
+      return possiblePath;
+    }
   }
+  return null;
+}
+
+const buildClientPath = resolveBuildClientPath();
+if (buildClientPath) {
+  console.log(`Using build client path: ${buildClientPath}`);
 }
 
 // Only serve from build directory if it exists

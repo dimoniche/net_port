@@ -44,6 +44,7 @@ import DevicePortBadges from "../components/DevicePortBadges";
 import { useDeviceStatusSocket } from "../hooks/useDeviceStatusSocket";
 
 import updateAbility from "../config/permission";
+import { CLIENT_BINARY_NAME } from "../consts/client";
 
 const buildDeviceClientCommand = ({
     deviceId,
@@ -51,7 +52,7 @@ const buildDeviceClientCommand = ({
     internalPort,
     internalAddress,
 }) => {
-    const base = `./module_net_port_client --device-id ${deviceId} --device-token ${token} --registration-server SERVER_IP --registration-port 8443 --port-host-base 49000`;
+    const base = `./${CLIENT_BINARY_NAME} --device-id ${deviceId} --device-token ${token} --registration-server SERVER_IP --registration-port 8443 --port-host-base 49000`;
 
     if (internalPort) {
         if (internalAddress && internalAddress !== "127.0.0.1") {
