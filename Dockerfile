@@ -1,4 +1,51 @@
-FROM ubuntu:22.04
+# --- Stage 1: compile C binaries and build frontend / backend deps ---
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+ARG NODE_VERSION=20
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    pkg-config \
+    libjansson-dev \
+    libssl-dev \
+    libpq-dev \
+    ca-certificates \
+    wget \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+ENV NVM_DIR=/root/.nvm
+RUN bash -c "source $NVM_DIR/nvm.sh && nvm install $NODE_VERSION && nvm alias default $NODE_VERSION"
+
+WORKDIR /root/net_port/source
+COPY . /root/net_port/source/
+
+RUN rm -rf build CMakeCache.txt CMakeFiles cmake_install.cmake Makefile && \
+    mkdir -p build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    make -j"$(nproc)"
+
+COPY artifacts/clients/ /root/net_port/source/build/client/
+
+WORKDIR /root/net_port/source/web/backend_net_port
+RUN bash -c "source $NVM_DIR/nvm.sh && \
+    npm ci --omit=dev && \
+    npm install bcryptjs && \
+    npm cache clean --force"
+
+WORKDIR /root/net_port/source/web/frontend_net_port
+RUN bash -c "source $NVM_DIR/nvm.sh && \
+    npm ci && \
+    npm run build && \
+    npm cache clean --force && \
+    rm -rf node_modules"
+
+# --- Stage 2: minimal runtime image ---
+FROM ubuntu:22.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -6,75 +53,57 @@ ARG EXTERNAL_DB=false
 
 RUN apt-get update && \
     if [ "$EXTERNAL_DB" = "true" ]; then \
-        apt-get install -y \
-            build-essential \
-            cmake \
-            git \
+        apt-get install -y --no-install-recommends \
             nginx \
+            openssl \
+            ca-certificates \
             tzdata \
-            libpq-dev \
-            wget \
-            mc \
-            systemd \
-            pkg-config \
-            libjansson-dev \
-            openssl ; \
+            libjansson4 \
+            libpq5 \
+            libssl3 \
+            postgresql-client ; \
     else \
-        apt-get install -y \
-            build-essential \
-            cmake \
-            git \
+        apt-get install -y --no-install-recommends \
             nginx \
-            postgresql \
-            postgresql-contrib \
+            openssl \
+            ca-certificates \
             tzdata \
-            libpq-dev \
-            wget \
-            mc \
-            systemd \
-            pkg-config \
-            libjansson-dev \
-            openssl ; \
+            libjansson4 \
+            libpq5 \
+            libssl3 \
+            postgresql \
+            postgresql-contrib ; \
     fi && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-ARG NODE_VERSION=20
-RUN wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+COPY --from=builder /root/.nvm /root/.nvm
 ENV NVM_DIR=/root/.nvm
-RUN bash -c "source $NVM_DIR/nvm.sh && nvm install $NODE_VERSION"
 
 RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata
 
-WORKDIR /root/net_port/source
+RUN mkdir -p /root/net_port /root/net_port/source/build/client /root/net_port/source/artifacts/clients /var/www/html
 
-# Локальные исходники (включая device management)
-COPY . /root/net_port/source/
+COPY --from=builder /root/net_port/source/build/server/module_net_port_server-* /root/net_port/
+COPY --from=builder /root/net_port/source/build/client/ /root/net_port/source/build/client/
+COPY --from=builder /root/net_port/source/artifacts/clients/ /root/net_port/source/artifacts/clients/
 
-RUN rm -rf build CMakeCache.txt CMakeFiles cmake_install.cmake Makefile && \
-    mkdir -p build && cd build && cmake .. && make -j"$(nproc)"
-
-# amd64-клиент уже в build/client/ после cmake; в /root/net_port/ — для start.sh
-RUN mkdir -p /root/net_port && \
-    cp build/server/module_net_port_server-* /root/net_port/ && \
-    cp build/client/module_net_port_client-* /root/net_port/
-
-# Доп. клиенты (ARM, Windows .exe): scripts/build-client-cross.sh / build-client-windows.sh
-COPY artifacts/clients/ /root/net_port/source/build/client/
-
-WORKDIR /root/net_port/source/web/backend_net_port
-RUN bash -c "source $NVM_DIR/nvm.sh && npm install && npm install bcryptjs"
-
-WORKDIR /root/net_port/source/web/frontend_net_port
-RUN bash -c "source $NVM_DIR/nvm.sh && npm install && npm run build"
-
-RUN mkdir -p /var/www/html && cp -r build/* /var/www/html/
+COPY --from=builder /root/net_port/source/web/backend_net_port /root/net_port/source/web/backend_net_port
+COPY --from=builder /root/net_port/source/web/utils /root/net_port/source/web/utils
+COPY --from=builder /root/net_port/source/web/frontend_net_port/src/files /root/net_port/source/web/frontend_net_port/src/files
+COPY --from=builder /root/net_port/source/scripts /root/net_port/source/scripts
+COPY --from=builder /root/net_port/source/sql /root/net_port/source/sql
+COPY --from=builder /root/net_port/source/docs /root/net_port/source/docs
+COPY --from=builder /root/net_port/source/VERSION /root/net_port/source/VERSION
+COPY --from=builder /root/net_port/source/web/frontend_net_port/build/ /var/www/html/
 
 COPY init_db.sql /etc/postgresql/init_db.sql
 COPY init_device_db.sql /etc/postgresql/init_device_db.sql
 COPY sql/migrations/ /etc/postgresql/migrations/
 COPY sql/grant_app_privileges.sql /etc/postgresql/grant_app_privileges.sql
-RUN chown -R postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/migrations /etc/postgresql/grant_app_privileges.sql
+RUN if id postgres >/dev/null 2>&1; then \
+        chown -R postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/migrations /etc/postgresql/grant_app_privileges.sql; \
+    fi
 
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY start.sh /root/net_port/start.sh

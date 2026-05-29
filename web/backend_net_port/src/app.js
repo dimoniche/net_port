@@ -49,14 +49,18 @@ for (const possiblePath of possiblefrontendFilesPath) {
 }
 
 // Serve pre-built client files
-app.use('/files', express.static(frontendFilesPath, {
-  setHeaders: (res, filePath) => {
-    const filename = path.basename(filePath);
-    if (filename.includes('module_net_port_client')) {
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+if (frontendFilesPath) {
+  app.use('/files', express.static(frontendFilesPath, {
+    setHeaders: (res, filePath) => {
+      const filename = path.basename(filePath);
+      if (filename.includes('module_net_port_client')) {
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      }
     }
-  }
-}));
+  }));
+} else {
+  console.log('Frontend files directory not found, /files endpoint disabled');
+}
 
 const { resolveBuildClientPaths } = require('./client-downloads');
 
