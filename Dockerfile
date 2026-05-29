@@ -33,8 +33,9 @@ COPY artifacts/clients/ /root/net_port/source/build/client/
 
 WORKDIR /root/net_port/source/web/backend_net_port
 RUN bash -c "source $NVM_DIR/nvm.sh && \
-    npm ci --omit=dev && \
-    npm install bcryptjs && \
+    npm ci && \
+    npm run build:bundle && \
+    rm -rf node_modules src test jest.config.js .eslintrc.json && \
     npm cache clean --force"
 
 WORKDIR /root/net_port/source/web/frontend_net_port
@@ -89,7 +90,6 @@ COPY --from=builder /root/net_port/source/build/client/ /root/net_port/source/bu
 COPY --from=builder /root/net_port/source/artifacts/clients/ /root/net_port/source/artifacts/clients/
 
 COPY --from=builder /root/net_port/source/web/backend_net_port /root/net_port/source/web/backend_net_port
-COPY --from=builder /root/net_port/source/web/utils /root/net_port/source/web/utils
 COPY --from=builder /root/net_port/source/web/frontend_net_port/src/files /root/net_port/source/web/frontend_net_port/src/files
 COPY --from=builder /root/net_port/source/scripts /root/net_port/source/scripts
 COPY --from=builder /root/net_port/source/sql /root/net_port/source/sql

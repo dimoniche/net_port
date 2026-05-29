@@ -171,7 +171,7 @@ export USE_LOCAL_DB
 bash /root/net_port/source/scripts/run-migrations.sh
 
 # Add admin user with hashed password from environment
-cd /root/net_port/source/web/backend_net_port && bash -c "source $NVM_DIR/nvm.sh && NODE_PATH=/root/net_port/source/web/backend_net_port/node_modules node ../utils/add_test_user.js"
+cd /root/net_port/source/web/backend_net_port && bash -c "source $NVM_DIR/nvm.sh && node dist/add_test_user/index.js" || echo "Warning: add_test_user failed, continuing startup"
 
 # Generate SSL certificates if they don't exist
 if [ ! -f /root/net_port/server.crt ] || [ ! -f /root/net_port/server.key ]; then
@@ -230,7 +230,7 @@ start_backend() {
     while true; do
         echo "Starting Node.js backend..."
         cd /root/net_port/source/web/backend_net_port
-        bash -c "source $NVM_DIR/nvm.sh && npm start" &
+        bash -c "source $NVM_DIR/nvm.sh && node dist/index.js" &
         backend_pid=$!
         wait $backend_pid || true
         backend_exit_code=$?

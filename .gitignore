@@ -17,3 +17,4 @@ __pycache__
 /client_win/out
 .env
 artifacts/clients/module_net_port_client-*
+web/backend_net_port/dist
