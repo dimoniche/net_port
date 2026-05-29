@@ -646,7 +646,7 @@ EOF
     # Add admin user with hashed password from environment
     info "Adding admin user..."
     cd "$INSTALL_DIR/source/web/backend_net_port"
-    APP_USER="$APP_USER" APP_PASSWORD="$APP_PASSWORD" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWORD" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_NAME="$DB_NAME" NODE_PATH=node_modules node ../utils/add_test_user.js >> "$LOG_FILE" 2>&1 && \
+    APP_USER="$APP_USER" APP_PASSWORD="$APP_PASSWORD" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWORD" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_NAME="$DB_NAME" node src/add-test-user.js >> "$LOG_FILE" 2>&1 && \
         success "Admin user added" || error_exit "Failed to add admin user"
     info "Admin user added"
 

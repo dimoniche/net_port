@@ -504,6 +504,33 @@ exports.Devices = class Devices extends Service {
     if (!device) {
       throw new Error('Device not found');
     }
+
+    const liveSession = await knex('device_sessions')
+      .where({ device_id: id, status: 'active' })
+      .where('expires_at', '>', knex.fn.now())
+      .orderBy('started_at', 'desc')
+      .first();
+
+    const hasRecentHeartbeat = device.last_heartbeat
+      && (Date.now() - new Date(device.last_heartbeat).getTime()) < 2 * 60 * 1000;
+
+    if (liveSession && hasRecentHeartbeat) {
+      await knex('devices').where('id', id).update({
+        status: 'active',
+        updated_at: new Date()
+      });
+
+      const updatedDevice = await broadcastDeviceById(this.app, id);
+
+      return {
+        message: 'Device is already connected.',
+        device_id: device.device_id,
+        status: 'active',
+        control_port: 8443,
+        port_range: '6000-7000',
+        device: updatedDevice
+      };
+    }
     
     await knex('devices').where('id', id).update({
       status: 'connecting',

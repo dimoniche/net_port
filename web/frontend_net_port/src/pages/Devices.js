@@ -45,25 +45,11 @@ import DevicePortBadges from "../components/DevicePortBadges";
 import { useDeviceStatusSocket } from "../hooks/useDeviceStatusSocket";
 
 import updateAbility from "../config/permission";
-import { CLIENT_BINARY_NAME } from "../consts/client";
-
-const buildDeviceClientCommand = ({
-    deviceId,
-    token,
-    internalPort,
-    internalAddress,
-}) => {
-    const base = `./${CLIENT_BINARY_NAME} --device-id ${deviceId} --device-token ${token} --registration-server SERVER_IP --registration-port 8443 --port-host-base 49000`;
-
-    if (internalPort) {
-        if (internalAddress && internalAddress !== "127.0.0.1") {
-            return `${base} --host_out ${internalAddress}`;
-        }
-        return base;
-    }
-
-    return `${base} --host_out ${internalAddress || "127.0.0.1"} -p_out 22`;
-};
+import {
+    buildDeviceClientCommand,
+    DEFAULT_REGISTRATION_PORT,
+    DEFAULT_PORT_HOST_BASE,
+} from "../utils/clientCommand";
 
 const Devices = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
@@ -71,6 +57,10 @@ const Devices = ({ children, ...rest }) => {
     const [isLoaded, setIsLoaded] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [devicesData, setDevicesData] = useState([]);
+    const [clientRuntimeConfig, setClientRuntimeConfig] = useState({
+        registrationPort: DEFAULT_REGISTRATION_PORT,
+        portHostBase: DEFAULT_PORT_HOST_BASE,
+    });
     const history = useNavigate();
     const location = useLocation();
     const [tokenNotice, setTokenNotice] = useState(null);
@@ -200,6 +190,17 @@ const Devices = ({ children, ...rest }) => {
             })
             .catch(() => {});
 
+        api.get("/client-config", { signal: abortController.signal })
+            .then((response) => {
+                if (response.status === 200) {
+                    setClientRuntimeConfig({
+                        registrationPort: response.data.registration_port || DEFAULT_REGISTRATION_PORT,
+                        portHostBase: response.data.port_host_base ?? DEFAULT_PORT_HOST_BASE,
+                    });
+                }
+            })
+            .catch(() => {});
+
         return () => {
             abortController.abort();
         };
@@ -318,6 +319,8 @@ const Devices = ({ children, ...rest }) => {
                                 token: tokenNotice.token,
                                 internalPort: tokenNotice.internalPort,
                                 internalAddress: tokenNotice.internalAddress,
+                                registrationPort: clientRuntimeConfig.registrationPort,
+                                portHostBase: clientRuntimeConfig.portHostBase,
                             })}
                         </Box>
                     </Alert>

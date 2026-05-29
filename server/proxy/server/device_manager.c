@@ -1028,8 +1028,8 @@ int update_device_heartbeat(const char *session_token)
 
     const char *dev_params[1] = { session_token };
     PGresult *res2 = PQexecParams(conn,
-        "UPDATE devices SET last_heartbeat = NOW() "
-        "WHERE id = (SELECT device_id FROM device_sessions WHERE session_token = $1)",
+        "UPDATE devices SET last_heartbeat = NOW(), status = 'active', updated_at = NOW() "
+        "WHERE id = (SELECT device_id FROM device_sessions WHERE session_token = $1 AND status = 'active')",
         1, NULL, dev_params, NULL, NULL, 0);
 
     if (PQresultStatus(res2) != PGRES_COMMAND_OK) {

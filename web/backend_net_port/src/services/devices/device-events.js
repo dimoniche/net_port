@@ -12,6 +12,20 @@ function enrichDeviceWithOnline(device) {
     deviceObj.online = false;
   }
 
+  const hasLiveSession = Boolean(
+    device.session_port != null
+    || device.last_activity
+    || (device.active_connections != null && device.active_connections >= 0)
+  );
+
+  if (
+    deviceObj.status === 'connecting'
+    && deviceObj.online
+    && hasLiveSession
+  ) {
+    deviceObj.status = 'active';
+  }
+
   return deviceObj;
 }
 

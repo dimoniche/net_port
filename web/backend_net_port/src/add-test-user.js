@@ -23,10 +23,19 @@ async function addTestUser() {
     const login = process.env.APP_USER || 'admin';
     const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
+    const existing = await client.query(
+      'SELECT id, login FROM users WHERE login = $1 LIMIT 1',
+      [login]
+    );
+
+    if (existing.rowCount > 0) {
+      console.log(`User '${login}' already exists, skipping creation.`);
+      return;
+    }
+
     const result = await client.query(
       `INSERT INTO users (login, password, email, role_name, username, phone)
        VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (login) DO NOTHING
        RETURNING id, login`,
       [
         login,
@@ -37,13 +46,8 @@ async function addTestUser() {
         process.env.APP_PHONE || ''
       ]
     );
-
-    if (result.rowCount === 0) {
-      console.log(`User '${login}' already exists, skipping creation.`);
-    } else {
-      console.log('New user added:', result.rows);
-      console.log('Login:', login);
-    }
+    console.log('New user added:', result.rows);
+    console.log('Login:', login);
   } catch (err) {
     console.error('Error:', err.message);
     process.exitCode = 1;

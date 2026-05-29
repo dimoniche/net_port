@@ -10,6 +10,7 @@ const hooks = require('./devices/devices.hooks');
 const { authenticate } = require('@feathersjs/authentication').hooks;
 const { listClientDownloads } = require('../client-downloads');
 const { getLatestClientRelease, checkClientUpdate } = require('../client-releases');
+const { configureClientRuntimeConfig } = require('../client-runtime-config');
 
 // eslint-disable-next-line no-unused-vars
 module.exports = function (app) {
@@ -18,6 +19,7 @@ module.exports = function (app) {
   app.configure(servers);
   app.configure(statistics);
   configureSettings(app);
+  configureClientRuntimeConfig(app);
   
   // Configure devices service
   const SERVICE_ENDPOINT = (app.get('prefix') || '') + '/devices';

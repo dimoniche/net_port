@@ -1,9 +1,13 @@
 # --- Stage 1: compile C binaries and build frontend / backend deps ---
+FROM node:20-bookworm AS node
+
 FROM ubuntu:22.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG NODE_VERSION=20
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -14,12 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     libpq-dev \
     ca-certificates \
-    wget \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-RUN wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
-ENV NVM_DIR=/root/.nvm
-RUN bash -c "source $NVM_DIR/nvm.sh && nvm install $NODE_VERSION && nvm alias default $NODE_VERSION"
 
 WORKDIR /root/net_port/source
 COPY . /root/net_port/source/
@@ -32,18 +31,16 @@ RUN rm -rf build CMakeCache.txt CMakeFiles cmake_install.cmake Makefile && \
 COPY artifacts/clients/ /root/net_port/source/build/client/
 
 WORKDIR /root/net_port/source/web/backend_net_port
-RUN bash -c "source $NVM_DIR/nvm.sh && \
-    npm ci && \
+RUN npm ci && \
     npm run build:bundle && \
     rm -rf node_modules src test jest.config.js .eslintrc.json && \
-    npm cache clean --force"
+    npm cache clean --force
 
 WORKDIR /root/net_port/source/web/frontend_net_port
-RUN bash -c "source $NVM_DIR/nvm.sh && \
-    npm ci && \
+RUN npm ci && \
     npm run build && \
     npm cache clean --force && \
-    rm -rf node_modules"
+    rm -rf node_modules
 
 # --- Stage 2: minimal runtime image ---
 FROM ubuntu:22.04 AS runtime
@@ -77,8 +74,7 @@ RUN apt-get update && \
     fi && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-COPY --from=builder /root/.nvm /root/.nvm
-ENV NVM_DIR=/root/.nvm
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
 
 RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata

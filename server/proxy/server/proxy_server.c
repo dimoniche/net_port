@@ -405,7 +405,7 @@ init_input_socket(proxy_server_t * server)
     memset(&server->input_addr, 0, sizeof(server->input_addr));
 
     in_addr_t connection_address = INADDR_ANY;
-    if (proxy_settings.local_address[0] != '\0') {
+    if (!server->is_dynamic_port && proxy_settings.local_address[0] != '\0') {
         in_addr_t addr = inet_addr(proxy_settings.local_address);
         if (addr != INADDR_NONE) {
             connection_address = addr;
@@ -459,7 +459,7 @@ init_output_socket(proxy_server_t * server)
     memset(&server->output_addr, 0, sizeof(server->output_addr));
 
     in_addr_t connection_address = INADDR_ANY;
-    if (proxy_settings.local_address[0] != '\0') {
+    if (!server->is_dynamic_port && proxy_settings.local_address[0] != '\0') {
         in_addr_t addr = inet_addr(proxy_settings.local_address);
         if (addr != INADDR_NONE) {
             connection_address = addr;
