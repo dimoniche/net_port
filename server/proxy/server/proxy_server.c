@@ -36,6 +36,21 @@ static proxy_servers_settings_t proxy_settings;
 static dynamic_server_runtime_t g_dynamic_runtimes[MAX_DYNAMIC_SERVER_RUNTIMES];
 static pthread_mutex_t g_dynamic_runtimes_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+static void init_proxy_bind_address(void)
+{
+    memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
+
+    const char *bind_addr = getenv("NET_PORT_BIND_ADDRESS");
+    if (bind_addr && bind_addr[0]) {
+        strncpy(proxy_settings.local_address, bind_addr, sizeof(proxy_settings.local_address) - 1);
+        proxy_settings.local_address[sizeof(proxy_settings.local_address) - 1] = '\0';
+    } else {
+        strncpy(proxy_settings.local_address, "127.0.0.1", sizeof(proxy_settings.local_address) - 1);
+    }
+
+    logMsg(LOG_INFO, "Proxy bind address: %s\n", proxy_settings.local_address);
+}
+
 // Семафор для защиты доступа к статистике серверов
 sem_t statistics_semaphore;
 
@@ -109,8 +124,7 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time
         logMsg(LOG_INFO, "Starting without legacy switcher servers (device management mode)\n");
     }
 
-    memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
-    strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
+    init_proxy_bind_address();
     proxy_settings.statistics_retention_period = statistics_retention_period;
 
     // Инициализация семафора для защиты статистики
@@ -194,6 +208,7 @@ int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t inp
     }
     
     proxy_settings.statistics_retention_period = statistics_retention_period;
+    init_proxy_bind_address();
 
     servers[0].id = 0;
     servers[0].enable = true;

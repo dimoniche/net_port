@@ -7,6 +7,7 @@ DB_PASSWORD=${DB_PASSWORD}
 DB_HOST=${DB_HOST:-localhost}
 DB_PORT=${DB_PORT:-5432}
 THREADS=${THREADS:-10}
+export NET_PORT_BIND_ADDRESS="${NET_PORT_BIND_ADDRESS:-0.0.0.0}"
 
 # Determine if we are using local PostgreSQL (localhost or 127.0.0.1)
 if [ "$DB_HOST" = "localhost" ] || [ "$DB_HOST" = "127.0.0.1" ]; then
