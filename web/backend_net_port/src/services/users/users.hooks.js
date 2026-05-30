@@ -13,7 +13,14 @@ module.exports = {
     all: [],
     find: [authenticate('jwt')],
     get: [authenticate('jwt')],
-    create: [hashPassword('password')],
+    create: [
+      authenticate('jwt'),
+      checkPermissions({
+        roles: ['admin'],
+        field: 'role_name'
+      }),
+      hashPassword('password')
+    ],
     update: [hashPassword('password'), authenticate('jwt'),checkPermissions({
       roles: [ 'admin', 'user' ],
       field: 'role_name'

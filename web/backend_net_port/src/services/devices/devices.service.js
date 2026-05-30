@@ -498,11 +498,20 @@ exports.Devices = class Devices extends Service {
   }
 
   async connect(id, params) {
+    const { user } = params;
     const knex = this.Model;
-    
+
+    if (!user) {
+      throw new Error('Authentication required');
+    }
+
     const device = await knex('devices').where('id', id).first();
     if (!device) {
       throw new Error('Device not found');
+    }
+
+    if (!canAccessDevice(user, device)) {
+      throw new Error('Permission denied');
     }
 
     const liveSession = await knex('device_sessions')

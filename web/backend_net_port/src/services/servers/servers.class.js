@@ -3,6 +3,7 @@
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
 const { validateServerPorts } = require('../../config/ports');
+const { isAdminUser } = require('../../lib/userRoles');
 
 exports.Servers = class Servers {
   constructor(dbInstance) {
@@ -141,7 +142,13 @@ exports.Servers = class Servers {
     return `server ${id} updated`;
   }
 
-  async restart(id) {
+  async restart(id, params = {}) {
+    const { user } = params;
+
+    if (!user) {
+      throw new Error('Authentication required');
+    }
+
     const server = await this.db
       .from('servers')
       .where('id', Number(id))
@@ -149,6 +156,10 @@ exports.Servers = class Servers {
 
     if (!server) {
       throw new Error(`Server with id ${id} not found`);
+    }
+
+    if (!isAdminUser(user) && Number(server.user_id) !== Number(user.id)) {
+      throw new Error('Permission denied');
     }
 
     try {

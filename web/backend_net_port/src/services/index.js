@@ -11,6 +11,7 @@ const { authenticate } = require('@feathersjs/authentication').hooks;
 const { listClientDownloads } = require('../client-downloads');
 const { getLatestClientRelease, checkClientUpdate } = require('../client-releases');
 const { configureClientRuntimeConfig } = require('../client-runtime-config');
+const { authenticateRequest, mapServiceError } = require('../lib/authenticateRequest');
 
 // eslint-disable-next-line no-unused-vars
 module.exports = function (app) {
@@ -31,44 +32,7 @@ module.exports = function (app) {
   const service = app.service(SERVICE_ENDPOINT);
   service.hooks(hooks);
 
-  const authenticateDeviceRequest = async (req) => {
-    let user = null;
-    const authHeader = req.headers.authorization;
-
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.substring(7);
-        const authServicePath = (app.get('prefix') || '') + '/authentication';
-        const authResult = await app.service(authServicePath).verifyAccessToken(token);
-        const payload = authResult.user || authResult;
-        const userId = payload.id || payload.sub;
-
-        if (userId != null) {
-          user = await app.get('db')('users').where('id', Number(userId)).first();
-        }
-      } catch (authError) {
-        console.error('Authentication failed:', authError);
-      }
-    }
-
-    if (!user && req.feathers?.user) {
-      user = req.feathers.user;
-    }
-
-    return user;
-  };
-
-  const mapDeviceServiceError = (error) => {
-    let statusCode = 500;
-    if (error.message === 'Authentication required') {
-      statusCode = 401;
-    } else if (error.message === 'Permission denied') {
-      statusCode = 403;
-    } else if (error.message === 'Device not found') {
-      statusCode = 404;
-    }
-    return statusCode;
-  };
+  const authenticateDeviceRequest = (req) => authenticateRequest(app, req);
 
   app.get(`${SERVICE_ENDPOINT}/statistics/summary`, async (req, res) => {
     try {
@@ -82,7 +46,7 @@ module.exports = function (app) {
       res.json(result);
     } catch (error) {
       console.error('Error in device statistics summary endpoint:', error);
-      res.status(mapDeviceServiceError(error)).json({
+      res.status(mapServiceError(error)).json({
         error: error.message,
         details: error.message
       });
@@ -105,7 +69,7 @@ module.exports = function (app) {
       res.json(result);
     } catch (error) {
       console.error('Error in device statistics endpoint:', error);
-      res.status(mapDeviceServiceError(error)).json({
+      res.status(mapServiceError(error)).json({
         error: error.message,
         details: error.message
       });
@@ -125,7 +89,7 @@ module.exports = function (app) {
       res.json(result);
     } catch (error) {
       console.error('Error in device statistics reset endpoint:', error);
-      res.status(mapDeviceServiceError(error)).json({
+      res.status(mapServiceError(error)).json({
         error: error.message,
         details: error.message
       });
@@ -136,28 +100,7 @@ module.exports = function (app) {
   app.post(`${SERVICE_ENDPOINT}/:deviceId/connect`, async (req, res, next) => {
     try {
       const { deviceId } = req.params;
-      
-      /*// Authenticate the request
-      let user = null;
-      const authHeader = req.headers.authorization;
-      
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        try {
-          const token = authHeader.substring(7);
-          // Verify the access token - use the correct authentication service path
-          const authServicePath = (app.get('prefix') || '') + '/authentication';
-          const authResult = await app.service(authServicePath).verifyAccessToken(token);
-          user = authResult.user;
-        } catch (authError) {
-          console.error('Authentication failed:', authError);
-          // Continue without user - will be handled by service
-        }
-      }
-      
-      // Also check feathers user from middleware
-      if (!user && req.feathers?.user) {
-        user = req.feathers.user;
-      }*/
+      const user = await authenticateDeviceRequest(req);
 
       if (!deviceId) {
         return res.status(400).json({
@@ -165,24 +108,12 @@ module.exports = function (app) {
         });
       }
 
-      // Use the registered service instead of creating a new instance
       const devicesService = app.service(SERVICE_ENDPOINT);
-      const result = await devicesService.connect(deviceId);
+      const result = await devicesService.connect(deviceId, { user });
       res.json(result);
     } catch (error) {
       console.error('Error in device connect endpoint:', error);
-      
-      // Return appropriate status codes based on error message
-      let statusCode = 500;
-      if (error.message === 'Authentication required') {
-        statusCode = 401;
-      } else if (error.message === 'Permission denied') {
-        statusCode = 403;
-      } else if (error.message === 'Device not found') {
-        statusCode = 404;
-      }
-      
-      res.status(statusCode).json({
+      res.status(mapServiceError(error)).json({
         error: error.message,
         details: error.message
       });
@@ -206,7 +137,7 @@ module.exports = function (app) {
       res.json(result);
     } catch (error) {
       console.error('Error in device disconnect endpoint:', error);
-      res.status(mapDeviceServiceError(error)).json({
+      res.status(mapServiceError(error)).json({
         error: error.message,
         details: error.message
       });
@@ -230,7 +161,7 @@ module.exports = function (app) {
       res.json(result);
     } catch (error) {
       console.error('Error in device restart endpoint:', error);
-      res.status(mapDeviceServiceError(error)).json({
+      res.status(mapServiceError(error)).json({
         error: error.message,
         details: error.message
       });
@@ -254,7 +185,7 @@ module.exports = function (app) {
       res.json(result);
     } catch (error) {
       console.error('Error in device ping endpoint:', error);
-      res.status(mapDeviceServiceError(error)).json({
+      res.status(mapServiceError(error)).json({
         error: error.message,
         details: error.message
       });
