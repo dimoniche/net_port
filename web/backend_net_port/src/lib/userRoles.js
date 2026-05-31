@@ -12,7 +12,7 @@ function canAccessDevice(user, device) {
     return true;
   }
   if (device.user_id == null) {
-    return true;
+    return false;
   }
   return Number(device.user_id) === Number(user.id);
 }
@@ -22,9 +22,7 @@ function applyDeviceOwnershipFilter(knexQuery, user, column = 'devices.user_id')
     return knexQuery;
   }
 
-  return knexQuery.where(function ownershipScope() {
-    this.where(column, user.id).orWhereNull(column);
-  });
+  return knexQuery.where(column, user.id);
 }
 
 module.exports = {

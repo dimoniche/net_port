@@ -129,10 +129,6 @@ module.exports = {
           if (!canAccessDevice(user, device)) {
             throw new Error('Permission denied');
           }
-
-          if (device.user_id == null) {
-            context.data = { ...context.data, user_id: user.id };
-          }
         }
 
         if (Object.prototype.hasOwnProperty.call(context.data || {}, 'preferred_port')) {
@@ -165,10 +161,6 @@ module.exports = {
           
           if (!canAccessDevice(user, device)) {
             throw new Error('Permission denied');
-          }
-
-          if (device.user_id == null) {
-            context.data = { ...context.data, user_id: user.id };
           }
         }
 
