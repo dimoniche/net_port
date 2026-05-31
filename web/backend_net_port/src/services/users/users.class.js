@@ -5,6 +5,117 @@ const util = require("util");
 const exec = util.promisify(require("child_process").exec);
 
 const { Service } = require("feathers-knex");
+const logger = require("../../logger");
+
+const SYSTEMD_UNIT_DIR = "/etc/systemd/system";
+
+async function isSystemdAvailable() {
+    if (process.env.SKIP_USER_SYSTEMD === "true") {
+        return false;
+    }
+
+    try {
+        await exec("command -v systemctl");
+    } catch {
+        return false;
+    }
+
+    return fs.existsSync(SYSTEMD_UNIT_DIR);
+}
+
+function legacyServiceName(userId) {
+    return `net_port_u${userId}`;
+}
+
+function legacyServiceFilePath(userId) {
+    return `${SYSTEMD_UNIT_DIR}/${legacyServiceName(userId)}.service`;
+}
+
+function buildLegacyServiceUnit(userId) {
+    return `[Unit]
+Description=net port service user ${userId}
+After=network.target auditd.service
+
+[Service]
+WorkingDirectory=/root/net_port
+ExecStart=/bin/su -c "/home/net_port/module_net_port_server* --user ${userId} --cert server.crt --key server.key --threads 10"
+User=root
+Type=simple
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+`;
+}
+
+async function installLegacyUserService(userId) {
+    if (!(await isSystemdAvailable())) {
+        logger.info(
+            "Skipping legacy systemd unit for user %s (systemd unavailable)",
+            userId
+        );
+        return;
+    }
+
+    const filepath = legacyServiceFilePath(userId);
+
+    try {
+        if (!fs.existsSync(filepath)) {
+            fs.writeFileSync(filepath, buildLegacyServiceUnit(userId), {
+                flag: "wx",
+            });
+        }
+    } catch (error) {
+        logger.warn(
+            "Failed to write legacy systemd unit for user %s: %s",
+            userId,
+            error.message
+        );
+        return;
+    }
+
+    try {
+        await exec(`systemctl enable ${legacyServiceName(userId)}`);
+    } catch (error) {
+        logger.warn(
+            "Failed to enable legacy systemd unit for user %s: %s",
+            userId,
+            error.message
+        );
+    }
+}
+
+async function removeLegacyUserService(userId) {
+    if (!(await isSystemdAvailable())) {
+        return;
+    }
+
+    const serviceName = legacyServiceName(userId);
+    const filepath = legacyServiceFilePath(userId);
+
+    try {
+        await exec(`systemctl disable ${serviceName}`);
+    } catch (error) {
+        logger.warn(
+            "Failed to disable legacy systemd unit for user %s: %s",
+            userId,
+            error.message
+        );
+    }
+
+    try {
+        if (fs.existsSync(filepath)) {
+            fs.unlinkSync(filepath);
+        }
+    } catch (error) {
+        logger.warn(
+            "Failed to remove legacy systemd unit for user %s: %s",
+            userId,
+            error.message
+        );
+    }
+}
 
 exports.Users = class Users extends Service {
     constructor(options) {
@@ -16,76 +127,36 @@ exports.Users = class Users extends Service {
     }
 
     async update(id, data) {
-        await this.db1
+        const updated = await this.db1
             .from("users")
             .where("id", Number(id))
             .update(data)
             .returning("*");
 
-        return `user${id} update`;
+        return Array.isArray(updated) ? updated[0] : updated;
     }
 
     async remove(id) {
         const user = await this.get(id);
-        if (user.login == "admin") return await this.find();
-
-        await this.db1.from("users").where("id", id).del();
-
-        const command_start_service = "systemctl";
-        const args_disable_service = "disable";
-        const args_name_service = `net_port_u${id}`;
-
-        await exec(
-            `${command_start_service} ${args_disable_service} ${args_name_service}`
-        );
-
-        const filepath = `/etc/systemd/system/net_port_u${id}.service`;
-
-        try {
-            fs.unlinkSync(filepath);
-        } catch (e) {
-            return e;
+        if (user.login == "admin") {
+            return user;
         }
 
-        return `user${id} remove`;
+        await this.db1.from("users").where("id", id).del();
+        await removeLegacyUserService(id);
+
+        return user;
     }
 
     async create(data) {
-        const id = await this.db1.insert(data).into("users").returning("id");
+        const inserted = await this.db1
+            .insert(data)
+            .into("users")
+            .returning("*");
+        const user = Array.isArray(inserted) ? inserted[0] : inserted;
 
-        const service = String(`\
-[Unit]\n\
-Description=net port service user ${id}\n\
-After=network.target auditd.service\n\
-\n\
-[Service]\n\
-WorkingDirectory=/root/net_port\n\
-ExecStart=/bin/su -c "/home/net_port/module_net_port_server* --user ${id} --cert server.crt --key server.key --threads 10"\n\
-User=root\n\
-Type=simple\n\
-Restart=always\n\
-RestartSec=5\n\
-\n\
-[Install]\n\
-WantedBy=multi-user.target\n`);
+        await installLegacyUserService(user.id);
 
-        const filepath = `/etc/systemd/system/net_port_u${id}.service`;
-        //const filepath = `C:\\tmp\\net_port_u${id}.service`;
-
-        try {
-            fs.writeFileSync(filepath, service, { flag: "wx" });
-        } catch (e) {
-            return e;
-        }
-
-        const command_start_service = "systemctl";
-        const args_enable_service = "enable";
-        const args_name_service = `net_port_u${id}`;
-
-        await exec(
-            `${command_start_service} ${args_enable_service} ${args_name_service}`
-        );
-
-        return `user${id} add`;
+        return user;
     }
 };
