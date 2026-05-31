@@ -16,6 +16,8 @@ import Statistics from "../pages/Statistics";
 import Devices from "../pages/Devices";
 import NewDeviceSettingsData from "../pages/DevicesSettings/NewDeviceSettingsData";
 import DeviceSettingsEdit from "../pages/DevicesSettings/DeviceSettingsEdit";
+import Users from "../pages/Users";
+import NewUserSettingsData from "../pages/UsersSettings/NewUserSettingsData";
 
 import { Route, Routes, Navigate } from "react-router-dom";
 
@@ -129,6 +131,28 @@ const AppRoutes = (props) => {
                 />
 
                 <Route
+                    path="/users"
+                    element={
+                        <RequireAuth>
+                            <MainLayout ability={props.ability}>
+                                <Users ability={props.ability} />
+                            </MainLayout>
+                        </RequireAuth>
+                    }
+                />
+
+                <Route
+                    path="/users/new"
+                    element={
+                        <RequireAuth>
+                            <MainLayout ability={props.ability}>
+                                <NewUserSettingsData ability={props.ability} />
+                            </MainLayout>
+                        </RequireAuth>
+                    }
+                />
+
+                <Route
                     path="/statistics"
                     element={
                         <RequireAuth>
@@ -156,6 +180,7 @@ const mainNavSection = [{ title: "Главная", href: "/main", name: "MainTit
 
 const minorNavSection = [
     { title: "Настройки", href: "/settings", name: "Config" },
+    { title: "Пользователи", href: "/users", name: "Users" },
     { title: "Серверы", href: "/servers", name: "Config" },
     { title: "Устройства", href: "/devices", name: "Config" },
     { title: "Статистика", href: "/statistics", name: "Config" },

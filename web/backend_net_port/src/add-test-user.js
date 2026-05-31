@@ -29,7 +29,15 @@ async function addTestUser() {
     );
 
     if (existing.rowCount > 0) {
-      console.log(`User '${login}' already exists, skipping creation.`);
+      if (plainPassword) {
+        await client.query(
+          'UPDATE users SET password = $1 WHERE id = $2',
+          [hashedPassword, existing.rows[0].id]
+        );
+        console.log(`User '${login}' already exists, password updated from APP_PASSWORD.`);
+      } else {
+        console.log(`User '${login}' already exists, skipping creation.`);
+      }
       return;
     }
 

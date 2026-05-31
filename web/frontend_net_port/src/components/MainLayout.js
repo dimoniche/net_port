@@ -24,7 +24,6 @@ import HelpCenterIcon from "@mui/icons-material/HelpCenter";
 import { mainNavSection, minorNavSection } from "../routes";
 import { AppBar, DrawerHeader, Main, drawerWidth } from "./MainLayout.styles";
 import Login from "../pages/Login";
-import NewUserSettingsData from "../pages/UsersSettings/NewUserSettingsData";
 
 import { Can } from "./Abilities";
 import updateAbility from "../config/permission";
@@ -150,18 +149,6 @@ const style = {
     p: 6,
 };
 
-const styleRegister = {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    width: 900,
-    bgcolor: "background.paper",
-    border: "2px solid #000",
-    boxShadow: 24,
-    p: 6,
-};
-
 export default function PersistentDrawerLeft({ children, ...rest }) {
     const theme = useTheme();
     const [cookies, , removeCookie] = useCookies();
@@ -178,7 +165,6 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const handleDrawerCloseRight = () => setOpenRight(false);
 
     const [openLogin, setOpenLogin] = React.useState(false);
-    const [openRegister, setOpenRegister] = React.useState(false);
 
     // Statistics state
     const [statisticsData, setStatisticsData] = useState([]);
@@ -212,16 +198,6 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
 
     const handleCloseLogin = () => {
         setOpenLogin(false);
-    };
-
-    const handleRegister = () => {
-        setOpenLogin(false);
-        setOpenRegister(true);
-    };
-
-    const handleCloseRegister = () => {
-        setOpenRegister(false);
-        setOpenLogin(true);
     };
 
     const openOverviewModal = (focus) => {
@@ -548,6 +524,15 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                 <br />
                                 логин и пароль.
                             </>
+                        ) : location.pathname.startsWith("/users") ? (
+                            <>
+                                <b>Управление пользователями</b>
+                                <br />
+                                Доступно только администратору.
+                                <br />
+                                Кнопка <b>«Добавить»</b> открывает форму создания
+                                учётной записи с логином, паролем и ролью.
+                            </>
                         ) : location.pathname === "/servers" ? (
                             <>
                                 <b>Настройки серверов</b>
@@ -591,22 +576,7 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 onClose={handleCloseLogin}
             >
                 <Box sx={style}>
-                    <Login register={handleRegister} ability={rest.ability} />
-                </Box>
-            </Modal>
-            <Modal
-                aria-labelledby="unstyled-modal-title"
-                aria-describedby="unstyled-modal-description"
-                align-items="center"
-                justify-content="center"
-                open={openRegister}
-                onClose={handleCloseRegister}
-            >
-                <Box sx={styleRegister}>
-                    <NewUserSettingsData
-                        ability={rest.ability}
-                        closeHandle={handleCloseRegister}
-                    />
+                    <Login ability={rest.ability} />
                 </Box>
             </Modal>
             <OverviewStatsModal
