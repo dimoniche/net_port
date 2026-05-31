@@ -97,6 +97,7 @@ void switcher_servers_restart_input_threads(void);
 void init_openssl();
 void cleanup_openssl();
 SSL_CTX *create_client_ssl_context(const char *ca_file);
+SSL_CTX *create_device_control_ssl_context(const char *ca_file);
 
 void client_traffic_add_sent(size_t bytes);
 void client_traffic_add_received(size_t bytes);

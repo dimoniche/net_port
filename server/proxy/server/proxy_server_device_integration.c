@@ -33,6 +33,10 @@ static int init_device_manager_from_config(uint16_t device_control_port,
         strncpy(g_device_config.ssl_key_file, key_file, sizeof(g_device_config.ssl_key_file) - 1);
     }
 
+    if (g_device_config.ssl_cert_file[0] != '\0' && g_device_config.ssl_key_file[0] != '\0') {
+        g_device_config.enable_ssl = true;
+    }
+
     strncpy(g_device_config.db_host, "127.0.0.1", sizeof(g_device_config.db_host));
     strncpy(g_device_config.db_name, "net_port", sizeof(g_device_config.db_name));
     strncpy(g_device_config.db_user, "net_port_user", sizeof(g_device_config.db_user));

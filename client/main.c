@@ -56,6 +56,8 @@ static void print_usage(void)
     fprintf(stderr, "         --device-token        - device authentication token\n");
     fprintf(stderr, "         --registration-server - device control server address\n");
     fprintf(stderr, "         --registration-port   - device control server port (default 8443)\n");
+    fprintf(stderr, "         --registration-ca-file - CA certificate for device control TLS\n");
+    fprintf(stderr, "         --registration-no-ssl - disable TLS on device control port\n");
     fprintf(stderr, "         --port-host-base N    - map server ports to host (Docker: 49000)\n");
     fprintf(stderr, "         --tunnel-port N       - override tunnel connect port (e.g. 49003)\n");
     fprintf(stderr, "         --check-update          - check for newer client on server (needs curl)\n");

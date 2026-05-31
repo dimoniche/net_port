@@ -39,6 +39,8 @@ int device_register_with_server(void);
  */
 int device_register_until_allowed(void);
 
+void device_registration_set_control_tls(const char *ca_file, bool enable_ssl);
+
 /**
  * @brief Start device heartbeat
  * 

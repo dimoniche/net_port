@@ -1390,3 +1390,30 @@ SSL_CTX *create_client_ssl_context(const char *ca_file) {
 
     return ctx;
 }
+
+SSL_CTX *create_device_control_ssl_context(const char *ca_file)
+{
+    const SSL_METHOD *method = TLS_client_method();
+    SSL_CTX *ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        logMsg(LOG_ERR, "Unable to create device control SSL context\n");
+        return NULL;
+    }
+
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+
+    if (ca_file && ca_file[0]) {
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+        if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) {
+            logMsg(LOG_ERR, "Failed to load device control CA certificate from %s\n", ca_file);
+            SSL_CTX_free(ctx);
+            return NULL;
+        }
+        logMsg(LOG_INFO, "Device control TLS verification enabled (CA: %s)\n", ca_file);
+    } else {
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+        logMsg(LOG_WARNING, "Device control TLS without CA verification (self-signed server cert)\n");
+    }
+
+    return ctx;
+}

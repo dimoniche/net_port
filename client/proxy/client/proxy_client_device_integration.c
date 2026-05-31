@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
+#include <errno.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -27,16 +27,9 @@ static bool g_device_registration_enabled = false;
 static const int g_registration_retry_seconds = 10;
 static volatile sig_atomic_t g_device_session_revoked = 0;
 static volatile sig_atomic_t g_registration_wait_running = 0;
-
-int device_session_is_revoked(void)
-{
-    return g_device_session_revoked != 0;
-}
-
-void device_session_set_revoked(int revoked)
-{
-    g_device_session_revoked = revoked ? 1 : 0;
-}
+static SSL_CTX *g_device_control_ssl_ctx = NULL;
+static bool g_device_control_ssl_enabled = true;
+static char g_registration_ca_file[512] = "";
 
 static void log_registration_failure(const char *message)
 {
@@ -58,6 +51,133 @@ static void log_registration_transport_failure(const char *details)
 {
     logMsg(LOG_WARNING, "Registration transport error: %s\n", details);
 }
+
+void device_registration_set_control_tls(const char *ca_file, bool enable_ssl)
+{
+    g_device_control_ssl_enabled = enable_ssl;
+    g_registration_ca_file[0] = '\0';
+
+    if (ca_file && ca_file[0]) {
+        strncpy(g_registration_ca_file, ca_file, sizeof(g_registration_ca_file) - 1);
+        g_registration_ca_file[sizeof(g_registration_ca_file) - 1] = '\0';
+    }
+}
+
+static int ensure_device_control_ssl_ctx(void)
+{
+    if (!g_device_control_ssl_enabled) {
+        return 0;
+    }
+
+    if (g_device_control_ssl_ctx) {
+        return 0;
+    }
+
+    g_device_control_ssl_ctx = create_device_control_ssl_context(
+        g_registration_ca_file[0] ? g_registration_ca_file : NULL);
+    if (!g_device_control_ssl_ctx) {
+        logMsg(LOG_ERR, "Failed to create device control SSL context\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int device_control_connect(int *sock_out, SSL **ssl_out)
+{
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
+        logMsg(LOG_ERR, "Failed to create socket for device control: %s\n", strerror(errno));
+        return -1;
+    }
+
+    struct timeval timeout = {10, 0};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(g_device_state.server_port);
+
+    if (inet_pton(AF_INET, g_device_state.server_host, &server_addr.sin_addr) <= 0) {
+        logMsg(LOG_ERR, "Invalid server address: %s\n", g_device_state.server_host);
+        close(sock);
+        return -1;
+    }
+
+    if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        log_registration_transport_failure(strerror(errno));
+        close(sock);
+        return -1;
+    }
+
+    SSL *ssl = NULL;
+    if (g_device_control_ssl_enabled) {
+        if (ensure_device_control_ssl_ctx() != 0) {
+            close(sock);
+            return -1;
+        }
+
+        ssl = SSL_new(g_device_control_ssl_ctx);
+        if (!ssl) {
+            logMsg(LOG_ERR, "Failed to create SSL object for device control\n");
+            close(sock);
+            return -1;
+        }
+
+        SSL_set_fd(ssl, sock);
+        if (SSL_connect(ssl) != 1) {
+            logMsg(LOG_ERR, "Device control SSL handshake failed: %s\n",
+                   ERR_error_string(ERR_get_error(), NULL));
+            SSL_free(ssl);
+            close(sock);
+            return -1;
+        }
+    }
+
+    *sock_out = sock;
+    *ssl_out = ssl;
+    return 0;
+}
+
+static ssize_t device_control_send(int sock, SSL *ssl, const char *data, size_t len)
+{
+    if (ssl) {
+        return SSL_write(ssl, data, (int)len);
+    }
+
+    return send(sock, data, len, 0);
+}
+
+static ssize_t device_control_recv(int sock, SSL *ssl, char *buffer, size_t buflen)
+{
+    if (ssl) {
+        return SSL_read(ssl, buffer, (int)buflen);
+    }
+
+    return recv(sock, buffer, buflen, 0);
+}
+
+static void device_control_disconnect(int sock, SSL *ssl)
+{
+    if (ssl) {
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
+    }
+    close(sock);
+}
+
+int device_session_is_revoked(void)
+{
+    return g_device_session_revoked != 0;
+}
+
+void device_session_set_revoked(int revoked)
+{
+    g_device_session_revoked = revoked ? 1 : 0;
+}
+
 static heartbeat_config_t g_heartbeat_config;
 static bool g_cli_output_host = false;
 static bool g_cli_output_port = false;
@@ -179,8 +299,8 @@ int device_registration_init(const char *device_id, const char *auth_token,
     g_heartbeat_config.heartbeat_timeout = 90;
     g_heartbeat_config.connection_timeout = 10;
     g_heartbeat_config.max_failures = 3;
-    g_heartbeat_config.enable_ssl = false;
-    g_heartbeat_config.ssl_ctx = NULL;
+    g_heartbeat_config.enable_ssl = g_device_control_ssl_enabled;
+    g_heartbeat_config.ssl_ctx = g_device_control_ssl_ctx;
     
     g_device_registration_enabled = true;
     
@@ -203,35 +323,10 @@ int device_register_with_server(void)
     logMsg(LOG_INFO, "Registering device %s with server...\n", g_device_state.device_id);
     
     int sock = -1;
+    SSL *ssl = NULL;
     int result = -1;
     
-    // Create socket
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        logMsg(LOG_ERR, "Failed to create socket for registration: %s\n", strerror(errno));
-        return -1;
-    }
-    
-    // Set timeout
-    struct timeval timeout = {10, 0}; // 10 seconds
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-    
-    // Connect to server
-    struct sockaddr_in server_addr;
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(g_device_state.server_port);
-    
-    if (inet_pton(AF_INET, g_device_state.server_host, &server_addr.sin_addr) <= 0) {
-        logMsg(LOG_ERR, "Invalid server address: %s\n", g_device_state.server_host);
-        close(sock);
-        return -1;
-    }
-    
-    if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        log_registration_transport_failure(strerror(errno));
-        close(sock);
+    if (device_control_connect(&sock, &ssl) != 0) {
         return -1;
     }
 
@@ -264,29 +359,29 @@ int device_register_with_server(void)
     
     if (!json_str) {
         logMsg(LOG_ERR, "Failed to serialize registration request\n");
-        close(sock);
+        device_control_disconnect(sock, ssl);
         return -1;
     }
     
     // Send request
     size_t len = strlen(json_str);
-    ssize_t sent = send(sock, json_str, len, 0);
+    ssize_t sent = device_control_send(sock, ssl, json_str, len);
     
     free(json_str);
     
     if (sent != (ssize_t)len) {
         logMsg(LOG_ERR, "Failed to send registration request\n");
-        close(sock);
+        device_control_disconnect(sock, ssl);
         return -1;
     }
     
     // Receive response
     char buffer[4096];
-    ssize_t received = recv(sock, buffer, sizeof(buffer) - 1, 0);
+    ssize_t received = device_control_recv(sock, ssl, buffer, sizeof(buffer) - 1);
     
     if (received <= 0) {
         log_registration_transport_failure("no response from registration server");
-        close(sock);
+        device_control_disconnect(sock, ssl);
         return -1;
     }
     
@@ -298,7 +393,7 @@ int device_register_with_server(void)
     
     if (!response) {
         logMsg(LOG_ERR, "Failed to parse registration response: %s\n", error.text);
-        close(sock);
+        device_control_disconnect(sock, ssl);
         return -1;
     }
     
@@ -307,7 +402,7 @@ int device_register_with_server(void)
     if (!json_is_string(status_obj)) {
         logMsg(LOG_ERR, "Invalid registration response format\n");
         json_decref(response);
-        close(sock);
+        device_control_disconnect(sock, ssl);
         return -1;
     }
     
@@ -353,7 +448,8 @@ int device_register_with_server(void)
             strncpy(g_heartbeat_config.session_token, g_device_state.session_token, SESSION_TOKEN_MAX_LEN);
             g_heartbeat_config.assigned_port = g_device_state.assigned_port;
             g_heartbeat_config.heartbeat_interval = g_device_state.heartbeat_interval;
-            g_heartbeat_config.enable_ssl = false;
+            g_heartbeat_config.enable_ssl = g_device_control_ssl_enabled;
+            g_heartbeat_config.ssl_ctx = g_device_control_ssl_ctx;
             
             result = 0;
             
@@ -379,7 +475,7 @@ int device_register_with_server(void)
     }
     
     json_decref(response);
-    close(sock);
+    device_control_disconnect(sock, ssl);
     
     return result;
 }
@@ -479,6 +575,9 @@ int start_device_heartbeat(void)
         logMsg(LOG_ERR, "Device not registered, cannot start heartbeat\n");
         return -1;
     }
+
+    g_heartbeat_config.enable_ssl = g_device_control_ssl_enabled;
+    g_heartbeat_config.ssl_ctx = g_device_control_ssl_ctx;
     
     // Initialize heartbeat manager
     if (heartbeat_manager_init(&g_heartbeat_config) != 0) {
@@ -508,6 +607,8 @@ int main_with_device_registration(int argc, char** argv)
     char *registration_server = NULL;
     uint16_t registration_port = 8443;
     bool enable_device_registration = false;
+    char registration_ca_file[512] = "";
+    bool registration_no_ssl = false;
 
     g_cli_output_host = argv_has_flag(argc, argv, "--host_out");
     g_cli_output_port = argv_has_flag(argc, argv, "-p_out");
@@ -531,12 +632,28 @@ int main_with_device_registration(int argc, char** argv)
             g_port_host_base = (uint16_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--port-range-start") == 0 && i + 1 < argc) {
             g_port_range_start = (uint16_t)atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--registration-ca-file") == 0 && i + 1 < argc) {
+            strncpy(registration_ca_file, argv[++i], sizeof(registration_ca_file) - 1);
+            registration_ca_file[sizeof(registration_ca_file) - 1] = '\0';
+        } else if ((strcmp(argv[i], "--ca-file") == 0 || strcmp(argv[i], "-a") == 0) && i + 1 < argc) {
+            if (registration_ca_file[0] == '\0') {
+                strncpy(registration_ca_file, argv[++i], sizeof(registration_ca_file) - 1);
+                registration_ca_file[sizeof(registration_ca_file) - 1] = '\0';
+            } else {
+                i++;
+            }
+        } else if (strcmp(argv[i], "--registration-no-ssl") == 0) {
+            registration_no_ssl = true;
         } else if (strcmp(argv[i], "-p_in") == 0 && i + 1 < argc) {
             g_tunnel_port_override = (uint16_t)atoi(argv[++i]);
         }
     }
     
     if (enable_device_registration && device_id && auth_token && registration_server) {
+        device_registration_set_control_tls(
+            registration_ca_file[0] ? registration_ca_file : NULL,
+            !registration_no_ssl);
+
         if (device_registration_init(device_id, auth_token, registration_server, registration_port) != 0) {
             logMsg(LOG_ERR, "Failed to initialize device registration\n");
             return -1;
@@ -557,7 +674,7 @@ int main_with_device_registration(int argc, char** argv)
         if (start_device_heartbeat() != 0) {
             logMsg(LOG_WARNING, "Failed to start heartbeat, continuing without it\n");
         }
-        
+
         return switcher_servers_start();
     }
     
@@ -574,6 +691,11 @@ void device_registration_cleanup(void)
         heartbeat_manager_stop();
         g_device_registration_enabled = false;
         g_device_state.status = DEVICE_STATUS_DISCONNECTED;
+
+        if (g_device_control_ssl_ctx) {
+            SSL_CTX_free(g_device_control_ssl_ctx);
+            g_device_control_ssl_ctx = NULL;
+        }
         
         logMsg(LOG_INFO, "Device registration cleaned up\n");
     }

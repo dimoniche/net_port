@@ -3,6 +3,8 @@ const { Service } = require('feathers-knex');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const net = require('net');
+const tls = require('tls');
+const fs = require('fs');
 const {
   enrichDeviceWithOnline,
   broadcastDeviceById
@@ -54,11 +56,35 @@ async function assertPreferredPortCanChange(knex, deviceId, device, nextPreferre
 function sendDeviceControlCommand(deviceId, action) {
   const host = process.env.DEVICE_CONTROL_HOST || '127.0.0.1';
   const port = Number(process.env.DEVICE_CONTROL_PORT || 8443);
+  const useTls = process.env.DEVICE_CONTROL_SSL !== 'false';
   const payload = JSON.stringify({ action, device_id: deviceId });
   const timeoutMs = action === 'disconnect' ? 15000 : 5000;
 
   return new Promise((resolve, reject) => {
-    const client = net.createConnection({ host, port }, () => {
+    const connectOptions = { host, port };
+    let client;
+
+    if (useTls) {
+      const tlsOptions = {
+        ...connectOptions,
+        rejectUnauthorized: false
+      };
+      const caFile = process.env.DEVICE_CONTROL_CA_FILE;
+      if (caFile) {
+        try {
+          tlsOptions.ca = fs.readFileSync(caFile);
+          tlsOptions.rejectUnauthorized = true;
+        } catch (error) {
+          reject(new Error(`Failed to read DEVICE_CONTROL_CA_FILE: ${error.message}`));
+          return;
+        }
+      }
+      client = tls.connect(tlsOptions);
+    } else {
+      client = net.createConnection(connectOptions);
+    }
+
+    client.on('connect', () => {
       client.write(payload);
       client.end();
     });

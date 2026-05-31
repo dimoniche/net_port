@@ -83,15 +83,27 @@ send_control_json() {
   local payload="$1"
   python3 - "$CONTROL_HOST" "$CONTROL_PORT" "$payload" <<'PY'
 import json
+import os
 import socket
+import ssl
 import sys
 
 host = sys.argv[1]
 port = int(sys.argv[2])
 payload = sys.argv[3]
-timeout = float(__import__("os").environ.get("NET_PORT_CONTROL_TIMEOUT", "10"))
+timeout = float(os.environ.get("NET_PORT_CONTROL_TIMEOUT", "10"))
+use_ssl = os.environ.get("NET_PORT_CONTROL_SSL", "1") != "0"
 
 sock = socket.create_connection((host, port), timeout=timeout)
+if use_ssl:
+    ctx = ssl.create_default_context()
+    ca_file = os.environ.get("NET_PORT_CONTROL_CA_FILE")
+    if ca_file:
+        ctx.load_verify_locations(cafile=ca_file)
+    else:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    sock = ctx.wrap_socket(sock, server_hostname=host)
 try:
     sock.sendall(payload.encode("utf-8"))
     sock.settimeout(timeout)
@@ -119,15 +131,27 @@ PY
 send_control_raw() {
   local payload="$1"
   python3 - "$CONTROL_HOST" "$CONTROL_PORT" "$payload" <<'PY'
+import os
 import socket
+import ssl
 import sys
 
 host = sys.argv[1]
 port = int(sys.argv[2])
 payload = sys.argv[3]
-timeout = float(__import__("os").environ.get("NET_PORT_CONTROL_TIMEOUT", "10"))
+timeout = float(os.environ.get("NET_PORT_CONTROL_TIMEOUT", "10"))
+use_ssl = os.environ.get("NET_PORT_CONTROL_SSL", "1") != "0"
 
 sock = socket.create_connection((host, port), timeout=timeout)
+if use_ssl:
+    ctx = ssl.create_default_context()
+    ca_file = os.environ.get("NET_PORT_CONTROL_CA_FILE")
+    if ca_file:
+        ctx.load_verify_locations(cafile=ca_file)
+    else:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    sock = ctx.wrap_socket(sock, server_hostname=host)
 try:
     sock.sendall(payload.encode("utf-8", errors="replace"))
     sock.settimeout(timeout)

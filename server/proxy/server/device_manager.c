@@ -76,12 +76,57 @@ static int sha256_hex(const char *input, char *output_hex, size_t output_len)
     output_hex[SHA256_DIGEST_LENGTH * 2] = '\0';
     return 0;
 }
+typedef struct {
+    int fd;
+    SSL *ssl;
+} control_conn_t;
+
+static ssize_t control_conn_read(control_conn_t *conn, char *buffer, size_t buflen)
+{
+    if (conn->ssl) {
+        int n = SSL_read(conn->ssl, buffer, (int)buflen);
+        if (n <= 0) {
+            return -1;
+        }
+        return n;
+    }
+
+    return recv(conn->fd, buffer, buflen, 0);
+}
+
+static ssize_t control_conn_write(control_conn_t *conn, const char *data, size_t len)
+{
+    if (conn->ssl) {
+        int n = SSL_write(conn->ssl, data, (int)len);
+        if (n <= 0) {
+            return -1;
+        }
+        return n;
+    }
+
+    return send(conn->fd, data, len, MSG_NOSIGNAL);
+}
+
+static void control_conn_close(control_conn_t *conn)
+{
+    if (conn->ssl) {
+        SSL_shutdown(conn->ssl);
+        SSL_free(conn->ssl);
+        conn->ssl = NULL;
+    }
+
+    if (conn->fd >= 0) {
+        close(conn->fd);
+        conn->fd = -1;
+    }
+}
+
 // Forward declarations
 static void* control_server_thread(void *arg);
 static int handle_device_connection(int client_fd, struct sockaddr_in *client_addr);
 static int parse_json_request(const char *json_str, json_t **root);
-static int process_json_message(int client_fd, const char *json_str, const char *client_ip);
-static int send_json_response(int client_fd, json_t *response);
+static int process_json_message(control_conn_t *conn, const char *json_str, const char *client_ip);
+static int send_json_response(control_conn_t *conn, json_t *response);
 static int create_ssl_context(void);
 static void cleanup_device_manager_ssl_context(void);
 
@@ -269,33 +314,61 @@ static int handle_device_connection(int client_fd, struct sockaddr_in *client_ad
     inet_ntop(AF_INET, &client_addr->sin_addr, client_ip, sizeof(client_ip));
     
     logMsg(LOG_DEBUG, "Device connection from %s:%d\n", client_ip, ntohs(client_addr->sin_port));
+
+    control_conn_t conn = {
+        .fd = client_fd,
+        .ssl = NULL
+    };
     
     // Set socket timeout
     struct timeval timeout = {10, 0}; // 10 seconds
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    if (g_config.enable_ssl) {
+        if (!g_ssl_ctx) {
+            logMsg(LOG_ERR, "SSL enabled but context not initialized\n");
+            close(client_fd);
+            return -1;
+        }
+
+        conn.ssl = SSL_new(g_ssl_ctx);
+        if (!conn.ssl) {
+            logMsg(LOG_ERR, "Failed to create SSL object for device connection\n");
+            close(client_fd);
+            return -1;
+        }
+
+        SSL_set_fd(conn.ssl, client_fd);
+
+        if (SSL_accept(conn.ssl) != 1) {
+            logMsg(LOG_DEBUG, "SSL handshake failed for device %s\n", client_ip);
+            control_conn_close(&conn);
+            return -1;
+        }
+    }
     
     // Read request
     char buffer[4096];
-    ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+    ssize_t bytes_read = control_conn_read(&conn, buffer, sizeof(buffer) - 1);
     if (bytes_read <= 0) {
         logMsg(LOG_DEBUG, "Failed to read from device %s\n", client_ip);
-        close(client_fd);
+        control_conn_close(&conn);
         return -1;
     }
     
     buffer[bytes_read] = '\0';
     
     // Process JSON message
-    int result = process_json_message(client_fd, buffer, client_ip);
+    int result = process_json_message(&conn, buffer, client_ip);
     
-    close(client_fd);
+    control_conn_close(&conn);
     return result;
 }
 
 /**
  * Process JSON message from device
  */
-static int process_json_message(int client_fd, const char *json_str, const char *client_ip)
+static int process_json_message(control_conn_t *conn, const char *json_str, const char *client_ip)
 {
     json_t *root = NULL;
     json_error_t error;
@@ -304,7 +377,7 @@ static int process_json_message(int client_fd, const char *json_str, const char 
         json_t *response = json_object();
         json_object_set_new(response, "status", json_string("error"));
         json_object_set_new(response, "message", json_string("Invalid request payload"));
-        send_json_response(client_fd, response);
+        send_json_response(conn, response);
         json_decref(response);
         return -1;
     }
@@ -318,7 +391,7 @@ static int process_json_message(int client_fd, const char *json_str, const char 
         json_t *response = json_object();
         json_object_set_new(response, "status", json_string("error"));
         json_object_set_new(response, "message", json_string("Invalid JSON"));
-        send_json_response(client_fd, response);
+        send_json_response(conn, response);
         json_decref(response);
         return -1;
     }
@@ -331,7 +404,7 @@ static int process_json_message(int client_fd, const char *json_str, const char 
         json_t *response = json_object();
         json_object_set_new(response, "status", json_string("error"));
         json_object_set_new(response, "message", json_string("Missing 'action' field"));
-        send_json_response(client_fd, response);
+        send_json_response(conn, response);
         json_decref(root);
         json_decref(response);
         return -1;
@@ -366,7 +439,7 @@ static int process_json_message(int client_fd, const char *json_str, const char 
                 json_object_set_new(response, "message", json_string("Device disconnect initiated"));
                 json_object_set_new(response, "device_id", json_string(device_id));
 
-                if (send_json_response(client_fd, response) != 0) {
+                if (send_json_response(conn, response) != 0) {
                     json_decref(response);
                     json_decref(root);
                     return -1;
@@ -406,7 +479,7 @@ static int process_json_message(int client_fd, const char *json_str, const char 
     
     // Send response
     if (response) {
-        send_json_response(client_fd, response);
+        send_json_response(conn, response);
         json_decref(response);
     }
     
@@ -631,7 +704,7 @@ json_t* process_statistics_request(json_t *request)
 /**
  * Send JSON response to client
  */
-static int send_json_response(int client_fd, json_t *response)
+static int send_json_response(control_conn_t *conn, json_t *response)
 {
     char *json_str = json_dumps(response, JSON_COMPACT);
     if (!json_str) {
@@ -640,7 +713,7 @@ static int send_json_response(int client_fd, json_t *response)
     }
 
     size_t len = strlen(json_str);
-    ssize_t sent = send(client_fd, json_str, len, MSG_NOSIGNAL);
+    ssize_t sent = control_conn_write(conn, json_str, len);
     if (sent != (ssize_t)len) {
         if (errno == EPIPE || errno == ECONNRESET || errno == EBADF) {
             logMsg(LOG_DEBUG, "Client disconnected before response was delivered\n");
@@ -651,7 +724,11 @@ static int send_json_response(int client_fd, json_t *response)
         return -1;
     }
 
-    shutdown(client_fd, SHUT_WR);
+    if (conn->ssl) {
+        SSL_shutdown(conn->ssl);
+    } else {
+        shutdown(conn->fd, SHUT_WR);
+    }
     free(json_str);
     return 0;
 }
