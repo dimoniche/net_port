@@ -124,16 +124,32 @@ for (const possiblePath of possibleSslPaths) {
   }
 }
 
-// Only serve SSL certificates if path exists
+// Only expose the public certificate (never the private key)
 if (sslCertPath) {
-  app.use('/files/ssl', express.static(sslCertPath, {
-    setHeaders: (res, filePath) => {
-      const filename = path.basename(filePath);
-      if (filename.includes('server.crt') || filename.includes('server.key')) {
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      }
+  const sslCertFile = path.join(sslCertPath, 'server.crt');
+  app.use('/files/ssl', (req, res, next) => {
+    const requested = path.basename(decodeURIComponent(req.path || ''));
+    if (requested !== 'server.crt') {
+      return next();
     }
-  }));
+
+    let stat;
+    try {
+      stat = fs.statSync(sslCertFile);
+    } catch {
+      return next();
+    }
+    if (!stat.isFile()) {
+      return next();
+    }
+
+    res.setHeader('Content-Disposition', 'attachment; filename="server.crt"');
+    if (req.method === 'HEAD') {
+      res.setHeader('Content-Length', String(stat.size));
+      return res.end();
+    }
+    return res.sendFile(sslCertFile);
+  });
 } else {
   console.log('SSL certificates directory not found, /files/ssl endpoint disabled');
 }
