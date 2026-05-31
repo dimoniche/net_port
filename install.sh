@@ -63,7 +63,7 @@ Options:
 
 Environment variables (alternative to command-line arguments):
   DB_USER, DB_PASSWORD, DB_NAME, DB_HOST, DB_PORT
-  APP_USER, APP_PASSWORD
+  APP_USER, APP_PASSWORD, JWT_SECRET, JWT_SECRET_PREVIOUS
 
 Examples:
   $0 --db-user netport --db-password "secure123" --admin-password "admin123"
@@ -530,13 +530,21 @@ main() {
             success "Backend dependencies installed" || error_exit "Failed to install backend dependencies"
         
         # Create .env file for backend
+        if [ -z "${JWT_SECRET:-}" ]; then
+            JWT_SECRET="$(openssl rand -base64 32)"
+            info "Generated JWT_SECRET for this installation"
+        fi
         cat > .env << EOF
 DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 DB_HOST=$DB_HOST
 DB_PORT=$DB_PORT
+JWT_SECRET=$JWT_SECRET
 NODE_ENV=production
 EOF
+        if [ -n "${JWT_SECRET_PREVIOUS:-}" ]; then
+            echo "JWT_SECRET_PREVIOUS=$JWT_SECRET_PREVIOUS" >> .env
+        fi
         success "Backend configuration created"
         
         # Copy backend to bin folder
@@ -690,6 +698,7 @@ Environment=DB_USER=$DB_USER
 Environment=DB_PASSWORD=$DB_PASSWORD
 Environment=DB_HOST=$DB_HOST
 Environment=DB_PORT=$DB_PORT
+Environment=JWT_SECRET=$JWT_SECRET
 ExecStart=/usr/bin/npm start
 Restart=on-failure
 RestartSec=10

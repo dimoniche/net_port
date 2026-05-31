@@ -13,6 +13,9 @@ services:
       - "8443:8443"
       - "9099:9090"
     environment:
+      - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_SECRET_PREVIOUS=${JWT_SECRET_PREVIOUS:-}
+      - NODE_ENV=production
       - DB_USER=admin
       - DB_PASSWORD=lbvsx123
       - DB_HOST=192.168.0.132

@@ -16,11 +16,22 @@ else
     USE_LOCAL_DB=false
 fi
 
+if [ -z "${JWT_SECRET:-}" ]; then
+    JWT_SECRET="$(openssl rand -base64 32)"
+    echo "Warning: JWT_SECRET is not set; generated an ephemeral secret for this container run."
+    echo "Set JWT_SECRET in docker-compose or environment for stable sessions across restarts."
+fi
+
 # Create .env file for backend with current environment variables
 echo "DB_USER=$DB_USER" > /root/net_port/source/web/backend_net_port/.env
 echo "DB_PASSWORD=$DB_PASSWORD" >> /root/net_port/source/web/backend_net_port/.env
 echo "DB_HOST=$DB_HOST" >> /root/net_port/source/web/backend_net_port/.env
 echo "DB_PORT=$DB_PORT" >> /root/net_port/source/web/backend_net_port/.env
+echo "JWT_SECRET=$JWT_SECRET" >> /root/net_port/source/web/backend_net_port/.env
+if [ -n "${JWT_SECRET_PREVIOUS:-}" ]; then
+    echo "JWT_SECRET_PREVIOUS=$JWT_SECRET_PREVIOUS" >> /root/net_port/source/web/backend_net_port/.env
+fi
+echo "NODE_ENV=${NODE_ENV:-production}" >> /root/net_port/source/web/backend_net_port/.env
 
 # Синхронизация бинарников из artifacts/clients в build/client (Windows .exe, ARM и т.д.)
 NET_PORT_SOURCE="${NET_PORT_SOURCE:-/root/net_port/source}"

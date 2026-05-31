@@ -27,11 +27,26 @@ docker compose build net_port
 docker compose up -d net_port
 ```
 
-Переменные окружения (см. `docker-compose.yml`):
+Переменные окружения (см. `docker-compose.yml`, `.env.example`):
 
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` — PostgreSQL
+- `JWT_SECRET` — секрет подписи JWT (**обязателен**, уникален для каждого окружения)
+- `JWT_SECRET_PREVIOUS` — опционально, предыдущий секрет(ы) через запятую для ротации без разлогина всех пользователей
 - `DEVICE_CONTROL_HOST`, `DEVICE_CONTROL_PORT` — C-сервер (по умолчанию `127.0.0.1:8443` внутри контейнера)
 - `METRICS_CACHE_MS` — интервал кэша метрик (мс, по умолчанию 5000)
+
+Сгенерировать секрет:
+
+```bash
+openssl rand -base64 32
+```
+
+### Ротация JWT_SECRET
+
+1. Задайте `JWT_SECRET_PREVIOUS` равным текущему `JWT_SECRET`.
+2. Сгенерируйте новый `JWT_SECRET` и обновите переменную окружения.
+3. Перезапустите backend — новые токены подписываются новым секретом, старые продолжают приниматься.
+4. После истечения срока JWT (`expiresIn`, по умолчанию 1 день) удалите `JWT_SECRET_PREVIOUS`.
 
 **Не используйте `docker cp` для продакшена** — все изменения должны попадать в образ через git и пересборку.
 
