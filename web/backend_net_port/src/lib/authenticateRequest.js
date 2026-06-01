@@ -1,5 +1,7 @@
 'use strict';
 
+const { NotAuthenticated, Forbidden, NotFound } = require('@feathersjs/errors');
+
 async function authenticateRequest(app, req) {
   let user = null;
   const authHeader = req.headers.authorization;
@@ -28,18 +30,31 @@ async function authenticateRequest(app, req) {
 }
 
 function mapServiceError(error) {
-  let statusCode = 500;
+  if (error.code && Number.isFinite(error.code)) {
+    return error.code;
+  }
+  if (error instanceof NotAuthenticated) {
+    return 401;
+  }
+  if (error instanceof Forbidden) {
+    return 403;
+  }
+  if (error instanceof NotFound) {
+    return 404;
+  }
   if (error.message === 'Authentication required') {
-    statusCode = 401;
-  } else if (error.message === 'Permission denied') {
-    statusCode = 403;
-  } else if (
+    return 401;
+  }
+  if (error.message === 'Permission denied') {
+    return 403;
+  }
+  if (
     error.message === 'Device not found'
     || (typeof error.message === 'string' && error.message.includes('not found'))
   ) {
-    statusCode = 404;
+    return 404;
   }
-  return statusCode;
+  return 500;
 }
 
 module.exports = {

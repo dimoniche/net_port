@@ -101,6 +101,9 @@ module.exports = function (app) {
     try {
       const { deviceId } = req.params;
       const user = await authenticateDeviceRequest(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
 
       if (!deviceId) {
         return res.status(400).json({
@@ -124,6 +127,9 @@ module.exports = function (app) {
     try {
       const { deviceId } = req.params;
       const user = await authenticateDeviceRequest(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
 
       if (!deviceId) {
         return res.status(400).json({
@@ -148,6 +154,9 @@ module.exports = function (app) {
     try {
       const { deviceId } = req.params;
       const user = await authenticateDeviceRequest(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
 
       if (!deviceId) {
         return res.status(400).json({
@@ -172,6 +181,9 @@ module.exports = function (app) {
     try {
       const { deviceId } = req.params;
       const user = await authenticateDeviceRequest(req);
+      if (!user) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
 
       if (!deviceId) {
         return res.status(400).json({

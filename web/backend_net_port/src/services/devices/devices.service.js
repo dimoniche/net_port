@@ -455,6 +455,10 @@ exports.Devices = class Devices extends Service {
     // Don't update sensitive fields through regular update
     delete updateData.auth_token_hash;
     delete updateData.device_id; // Device ID should not be changed
+    delete updateData.id;
+    if (!isAdminUser(user)) {
+      delete updateData.user_id;
+    }
     
     // Perform update
     await knex('devices').where('id', id).update(updateData);

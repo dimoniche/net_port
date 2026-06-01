@@ -1,10 +1,13 @@
 'use strict';
 
+const { NotAuthenticated, Forbidden } = require('@feathersjs/errors');
 const {
   isAdminUser,
   canAccessDevice,
   canAccessLegacyServers,
-  applyDeviceOwnershipFilter
+  applyDeviceOwnershipFilter,
+  assertSelfOrAdmin,
+  stripPrivilegedUserFields
 } = require('../src/lib/userRoles');
 
 describe('userRoles', () => {
@@ -51,6 +54,37 @@ describe('userRoles', () => {
 
     it('denies regular users', () => {
       expect(canAccessLegacyServers({ role_name: 'user' })).toBe(false);
+    });
+  });
+
+  describe('assertSelfOrAdmin', () => {
+    it('allows admin for any user id', () => {
+      expect(() => assertSelfOrAdmin({ id: 1, role_name: 'admin' }, 99)).not.toThrow();
+    });
+
+    it('allows self access', () => {
+      expect(() => assertSelfOrAdmin({ id: 5, role_name: 'user' }, 5)).not.toThrow();
+    });
+
+    it('denies unauthenticated access', () => {
+      expect(() => assertSelfOrAdmin(null, 1)).toThrow(NotAuthenticated);
+    });
+
+    it('denies access to other users', () => {
+      expect(() => assertSelfOrAdmin({ id: 1, role_name: 'user' }, 2)).toThrow(Forbidden);
+    });
+  });
+
+  describe('stripPrivilegedUserFields', () => {
+    it('removes role_name for non-admin', () => {
+      const data = stripPrivilegedUserFields({ role_name: 'admin', email: 'a@b.c' }, { role_name: 'user' });
+      expect(data.role_name).toBeUndefined();
+      expect(data.email).toBe('a@b.c');
+    });
+
+    it('keeps role_name for admin', () => {
+      const data = stripPrivilegedUserFields({ role_name: 'user' }, { role_name: 'admin' });
+      expect(data.role_name).toBe('user');
     });
   });
 

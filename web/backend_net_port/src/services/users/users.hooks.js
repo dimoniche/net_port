@@ -7,7 +7,12 @@ const {
 } = require('@feathersjs/authentication-local').hooks;
 
 const checkPermissions = require('feathers-permissions');
-const { isAdminUser } = require('../../lib/userRoles');
+const {
+  isAdminUser,
+  assertSelfOrAdmin,
+  isExternalProvider,
+  stripPrivilegedUserFields
+} = require('../../lib/userRoles');
 const { assertLoginAvailable } = require('./userValidation');
 
 module.exports = {
@@ -33,7 +38,16 @@ module.exports = {
         return context;
       }
     ],
-    get: [authenticate('jwt')],
+    get: [
+      authenticate('jwt'),
+      async (context) => {
+        if (!isExternalProvider(context)) {
+          return context;
+        }
+        assertSelfOrAdmin(context.params.user, context.id);
+        return context;
+      }
+    ],
     create: [
       authenticate('jwt'),
       checkPermissions({
@@ -47,11 +61,18 @@ module.exports = {
       },
       hashPassword('password')
     ],
-    update: [hashPassword('password'), authenticate('jwt'),checkPermissions({
-      roles: [ 'admin', 'user' ],
-      field: 'role_name'
-    }),
+    update: [
+      hashPassword('password'),
+      authenticate('jwt'),
+      checkPermissions({
+        roles: ['admin', 'user'],
+        field: 'role_name'
+      }),
       async (context) => {
+        if (isExternalProvider(context)) {
+          assertSelfOrAdmin(context.params.user, context.id);
+          context.data = stripPrivilegedUserFields(context.data, context.params.user);
+        }
         if (context.data?.login) {
           const knex = context.app.get('db');
           context.data.login = await assertLoginAvailable(
@@ -63,11 +84,18 @@ module.exports = {
         return context;
       }
     ],
-    patch: [hashPassword('password'), authenticate('jwt'),checkPermissions({
-      roles: [ 'admin', 'user' ],
-      field: 'role_name'
-    }),
+    patch: [
+      hashPassword('password'),
+      authenticate('jwt'),
+      checkPermissions({
+        roles: ['admin', 'user'],
+        field: 'role_name'
+      }),
       async (context) => {
+        if (isExternalProvider(context)) {
+          assertSelfOrAdmin(context.params.user, context.id);
+          context.data = stripPrivilegedUserFields(context.data, context.params.user);
+        }
         if (context.data?.login) {
           const knex = context.app.get('db');
           context.data.login = await assertLoginAvailable(
