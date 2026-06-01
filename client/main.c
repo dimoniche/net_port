@@ -269,10 +269,10 @@ int main(int argc, char** argv) {
         msleep(10);
     }
     
-    // Выполняем graceful shutdown
+    // Выполняем graceful shutdown (heartbeat/device control, затем proxy-потоки)
+    device_registration_cleanup();
     switcher_servers_stop();
-    switcher_servers_wait_stop();
-    
+
     logMsg(LOG_INFO, "Application shutdown completed gracefully");
 
     return 0;

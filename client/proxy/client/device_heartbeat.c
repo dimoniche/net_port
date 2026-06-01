@@ -121,7 +121,7 @@ void* heartbeat_thread_func(void *arg)
     
     logMsg(LOG_DEBUG, "Heartbeat thread started\n");
     
-    while (g_heartbeat_running) {
+    while (g_heartbeat_running && !global_graceful_shutdown) {
         if (device_session_is_revoked()) {
             sleep(1);
             continue;

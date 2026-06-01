@@ -712,13 +712,19 @@ server_input_thread (void* parameter)
         SSL_free(conn->ssl_input);
         conn->ssl_input = NULL;
     }
-    close(conn->input);
+    if (conn->input >= 0) {
+        close(conn->input);
+        conn->input = -1;
+    }
 
     logMsg(LOG_INFO,"Exit input server id = %d on port = %d ...\n", conn->id, threads_data.input_port);
 
-    if(conn->stop_running_input == false) goto restart_input_thread;
+    if (!conn->stop_running_input && !global_graceful_shutdown) {
+        goto restart_input_thread;
+    }
 
     conn->is_running_input = false;
+    conn->is_starting_input = false;
 
     return 0;
 }
@@ -946,10 +952,17 @@ server_output_thread (void* parameter)
             int remaining = len_apdu;
             int sent = 0;
 
-            if(conn->stop_running_output) break;
+            if(conn->stop_running_output || global_graceful_shutdown) break;
 
-            while(!conn->is_running_input) {
+            while (!conn->is_running_input) {
+                if (conn->stop_running_output || global_graceful_shutdown) {
+                    break;
+                }
                 Thread_sleep(10);
+            }
+
+            if (conn->stop_running_output || global_graceful_shutdown) {
+                break;
             }
 
             do {
@@ -1046,11 +1059,15 @@ server_output_thread (void* parameter)
         SSL_free(conn->ssl_output);
         conn->ssl_output = NULL;
     }
-    close(conn->output);
+    if (conn->output >= 0) {
+        close(conn->output);
+        conn->output = -1;
+    }
 
     logMsg(LOG_INFO,"Exit output server id = %d on port = %d ...\n", conn->id, threads_data.output_port);
 
     conn->is_running_output = false;
+    conn->is_starting_output = false;
     conn->stop_running_output = false;
 
     return 0;
@@ -1231,23 +1248,45 @@ switcher_servers_restart_input_threads(void)
     }
 }
 
+static void wait_for_proxy_connection_stop(proxy_server_connection_t *conn, int timeout_ms)
+{
+    int waited_ms = 0;
+
+    while (waited_ms < timeout_ms) {
+        if (!conn->is_running_input && !conn->is_running_output &&
+            !conn->is_starting_input && !conn->is_starting_output) {
+            return;
+        }
+        Thread_sleep(10);
+        waited_ms += 10;
+    }
+
+    logMsg(LOG_WARNING,
+           "Connection %d did not stop within %d ms (in=%d out=%d)\n",
+           conn->id, timeout_ms,
+           conn->is_running_input, conn->is_running_output);
+}
+
 void
 switcher_servers_stop()
 {
     proxy_server_thread_data_t* settings = get_client_settings();
-    
-    logMsg(LOG_INFO, "Initiating graceful shutdown of all connections...");
-    
-    for (int i = 0; i < settings->connections_count; i++) {
-        proxy_server_connection_t *conn = &settings->connections[i];
 
-        // Устанавливаем флаги остановки для всех соединений (независимо от текущего состояния)
+    if (!settings || !settings->connections || settings->connections_count <= 0) {
+        return;
+    }
+
+    const int connection_count = settings->connections_count;
+
+    logMsg(LOG_INFO, "Initiating graceful shutdown of %d connection(s)...", connection_count);
+
+    for (int i = 0; i < connection_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
         conn->stop_running_input = true;
         conn->stop_running_output = true;
     }
 
-    // Try to unblock threads which may be blocked in select/recv by shutting down fds
-    for (int i = 0; i < settings->connections_count; i++) {
+    for (int i = 0; i < connection_count; i++) {
         proxy_server_connection_t *conn = &settings->connections[i];
         if (conn->input >= 0) {
             logMsg(LOG_DEBUG, "Shutting down input fd for connection %d\n", conn->id);
@@ -1257,75 +1296,32 @@ switcher_servers_stop()
             logMsg(LOG_DEBUG, "Shutting down output fd for connection %d\n", conn->id);
             shutdown(conn->output, SHUT_RDWR);
         }
-        /* Don't call SSL_shutdown here — allow the input thread to perform
-           SSL_shutdown()/SSL_free() itself to avoid double-freeing the
-           SSL object. We already shutdown the underlying fds above to
-           unblock select/recv. */
     }
 
-    // Освобождаем память соединений
-    if (settings->connections) {
-        // Сначала дожидаемся завершения и уничтожаем все потоки
-        for (int i = 0; i < settings->connections_count; i++) {
-            proxy_server_connection_t *conn = &settings->connections[i];
-            
-            if (conn->input_thread) {
-                // Дожидаемся завершения потока
-                while (conn->is_running_input) {
-                    Thread_sleep(10);
-                }
-                // Не вызываем Thread_destroy() для отсоединённых потоков —
-                // реализация Thread_destroy() может попытаться освободить ресурсы,
-                // уже освобождённые потоками, что приводит к corruption.
-                conn->input_thread = NULL;
-            }
-
-            if (conn->output_thread) {
-                // Дожидаемся завершения потока
-                while (conn->is_running_output) {
-                    Thread_sleep(10);
-                }
-                // Не вызываем Thread_destroy() по той же причине.
-                conn->output_thread = NULL;
-            }
-        }
-        
-        free(settings->connections);
-        settings->connections = NULL;
-        settings->connections_count = 0;
+    for (int i = 0; i < connection_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+        wait_for_proxy_connection_stop(conn, 30000);
+        conn->input_thread = NULL;
+        conn->output_thread = NULL;
+        logMsg(LOG_INFO, "Connection %d stopped", conn->id);
     }
 
-    // Очистка SSL контекста
+    free(settings->connections);
+    settings->connections = NULL;
+    settings->connections_count = 0;
+
     if (settings->ssl_ctx) {
         SSL_CTX_free(settings->ssl_ctx);
         settings->ssl_ctx = NULL;
     }
+
+    logMsg(LOG_INFO, "All proxy connections stopped");
 }
 
 void
 switcher_servers_wait_stop()
 {
-    proxy_server_thread_data_t* settings = get_client_settings();
-    
-    logMsg(LOG_INFO, "Waiting for all connections to stop gracefully...");
-    
-    for (int i = 0; i < settings->connections_count; i++) {
-        proxy_server_connection_t *conn = &settings->connections[i];
-        
-        // Ожидаем остановки input потока
-        while (conn->is_running_input) {
-            Thread_sleep(10);
-        }
-        
-        // Ожидаем остановки output потока
-        while (conn->is_running_output) {
-            Thread_sleep(10);
-        }
-        
-        logMsg(LOG_INFO, "Connection %d stopped gracefully", conn->id);
-    }
-    
-    logMsg(LOG_INFO, "All connections stopped gracefully");
+    /* Threads are joined in switcher_servers_stop(); kept for API compatibility. */
 }
 
 // Инициализация OpenSSL
