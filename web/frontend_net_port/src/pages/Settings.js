@@ -6,13 +6,11 @@ import { useNavigate } from "react-router-dom";
 import isEmpty from "lodash/isEmpty";
 
 import { UserSettingsData } from "./UsersSettings/UserSettingsData";
-import ServerDisplaySettings from "./ServerSettings/ServerDisplaySettings";
 import ClientDownload from "../components/ClientDownload";
 import { ApiContext } from "../context/ApiContext";
 import { Loader } from "../components/Loader";
 import Main from "./Main";
 import updateAbility from "../config/permission";
-import { isAdminUser } from "../utils/userRoles";
 
 import Paper from "@mui/material/Paper";
 import Tabs from "@mui/material/Tabs";
@@ -86,8 +84,6 @@ const Settings = ({ children, ...rest }) => {
         };
     }, []);
 
-    const admin = isAdminUser(cookies.user);
-
     return !isEmpty(cookies.user) ? (
         !isEmpty(userSettings) ? (
             <>
@@ -100,7 +96,6 @@ const Settings = ({ children, ...rest }) => {
                             centered
                         >
                             <Tab label="Пользователь" />
-                            {admin && <Tab label="Отображение серверов" />}
                             <Tab label="Скачать клиент" />
                         </Tabs>
                     </Paper>
@@ -113,10 +108,7 @@ const Settings = ({ children, ...rest }) => {
                             }}
                         />
                     )}
-                    {admin && activeTab === 1 && (
-                        <ServerDisplaySettings ability={rest.ability} />
-                    )}
-                    {activeTab === (admin ? 2 : 1) && (
+                    {activeTab === 1 && (
                         <ClientDownload />
                     )}
                 </Box>
