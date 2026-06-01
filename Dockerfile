@@ -59,7 +59,8 @@ RUN apt-get update && \
             libjansson4 \
             libpq5 \
             libssl3 \
-            postgresql-client ; \
+            postgresql-client \
+            python3-minimal ; \
     else \
         apt-get install -y --no-install-recommends \
             nginx \
@@ -70,7 +71,8 @@ RUN apt-get update && \
             libpq5 \
             libssl3 \
             postgresql \
-            postgresql-contrib ; \
+            postgresql-contrib \
+            python3-minimal ; \
     fi && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 

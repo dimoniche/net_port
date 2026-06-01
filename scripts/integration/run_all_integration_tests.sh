@@ -27,9 +27,13 @@ run_test() {
 }
 
 run_test "Registration / reconnect" "${INTEGRATION_DIR}/device_tunnel_test.sh"
+sleep 2
 run_test "Fixed port" "${INTEGRATION_DIR}/fixed_port_test.sh"
 
 if [ "$RUN_LOAD" = "1" ]; then
+  sleep 2
+  send_control_json '{"action":"reset_rate_limits"}' >/dev/null 2>&1 || true
+  sleep 1
   echo
   echo "========== Load (${LOAD_DEVICES} devices) =========="
   NET_PORT_LOAD_DEVICES="$LOAD_DEVICES" \
@@ -37,6 +41,7 @@ if [ "$RUN_LOAD" = "1" ]; then
     python3 "${INTEGRATION_DIR}/load_test_devices.py"
 fi
 
+sleep 2
 run_test "Security" "${INTEGRATION_DIR}/security_control_test.sh"
 
 echo

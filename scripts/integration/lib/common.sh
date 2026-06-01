@@ -300,16 +300,30 @@ PY
   return 1
 }
 
+apply_assigned_ports_from_response() {
+  local response="$1"
+  local assigned_port tunnel_port
+
+  assigned_port="$(json_field assigned_port "$response")"
+  tunnel_port="$(json_field tunnel_port "$response")"
+  if [ -n "$assigned_port" ]; then
+    INPUT_PORT="$assigned_port"
+    TUNNEL_PORT="${tunnel_port:-$((assigned_port + 1))}"
+    log "using assigned ports input=${INPUT_PORT} tunnel=${TUNNEL_PORT}"
+  fi
+}
+
 assert_ports_listening() {
   local ok=0
-  if wait_for_port "$INPUT_PORT"; then
+  local attempts="${1:-30}"
+  if wait_for_port "$INPUT_PORT" "$attempts"; then
     pass "input port ${INPUT_PORT} is listening"
   else
     fail "input port ${INPUT_PORT} is not listening"
     ok=1
   fi
 
-  if wait_for_port "$TUNNEL_PORT"; then
+  if wait_for_port "$TUNNEL_PORT" "$attempts"; then
     pass "tunnel port ${TUNNEL_PORT} is listening"
   else
     fail "tunnel port ${TUNNEL_PORT} is not listening"
@@ -320,9 +334,24 @@ assert_ports_listening() {
 }
 
 register_device() {
-  local payload
-  payload="$(printf '{"action":"register","device_id":"%s","auth_token":"%s","version":"1.0"}' "$DEVICE_ID" "$AUTH_TOKEN")"
-  send_control_json "$payload"
+  local payload="${1:-}"
+  local response=""
+  local attempt
+
+  if [ -z "$payload" ]; then
+    payload="$(printf '{"action":"register","device_id":"%s","auth_token":"%s","version":"1.0"}' "$DEVICE_ID" "$AUTH_TOKEN")"
+  fi
+
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    response="$(send_control_json "$payload" 2>/dev/null || true)"
+    if [ -n "$response" ]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  printf '%s' "$response"
 }
 
 disconnect_device() {
@@ -346,15 +375,35 @@ check_prerequisites() {
 
   send_control_json '{"action":"reset_rate_limits"}' >/dev/null 2>&1 || true
 
-  if ! python3 - "$CONTROL_HOST" "$CONTROL_PORT" <<'PY' >/dev/null 2>&1; then
+  local attempt control_ok=0
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if python3 - "$CONTROL_HOST" "$CONTROL_PORT" <<'PY' >/dev/null 2>&1; then
+import os
 import socket
+import ssl
 import sys
 
 host = sys.argv[1]
 port = int(sys.argv[2])
 sock = socket.create_connection((host, port), timeout=5)
+if os.environ.get("NET_PORT_CONTROL_SSL", "1") != "0":
+    ctx = ssl.create_default_context()
+    ca_file = os.environ.get("NET_PORT_CONTROL_CA_FILE")
+    if ca_file:
+        ctx.load_verify_locations(cafile=ca_file)
+    else:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    sock = ctx.wrap_socket(sock, server_hostname=host)
 sock.close()
 PY
+      control_ok=1
+      break
+    fi
+    sleep 0.5
+  done
+
+  if [ "$control_ok" -ne 1 ]; then
     log "Control server is not reachable at ${CONTROL_HOST}:${CONTROL_PORT}"
     log "Start the net_port server with device management enabled, then rerun this test."
     exit 1

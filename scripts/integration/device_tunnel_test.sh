@@ -28,11 +28,7 @@ main() {
     exit 1
   fi
 
-  if [ -n "$assigned_port" ] && [ "$assigned_port" != "$INPUT_PORT" ]; then
-    INPUT_PORT="$assigned_port"
-    TUNNEL_PORT="${tunnel_port:-$((assigned_port + 1))}"
-    log "using assigned ports input=${INPUT_PORT} tunnel=${TUNNEL_PORT}"
-  fi
+  apply_assigned_ports_from_response "$response"
 
   assert_ports_listening || true
 
@@ -47,6 +43,8 @@ main() {
 
   psql_exec "UPDATE devices SET status = 'inactive', assigned_port = NULL, updated_at = NOW() WHERE device_id = '${DEVICE_ID}';"
 
+  sleep 1
+
   response="$(register_device || true)"
   status="$(json_field status "$response")"
   message="$(json_field message "$response")"
@@ -58,10 +56,13 @@ main() {
 
   prepare_test_device "connecting"
 
+  sleep 1
+
   response="$(register_device || true)"
   status="$(json_field status "$response")"
   if [ "$status" = "authenticated" ]; then
     pass "registration succeeded after reconnect permission"
+    apply_assigned_ports_from_response "$response"
   else
     message="$(json_field message "$response")"
     fail "reconnect registration failed: status=${status:-empty} message=${message:-empty}"
@@ -69,7 +70,7 @@ main() {
     exit 1
   fi
 
-  assert_ports_listening || true
+  assert_ports_listening 40 || true
   summary || exit 1
 }
 

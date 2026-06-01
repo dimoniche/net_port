@@ -8,10 +8,26 @@ import hashlib
 import json
 import os
 import socket
+import ssl
 import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+def _control_connect(host: str, port: int, timeout: float) -> socket.socket:
+    sock = socket.create_connection((host, port), timeout=timeout)
+    if os.environ.get("NET_PORT_CONTROL_SSL", "1") == "0":
+        return sock
+
+    ctx = ssl.create_default_context()
+    ca_file = os.environ.get("NET_PORT_CONTROL_CA_FILE")
+    if ca_file:
+        ctx.load_verify_locations(cafile=ca_file)
+    else:
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    return ctx.wrap_socket(sock, server_hostname=host)
 
 
 def send_register(host: str, port: int, device_id: str, auth_token: str, timeout: float) -> dict:
@@ -24,29 +40,33 @@ def send_register(host: str, port: int, device_id: str, auth_token: str, timeout
         },
         separators=(",", ":"),
     )
+    sock = None
     try:
-        with socket.create_connection((host, port), timeout=timeout) as sock:
-            sock.sendall(payload.encode("utf-8"))
-            sock.settimeout(timeout)
-            chunks = []
-            while True:
-                try:
-                    data = sock.recv(4096)
-                except socket.timeout:
-                    break
-                if not data:
-                    break
-                chunks.append(data)
-                try:
-                    return json.loads(b"".join(chunks).decode("utf-8", errors="replace"))
-                except json.JSONDecodeError:
-                    continue
-            raw = b"".join(chunks).decode("utf-8", errors="replace")
-            if raw.strip():
-                return json.loads(raw)
-            return {"status": "error", "message": "empty response"}
+        sock = _control_connect(host, port, timeout)
+        sock.sendall(payload.encode("utf-8"))
+        sock.settimeout(timeout)
+        chunks = []
+        while True:
+            try:
+                data = sock.recv(4096)
+            except socket.timeout:
+                break
+            if not data:
+                break
+            chunks.append(data)
+            try:
+                return json.loads(b"".join(chunks).decode("utf-8", errors="replace"))
+            except json.JSONDecodeError:
+                continue
+        raw = b"".join(chunks).decode("utf-8", errors="replace")
+        if raw.strip():
+            return json.loads(raw)
+        return {"status": "error", "message": "empty response"}
     except OSError as exc:
         return {"status": "error", "message": str(exc)}
+    finally:
+        if sock is not None:
+            sock.close()
 
 
 def sha256_hex(value: str) -> str:
@@ -134,6 +154,21 @@ def cleanup_devices(prefix: str, env: dict[str, str]) -> None:
     )
 
 
+def reset_control_rate_limits(host: str, port: int, timeout: float) -> None:
+    payload = json.dumps({"action": "reset_rate_limits"}, separators=(",", ":"))
+    sock = None
+    try:
+        sock = _control_connect(host, port, timeout)
+        sock.sendall(payload.encode("utf-8"))
+        sock.settimeout(timeout)
+        sock.recv(4096)
+    except OSError:
+        pass
+    finally:
+        if sock is not None:
+            sock.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Concurrent device registration load test")
     parser.add_argument("--host", default=os.environ.get("NET_PORT_CONTROL_HOST", "127.0.0.1"))
@@ -156,6 +191,8 @@ def main() -> int:
     if not env["DB_PASSWORD"]:
         print("Set DB_PASSWORD before running load test", file=sys.stderr)
         return 1
+
+    reset_control_rate_limits(args.host, args.port, args.timeout)
 
     devices = prepare_devices(args.devices, args.prefix, env)
     started = time.time()
