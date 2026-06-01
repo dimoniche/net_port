@@ -8,6 +8,7 @@ const {
   filterRegressiveStatisticSnapshots,
   isMonotonicStatisticPredecessor
 } = require('./statistics.helpers');
+const { canAccessLegacyServers, assertLegacyServersAccess } = require('../../lib/userRoles');
 
 exports.Statistics = class Statistics {
   constructor(dbInstance) {
@@ -15,6 +16,10 @@ exports.Statistics = class Statistics {
   }
 
   async fetchEnabledServers(params = {}) {
+    if (!canAccessLegacyServers(params.user)) {
+      return [];
+    }
+
     const userId = resolveStatisticsUserId(params);
     let query = this.db('servers')
       .where('enable', true)
@@ -101,7 +106,11 @@ exports.Statistics = class Statistics {
       .first();
   }
 
-  async buildServerStatisticsRow(serverId) {
+  async buildServerStatisticsRow(serverId, params = {}) {
+    if (!canAccessLegacyServers(params.user)) {
+      return null;
+    }
+
     const server = await this.db('servers')
       .where('id', Number(serverId))
       .where('enable', true)
@@ -145,7 +154,7 @@ exports.Statistics = class Statistics {
     const result = [];
 
     for (const server of servers) {
-      const row = await this.buildServerStatisticsRow(server.id);
+      const row = await this.buildServerStatisticsRow(server.id, params);
       if (row) {
         result.push(row);
       }
@@ -154,7 +163,11 @@ exports.Statistics = class Statistics {
     return result;
   }
 
-  async get(id, param) {
+  async get(id, param = {}) {
+    if (!canAccessLegacyServers(param.user)) {
+      return [];
+    }
+
     const row = await this.fetchLatestStatisticRow(Number(id));
     return row ? [row] : [];
   }
@@ -163,7 +176,9 @@ exports.Statistics = class Statistics {
     return this.find(params);
   }
 
-  async getByServerAndTimeRange(serverId, startTime, endTime) {
+  async getByServerAndTimeRange(serverId, startTime, endTime, params = {}) {
+    assertLegacyServersAccess(params.user);
+
     const start = new Date(startTime);
     const end = new Date(endTime);
 
@@ -183,7 +198,9 @@ exports.Statistics = class Statistics {
     return filterRegressiveStatisticSnapshots(filterEmptyStatisticSnapshots(rows));
   }
 
-  async resetByServer(serverId) {
+  async resetByServer(serverId, params = {}) {
+    assertLegacyServersAccess(params.user);
+
     await this.db('statistic').where('server_id', Number(serverId)).del();
     await this.db('servers')
       .where('id', Number(serverId))

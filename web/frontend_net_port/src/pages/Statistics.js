@@ -31,6 +31,7 @@ import {
     getEnabledLegacyServers,
     hasEnabledLegacyServers,
 } from "../utils/legacyServers";
+import { isAdminUser } from "../utils/userRoles";
 
 const statisticsTableContainerSx = {
     width: "100%",
@@ -188,17 +189,22 @@ const Statistics = ({ children, ...rest }) => {
         }
 
         try {
-            const serversResponse = await api.get(
-                `/servers/0?user_id=${cookies.user.id}`
-            );
-            const serverList = serversResponse.status === 200 ? serversResponse.data : [];
+            const admin = isAdminUser(cookies.user);
+            let serverList = [];
 
-            if (serversResponse.status === 200) {
+            if (admin) {
+                const serversResponse = await api.get(
+                    `/servers/0?user_id=${cookies.user.id}`
+                );
+                serverList =
+                    serversResponse.status === 200 ? serversResponse.data : [];
                 setServersData(serverList);
+            } else {
+                setServersData([]);
             }
 
             await Promise.all([
-                fetchServerStatistics(serverList),
+                admin ? fetchServerStatistics(serverList) : Promise.resolve(),
                 fetchDeviceStatistics(),
             ]);
             setIsLoaded(true);

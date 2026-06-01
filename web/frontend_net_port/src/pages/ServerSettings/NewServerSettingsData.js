@@ -16,6 +16,7 @@ import AlertTitle from "@mui/material/AlertTitle";
 import Paper from "@mui/material/Paper";
 import isEmpty from "lodash/isEmpty";
 import updateAbility from "../../config/permission";
+import { isAdminUser } from "../../utils/userRoles";
 import {
     SERVER_PORT_MIN,
     SERVER_PORT_MAX,
@@ -38,11 +39,13 @@ const NewServerSettingsData = ({ children, ...rest }) => {
     const [freePorts, setFreePorts] = useState();
 
     const [error, setError] = useState(null);
-    if (error) {
-        throw error;
-    }
 
     useEffect(() => {
+        if (!isEmpty(cookies.user) && !isAdminUser(cookies.user)) {
+            history("/devices");
+            return undefined;
+        }
+
         const abortController = new AbortController();
 
         async function fetchData(abortController) {
@@ -193,6 +196,14 @@ const NewServerSettingsData = ({ children, ...rest }) => {
         initialValues: InitValues,
         validationSchema: Schema,
     });
+
+    if (error) {
+        throw error;
+    }
+
+    if (!isEmpty(cookies.user) && !isAdminUser(cookies.user)) {
+        return null;
+    }
 
     return (
         <Paper

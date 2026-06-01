@@ -25,8 +25,20 @@ function applyDeviceOwnershipFilter(knexQuery, user, column = 'devices.user_id')
   return knexQuery.where(column, user.id);
 }
 
+function canAccessLegacyServers(user) {
+  return isAdminUser(user);
+}
+
+function assertLegacyServersAccess(user) {
+  if (!canAccessLegacyServers(user)) {
+    throw new Error('Permission denied');
+  }
+}
+
 module.exports = {
   isAdminUser,
   canAccessDevice,
+  canAccessLegacyServers,
+  assertLegacyServersAccess,
   applyDeviceOwnershipFilter
 };

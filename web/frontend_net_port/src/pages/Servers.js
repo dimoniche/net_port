@@ -29,6 +29,7 @@ import CommonDialog from "../components/CommonDialog";
 import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
 
 import updateAbility from "../config/permission";
+import { isAdminUser } from "../utils/userRoles";
 
 const Servers = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
@@ -49,9 +50,6 @@ const Servers = ({ children, ...rest }) => {
     const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
 
     const [error, setError] = useState(null);
-    if (error) {
-        throw error;
-    }
 
     const handleLogout = useCallback(() => {
         removeCookie("token");
@@ -61,12 +59,23 @@ const Servers = ({ children, ...rest }) => {
         updateAbility(rest.ability, null);
     }, [api, history, removeCookie, rest.ability]);
 
+    useEffect(() => {
+        if (!isEmpty(cookies.user) && !isAdminUser(cookies.user)) {
+            history("/devices");
+        }
+    }, [cookies.user, history]);
+
     const fetchServers = useCallback(async (abortController) => {
         let responseError = false;
         setIsRefreshing(true);
 
         if (isEmpty(cookies.user)) {
             history("/main");
+            setIsRefreshing(false);
+            return;
+        }
+
+        if (!isAdminUser(cookies.user)) {
             setIsRefreshing(false);
             return;
         }
@@ -206,6 +215,14 @@ const Servers = ({ children, ...rest }) => {
             setOpenDeleteDialog(false);
         }
     };
+
+    if (error) {
+        throw error;
+    }
+
+    if (!isEmpty(cookies.user) && !isAdminUser(cookies.user)) {
+        return null;
+    }
 
     if (!isLoaded) {
         return <Loader />;

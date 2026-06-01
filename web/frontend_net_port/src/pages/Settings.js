@@ -12,6 +12,7 @@ import { ApiContext } from "../context/ApiContext";
 import { Loader } from "../components/Loader";
 import Main from "./Main";
 import updateAbility from "../config/permission";
+import { isAdminUser } from "../utils/userRoles";
 
 import Paper from "@mui/material/Paper";
 import Tabs from "@mui/material/Tabs";
@@ -85,6 +86,8 @@ const Settings = ({ children, ...rest }) => {
         };
     }, []);
 
+    const admin = isAdminUser(cookies.user);
+
     return !isEmpty(cookies.user) ? (
         !isEmpty(userSettings) ? (
             <>
@@ -97,7 +100,7 @@ const Settings = ({ children, ...rest }) => {
                             centered
                         >
                             <Tab label="Пользователь" />
-                            <Tab label="Отображение серверов" />
+                            {admin && <Tab label="Отображение серверов" />}
                             <Tab label="Скачать клиент" />
                         </Tabs>
                     </Paper>
@@ -110,10 +113,10 @@ const Settings = ({ children, ...rest }) => {
                             }}
                         />
                     )}
-                    {activeTab === 1 && (
+                    {admin && activeTab === 1 && (
                         <ServerDisplaySettings ability={rest.ability} />
                     )}
-                    {activeTab === 2 && (
+                    {activeTab === (admin ? 2 : 1) && (
                         <ClientDownload />
                     )}
                 </Box>

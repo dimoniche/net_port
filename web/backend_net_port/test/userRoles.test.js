@@ -3,6 +3,7 @@
 const {
   isAdminUser,
   canAccessDevice,
+  canAccessLegacyServers,
   applyDeviceOwnershipFilter
 } = require('../src/lib/userRoles');
 
@@ -40,6 +41,16 @@ describe('userRoles', () => {
 
     it('denies other users devices', () => {
       expect(canAccessDevice({ id: 1, role_name: 'user' }, { user_id: 2 })).toBe(false);
+    });
+  });
+
+  describe('canAccessLegacyServers', () => {
+    it('allows admin', () => {
+      expect(canAccessLegacyServers({ role_name: 'admin' })).toBe(true);
+    });
+
+    it('denies regular users', () => {
+      expect(canAccessLegacyServers({ role_name: 'user' })).toBe(false);
     });
   });
 

@@ -3,7 +3,7 @@
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
 const { validateServerPorts } = require('../../config/ports');
-const { isAdminUser } = require('../../lib/userRoles');
+const { assertLegacyServersAccess } = require('../../lib/userRoles');
 
 exports.Servers = class Servers {
   constructor(dbInstance) {
@@ -158,9 +158,7 @@ exports.Servers = class Servers {
       throw new Error(`Server with id ${id} not found`);
     }
 
-    if (!isAdminUser(user) && Number(server.user_id) !== Number(user.id)) {
-      throw new Error('Permission denied');
-    }
+    assertLegacyServersAccess(user);
 
     try {
       const killCommand = `pkill -SIGTERM -f "module_net_port_server"`;

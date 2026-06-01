@@ -181,7 +181,7 @@ const mainNavSection = [{ title: "Главная", href: "/main", name: "MainTit
 const minorNavSection = [
     { title: "Настройки", href: "/settings", name: "Config" },
     { title: "Пользователи", href: "/users", name: "Users" },
-    { title: "Серверы", href: "/servers", name: "Config" },
+    { title: "Серверы", href: "/servers", name: "LegacyServers" },
     { title: "Устройства", href: "/devices", name: "Config" },
     { title: "Статистика", href: "/statistics", name: "Config" },
 ];

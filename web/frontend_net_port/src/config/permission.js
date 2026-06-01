@@ -12,6 +12,7 @@ export default function updateAbility(ability, user) {
         case "admin":
         can("manage", "all");
         can("read", "Users");
+        can("read", "LegacyServers");
         break;
         case "user":
         can("manage", "Config");

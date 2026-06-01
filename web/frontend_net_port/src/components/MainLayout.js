@@ -31,6 +31,7 @@ import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
 import OverviewStatsModal from "./OverviewStatsModal";
 import { formatBytes, formatSpeed, parseSpeedNumber } from "../utils/statsFormat";
 import { getEnabledLegacyServers } from "../utils/legacyServers";
+import { isAdminUser } from "../utils/userRoles";
 
 import logo from "../assets/netport-120-120.png";
 
@@ -242,28 +243,57 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const fetchStatisticsData = useCallback(async () => {
         if (!cookies.user) return;
 
+        const admin = isAdminUser(cookies.user);
+
         try {
-            const [statistics, servers, deviceStatistics] = await Promise.all([
+            const requests = [
                 api.get(`/statistics`, {
-                    params: cookies.user?.id ? { user_id: cookies.user.id } : undefined,
+                    params: admin && cookies.user?.id
+                        ? { user_id: cookies.user.id }
+                        : undefined,
                 }),
-                api.get(`/servers/0?user_id=${cookies.user.id}`),
                 api.get(`/devices/statistics/summary`),
-            ]);
+            ];
 
-            if (statistics.status === 200) {
-                setStatisticsData(statistics.data);
+            if (admin) {
+                requests.splice(
+                    1,
+                    0,
+                    api.get(`/servers/0?user_id=${cookies.user.id}`)
+                );
             }
 
-            if (servers.status === 200) {
-                setServersData(servers.data);
+            const results = await Promise.all(requests);
+
+            let statisticsResult;
+            let serversResult;
+            let deviceStatisticsResult;
+
+            if (admin) {
+                [statisticsResult, serversResult, deviceStatisticsResult] = results;
+            } else {
+                [statisticsResult, deviceStatisticsResult] = results;
+                serversResult = { status: 200, data: [] };
             }
 
-            if (deviceStatistics.status === 200) {
-                setDeviceStatisticsData(deviceStatistics.data);
+            if (statisticsResult.status === 200) {
+                setStatisticsData(statisticsResult.data);
+            }
+
+            if (serversResult.status === 200) {
+                setServersData(serversResult.data);
+            } else if (!admin) {
+                setServersData([]);
+            }
+
+            if (deviceStatisticsResult.status === 200) {
+                setDeviceStatisticsData(deviceStatisticsResult.data);
             }
         } catch (err) {
             console.error("Error fetching statistics data:", err);
+            if (!isAdminUser(cookies.user)) {
+                setServersData([]);
+            }
         }
     }, [api, cookies.user]);
 

@@ -17,6 +17,8 @@ import Paper from "@mui/material/Paper";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import updateAbility from "../../config/permission";
+import { isAdminUser } from "../../utils/userRoles";
+import isEmpty from "lodash/isEmpty";
 import { SERVER_PORT_MIN, SERVER_PORT_MAX } from "../../config/ports";
 
 const InputFieldWidth = { width: "100%" };
@@ -33,11 +35,13 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
     const [serverData, setServerData] = useState();
 
     const [error, setError] = useState(null);
-    if (error) {
-        throw error;
-    }
 
     useEffect(() => {
+        if (!isEmpty(cookies.user) && !isAdminUser(cookies.user)) {
+            history("/devices");
+            return undefined;
+        }
+
         const abortController = new AbortController();
 
         async function fetchData(abortController) {
@@ -169,6 +173,14 @@ const ServerSettingsEdit = ({ children, ...rest }) => {
         initialValues: InitValues,
         validationSchema: Schema,
     });
+
+    if (error) {
+        throw error;
+    }
+
+    if (!isEmpty(cookies.user) && !isAdminUser(cookies.user)) {
+        return null;
+    }
 
     return (
         <Paper
