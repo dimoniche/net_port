@@ -54,7 +54,7 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
             internal_address: formData.get("internal_address") || '127.0.0.1',
             internal_port: internalPort,
             preferred_port: preferredPort,
-            protocol: formData.get("protocol") || 'tcp',
+            protocol: 'tcp',
             user_id: cookies.user?.id,
         };
 
@@ -193,16 +193,11 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                             <TextField
                                 fullWidth
                                 label="Протокол"
-                                name="protocol"
                                 variant="outlined"
-                                defaultValue="tcp"
-                                select
-                                SelectProps={{ native: true }}
-                                helperText="Протокол устройства"
-                            >
-                                <option value="tcp">TCP</option>
-                                <option value="udp">UDP</option>
-                            </TextField>
+                                value="TCP"
+                                disabled
+                                helperText="Туннель поддерживает только TCP"
+                            />
                         </Grid>
                     </Grid>
                     <Box sx={{ mt: 3, display: "flex", gap: 2 }}>

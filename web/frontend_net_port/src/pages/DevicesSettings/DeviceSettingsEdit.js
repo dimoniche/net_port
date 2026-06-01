@@ -107,7 +107,7 @@ const DeviceSettingsEdit = ({ children, ...rest }) => {
             internal_address: formData.get("internal_address"),
             internal_port: internalPort,
             preferred_port: preferredPort,
-            protocol: formData.get("protocol"),
+            protocol: 'tcp',
         };
 
         try {
@@ -253,16 +253,11 @@ const DeviceSettingsEdit = ({ children, ...rest }) => {
                             <TextField
                                 fullWidth
                                 label="Протокол"
-                                name="protocol"
                                 variant="outlined"
-                                defaultValue={deviceData.protocol || "tcp"}
-                                select
-                                SelectProps={{ native: true }}
-                                helperText="Протокол устройства"
-                            >
-                                <option value="tcp">TCP</option>
-                                <option value="udp">UDP</option>
-                            </TextField>
+                                value="TCP"
+                                disabled
+                                helperText="Туннель поддерживает только TCP"
+                            />
                         </Grid>
                         <Grid item xs={12}>
                             <Divider sx={{ my: 2 }} />
