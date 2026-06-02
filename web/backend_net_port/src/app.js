@@ -167,6 +167,12 @@ app.configure(
 
 app.configure(knex);
 
+app.set('trust proxy', true);
+
+const { createAuthenticationRateLimiter } = require('./lib/authentication-rate-limit');
+const authenticationPath = `${app.get('prefix') || ''}/authentication`;
+app.post(authenticationPath, createAuthenticationRateLimiter());
+
 app.configure(authentication);
 app.configure(services);
 app.configure(configureChannels);
