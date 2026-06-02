@@ -17,7 +17,13 @@ import Button from "@mui/material/Button";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
 import Box from "@mui/material/Box";
+import Grid from "@mui/material/Grid";
 import Chip from "@mui/material/Chip";
+import TextField from "@mui/material/TextField";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
+import Select from "@mui/material/Select";
+import MenuItem from "@mui/material/MenuItem";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
 import IconButton from "@mui/material/IconButton";
@@ -32,6 +38,7 @@ import {
     hasEnabledLegacyServers,
 } from "../utils/legacyServers";
 import { isAdminUser } from "../utils/userRoles";
+import { DEVICE_TYPES } from "../consts/deviceTypes";
 
 const statisticsTableContainerSx = {
     width: "100%",
@@ -87,6 +94,15 @@ const Statistics = ({ children, ...rest }) => {
     const [deviceModalOpen, setDeviceModalOpen] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
+
+    const [deviceSearchFilter, setDeviceSearchFilter] = useState("");
+    const [deviceStatusFilter, setDeviceStatusFilter] = useState("");
+    const [deviceTypeFilter, setDeviceTypeFilter] = useState("");
+    const [deviceOnlineFilter, setDeviceOnlineFilter] = useState("");
+    const [devicePortFilter, setDevicePortFilter] = useState("");
+    const [serverSearchFilter, setServerSearchFilter] = useState("");
+    const [serverPortFilter, setServerPortFilter] = useState("");
+
     const history = useNavigate();
 
     const [error, setError] = useState(null);
@@ -266,23 +282,293 @@ const Statistics = ({ children, ...rest }) => {
         return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     };
 
-    const getServerDescription = (serverId) => {
+    const getServerMeta = (serverId) => {
         if (!serversData || serversData.length === 0) {
-            return `Сервер #${serverId}`;
+            return null;
         }
+        return serversData.find((s) => Number(s.id) === Number(serverId)) || null;
+    };
 
-        const server = serversData.find(
-            (s) => Number(s.id) === Number(serverId)
-        );
+    const getServerDescription = (serverId) => {
+        const server = getServerMeta(serverId);
         if (server) {
             return server.description || server.name || `Сервер #${serverId}`;
         }
-
         return `Сервер #${serverId}`;
+    };
+
+    const filteredServerStatistics = useMemo(() => {
+        const search = serverSearchFilter.trim().toLowerCase();
+        const portQuery = serverPortFilter.trim();
+
+        return statisticsData
+            .filter((stat) => {
+                const server = getServerMeta(stat.server_id);
+                const description = getServerDescription(stat.server_id).toLowerCase();
+
+                if (search && !description.includes(search)) {
+                    const ports = server
+                        ? `${server.input_port} ${server.output_port}`.toLowerCase()
+                        : "";
+                    if (!ports.includes(search) && !String(stat.server_id).includes(search)) {
+                        return false;
+                    }
+                }
+
+                if (portQuery && server) {
+                    const matchesPort =
+                        String(server.input_port).includes(portQuery) ||
+                        String(server.output_port).includes(portQuery);
+                    if (!matchesPort) {
+                        return false;
+                    }
+                } else if (portQuery && !server) {
+                    return false;
+                }
+
+                return true;
+            })
+            .slice()
+            .sort(
+                (a, b) =>
+                    (parseDbTimestamp(b.timestamp)?.getTime() || 0) -
+                    (parseDbTimestamp(a.timestamp)?.getTime() || 0)
+            );
+    }, [
+        statisticsData,
+        serversData,
+        serverSearchFilter,
+        serverPortFilter,
+    ]);
+
+    const filteredDeviceStatistics = useMemo(() => {
+        const search = deviceSearchFilter.trim().toLowerCase();
+        const portQuery = devicePortFilter.trim();
+
+        return deviceStatisticsData.filter((device) => {
+            if (search) {
+                const haystack = `${device.device_id || ""} ${device.name || ""}`.toLowerCase();
+                if (!haystack.includes(search)) {
+                    return false;
+                }
+            }
+
+            if (deviceStatusFilter && device.status !== deviceStatusFilter) {
+                return false;
+            }
+
+            if (deviceTypeFilter && device.type !== deviceTypeFilter) {
+                return false;
+            }
+
+            if (deviceOnlineFilter === "online" && !device.online) {
+                return false;
+            }
+            if (deviceOnlineFilter === "offline" && device.online) {
+                return false;
+            }
+
+            if (portQuery) {
+                const ports = [
+                    device.assigned_port,
+                    device.preferred_port,
+                    device.session_port,
+                ]
+                    .filter((value) => value != null && value !== "")
+                    .map(String);
+                if (!ports.some((port) => port.includes(portQuery))) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+    }, [
+        deviceStatisticsData,
+        deviceSearchFilter,
+        deviceStatusFilter,
+        deviceTypeFilter,
+        deviceOnlineFilter,
+        devicePortFilter,
+    ]);
+
+    const hasActiveServerFilters = Boolean(
+        serverSearchFilter.trim() || serverPortFilter.trim()
+    );
+    const hasActiveDeviceFilters = Boolean(
+        deviceSearchFilter.trim() ||
+            deviceStatusFilter ||
+            deviceTypeFilter ||
+            deviceOnlineFilter ||
+            devicePortFilter.trim()
+    );
+
+    const resetServerFilters = () => {
+        setServerSearchFilter("");
+        setServerPortFilter("");
+    };
+
+    const resetDeviceFilters = () => {
+        setDeviceSearchFilter("");
+        setDeviceStatusFilter("");
+        setDeviceTypeFilter("");
+        setDeviceOnlineFilter("");
+        setDevicePortFilter("");
     };
 
     const formatStatTimestamp = (timestamp) =>
         formatTimestamp(timestamp, { shortYear: true });
+
+    const renderServerFilters = () => (
+        <Paper sx={{ p: 1.5, mb: 2 }}>
+            <Box
+                sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    mb: 1,
+                    flexWrap: "wrap",
+                    gap: 1,
+                }}
+            >
+                <Typography variant="subtitle1" sx={{ fontSize: "0.95rem" }}>
+                    Фильтры
+                </Typography>
+                {hasActiveServerFilters && (
+                    <Button size="small" onClick={resetServerFilters}>
+                        Сбросить
+                    </Button>
+                )}
+            </Box>
+            <Grid container spacing={1}>
+                <Grid item xs={12} sm={6} md={4}>
+                    <TextField
+                        fullWidth
+                        size="small"
+                        label="Поиск"
+                        placeholder="Описание, порт или ID"
+                        value={serverSearchFilter}
+                        onChange={(e) => setServerSearchFilter(e.target.value)}
+                    />
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                    <TextField
+                        fullWidth
+                        size="small"
+                        label="Порт"
+                        placeholder="input / output"
+                        value={serverPortFilter}
+                        onChange={(e) => setServerPortFilter(e.target.value)}
+                    />
+                </Grid>
+            </Grid>
+            {hasActiveServerFilters && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+                    Показано {filteredServerStatistics.length} из {statisticsData.length}
+                </Typography>
+            )}
+        </Paper>
+    );
+
+    const renderDeviceFilters = () => (
+        <Paper sx={{ p: 1.5, mb: 2 }}>
+            <Box
+                sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    mb: 1,
+                    flexWrap: "wrap",
+                    gap: 1,
+                }}
+            >
+                <Typography variant="subtitle1" sx={{ fontSize: "0.95rem" }}>
+                    Фильтры
+                </Typography>
+                {hasActiveDeviceFilters && (
+                    <Button size="small" onClick={resetDeviceFilters}>
+                        Сбросить
+                    </Button>
+                )}
+            </Box>
+            <Grid container spacing={1}>
+                <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                        fullWidth
+                        size="small"
+                        label="Поиск"
+                        placeholder="ID или название"
+                        value={deviceSearchFilter}
+                        onChange={(e) => setDeviceSearchFilter(e.target.value)}
+                    />
+                </Grid>
+                <Grid item xs={12} sm={6} md={2}>
+                    <FormControl fullWidth size="small">
+                        <InputLabel>Статус</InputLabel>
+                        <Select
+                            value={deviceStatusFilter}
+                            label="Статус"
+                            onChange={(e) => setDeviceStatusFilter(e.target.value)}
+                        >
+                            <MenuItem value="">Все</MenuItem>
+                            <MenuItem value="active">Активен</MenuItem>
+                            <MenuItem value="inactive">Неактивен</MenuItem>
+                            <MenuItem value="connecting">Подключается</MenuItem>
+                            <MenuItem value="error">Ошибка</MenuItem>
+                            <MenuItem value="pending">Ожидает</MenuItem>
+                            <MenuItem value="blocked">Заблокирован</MenuItem>
+                        </Select>
+                    </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6} md={2}>
+                    <FormControl fullWidth size="small">
+                        <InputLabel>Online</InputLabel>
+                        <Select
+                            value={deviceOnlineFilter}
+                            label="Online"
+                            onChange={(e) => setDeviceOnlineFilter(e.target.value)}
+                        >
+                            <MenuItem value="">Все</MenuItem>
+                            <MenuItem value="online">Online</MenuItem>
+                            <MenuItem value="offline">Offline</MenuItem>
+                        </Select>
+                    </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6} md={2}>
+                    <FormControl fullWidth size="small">
+                        <InputLabel>Тип</InputLabel>
+                        <Select
+                            value={deviceTypeFilter}
+                            label="Тип"
+                            onChange={(e) => setDeviceTypeFilter(e.target.value)}
+                        >
+                            <MenuItem value="">Все</MenuItem>
+                            {DEVICE_TYPES.map(({ value, label }) => (
+                                <MenuItem key={value} value={value}>
+                                    {label}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                        fullWidth
+                        size="small"
+                        label="Порт"
+                        placeholder="assigned / preferred / session"
+                        value={devicePortFilter}
+                        onChange={(e) => setDevicePortFilter(e.target.value)}
+                    />
+                </Grid>
+            </Grid>
+            {hasActiveDeviceFilters && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+                    Показано {filteredDeviceStatistics.length} из {deviceStatisticsData.length}
+                </Typography>
+            )}
+        </Paper>
+    );
 
     const handleResetServerStatistics = async (serverId) => {
         try {
@@ -368,8 +654,10 @@ const Statistics = ({ children, ...rest }) => {
 
                     {hasLegacyServers && tab === 0 && (
                         <>
+                            {renderServerFilters()}
                             {isLoaded ? (
                                 !isEmpty(statisticsData) ? (
+                                !isEmpty(filteredServerStatistics) ? (
                                 <StatisticsTableShell ariaLabel="server statistics table">
                                     <TableHead>
                                         <TableRow>
@@ -384,14 +672,7 @@ const Statistics = ({ children, ...rest }) => {
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                        {statisticsData
-                                            .slice()
-                                            .sort(
-                                                (a, b) =>
-                                                    (parseDbTimestamp(b.timestamp)?.getTime() || 0) -
-                                                    (parseDbTimestamp(a.timestamp)?.getTime() || 0)
-                                            )
-                                            .map((stat) => (
+                                        {filteredServerStatistics.map((stat) => (
                                                 <TableRow
                                                     key={`${stat.server_id}-${stat.timestamp}`}
                                                     hover
@@ -425,6 +706,11 @@ const Statistics = ({ children, ...rest }) => {
                                     </TableBody>
                                 </StatisticsTableShell>
                                 ) : (
+                                <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
+                                    Нет серверов по выбранным фильтрам
+                                </Typography>
+                                )
+                                ) : (
                                 <Loader title={"Ожидание первых данных статистики серверов"} />
                                 )
                             ) : (
@@ -435,7 +721,9 @@ const Statistics = ({ children, ...rest }) => {
 
                     {(!hasLegacyServers || tab === 1) && (
                         <>
+                            {renderDeviceFilters()}
                             {isLoaded && !isEmpty(deviceStatisticsData) ? (
+                                !isEmpty(filteredDeviceStatistics) ? (
                                 <StatisticsTableShell ariaLabel="device statistics table">
                                     <TableHead>
                                         <TableRow>
@@ -453,7 +741,7 @@ const Statistics = ({ children, ...rest }) => {
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                        {deviceStatisticsData.map((device) => (
+                                        {filteredDeviceStatistics.map((device) => (
                                             <TableRow
                                                 key={device.id}
                                                 hover
@@ -511,6 +799,11 @@ const Statistics = ({ children, ...rest }) => {
                                         ))}
                                     </TableBody>
                                 </StatisticsTableShell>
+                                ) : (
+                                <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
+                                    Нет устройств по выбранным фильтрам
+                                </Typography>
+                                )
                             ) : (
                                 <Loader title={"Статистика устройств не доступна"} />
                             )}

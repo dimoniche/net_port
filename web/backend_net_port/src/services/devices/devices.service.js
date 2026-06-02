@@ -751,6 +751,7 @@ exports.Devices = class Devices extends Service {
         'devices.device_id',
         'devices.name',
         'devices.status',
+        'devices.type',
         'devices.user_id',
         'devices.last_heartbeat',
         'devices.assigned_port',
