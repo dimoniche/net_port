@@ -268,6 +268,7 @@ int get_session_by_token(const char *session_token, device_session_t *session);
  */
 int terminate_device_session(const char *session_token);
 int terminate_device_by_device_id(const char *device_id);
+int reload_dynamic_server_tls_for_device(const char *device_id);
 
 /**
  * @brief Update device statistics

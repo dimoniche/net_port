@@ -96,6 +96,8 @@ void switcher_servers_restart_input_threads(void);
 // Функции для работы с OpenSSL
 void init_openssl();
 void cleanup_openssl();
+void init_ssl_context(void);
+void refresh_client_ssl_context(void);
 SSL_CTX *create_client_ssl_context(const char *ca_file);
 SSL_CTX *create_device_control_ssl_context(const char *ca_file);
 

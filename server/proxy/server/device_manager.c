@@ -136,6 +136,60 @@ static int send_json_response(control_conn_t *conn, json_t *response);
 static int create_ssl_context(void);
 static void cleanup_device_manager_ssl_context(void);
 
+#define TLS_RELOAD_PENDING_MAX 128
+static char g_tls_reload_pending[TLS_RELOAD_PENDING_MAX][DEVICE_ID_MAX_LEN + 1];
+static int g_tls_reload_pending_count = 0;
+static pthread_mutex_t g_tls_reload_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void device_manager_set_tls_reload_pending(const char *device_id)
+{
+    if (!device_id || device_id[0] == '\0') {
+        return;
+    }
+
+    pthread_mutex_lock(&g_tls_reload_mutex);
+    for (int i = 0; i < g_tls_reload_pending_count; i++) {
+        if (strcmp(g_tls_reload_pending[i], device_id) == 0) {
+            pthread_mutex_unlock(&g_tls_reload_mutex);
+            return;
+        }
+    }
+
+    if (g_tls_reload_pending_count < TLS_RELOAD_PENDING_MAX) {
+        strncpy(g_tls_reload_pending[g_tls_reload_pending_count], device_id, DEVICE_ID_MAX_LEN);
+        g_tls_reload_pending[g_tls_reload_pending_count][DEVICE_ID_MAX_LEN] = '\0';
+        g_tls_reload_pending_count++;
+    } else {
+        logMsg(LOG_WARNING, "TLS reload pending queue full, dropping flag for %s\n", device_id);
+    }
+    pthread_mutex_unlock(&g_tls_reload_mutex);
+}
+
+static bool device_manager_consume_tls_reload_pending(const char *device_id)
+{
+    bool found = false;
+
+    if (!device_id) {
+        return false;
+    }
+
+    pthread_mutex_lock(&g_tls_reload_mutex);
+    for (int i = 0; i < g_tls_reload_pending_count; i++) {
+        if (strcmp(g_tls_reload_pending[i], device_id) == 0) {
+            found = true;
+            if (i < g_tls_reload_pending_count - 1) {
+                strncpy(g_tls_reload_pending[i], g_tls_reload_pending[g_tls_reload_pending_count - 1],
+                        DEVICE_ID_MAX_LEN);
+                g_tls_reload_pending[i][DEVICE_ID_MAX_LEN] = '\0';
+            }
+            g_tls_reload_pending_count--;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_tls_reload_mutex);
+    return found;
+}
+
 // Global functions defined in this file
 void* cleanup_expired_sessions_thread(void *arg);
 json_t* process_registration_request(json_t *request, const char *client_ip);
@@ -564,6 +618,33 @@ static int process_json_message(control_conn_t *conn, const char *json_str, cons
                 return 0;
             }
         }
+    } else if (strcmp(action, "reload_tls") == 0) {
+        if (!is_local_control_request(client_ip)) {
+            response = json_object();
+            json_object_set_new(response, "status", json_string("error"));
+            json_object_set_new(response, "message", json_string("Unauthorized control request"));
+        } else {
+            json_t *device_id_obj = json_object_get(root, "device_id");
+            if (!json_is_string(device_id_obj)) {
+                response = json_object();
+                json_object_set_new(response, "status", json_string("error"));
+                json_object_set_new(response, "message", json_string("Missing device_id"));
+            } else {
+                const char *device_id = json_string_value(device_id_obj);
+
+                if (reload_dynamic_server_tls_for_device(device_id) != 0) {
+                    response = json_object();
+                    json_object_set_new(response, "status", json_string("error"));
+                    json_object_set_new(response, "message", json_string("Failed to reload TLS settings"));
+                    json_object_set_new(response, "device_id", json_string(device_id));
+                } else {
+                    response = json_object();
+                    json_object_set_new(response, "status", json_string("ok"));
+                    json_object_set_new(response, "message", json_string("Dynamic server TLS reload initiated"));
+                    json_object_set_new(response, "device_id", json_string(device_id));
+                }
+            }
+        }
     } else if (strcmp(action, "reset_rate_limits") == 0) {
         if (!is_local_control_request(client_ip)) {
             response = json_object();
@@ -765,6 +846,24 @@ json_t* process_heartbeat_request(json_t *request, const char *client_ip)
     }
 
     record_device_traffic_sample(session_token, bytes_sent, bytes_received, connections);
+
+    device_session_t session_for_tls;
+    if (get_session_by_token(session_token, &session_for_tls) == 0) {
+        device_info_t tls_device_info;
+        if (device_manager_load_device_by_id(session_for_tls.device_id, &tls_device_info) != 0) {
+            memset(&tls_device_info, 0, sizeof(tls_device_info));
+        }
+
+        bool input_tls = tls_device_info.enable_input_ssl && device_manager_ssl_certs_configured();
+        bool tunnel_tls = tls_device_info.enable_tunnel_ssl && device_manager_ssl_certs_configured();
+
+        json_object_set_new(response, "input_tls", json_boolean(input_tls));
+        json_object_set_new(response, "tunnel_tls", json_boolean(tunnel_tls));
+
+        if (device_manager_consume_tls_reload_pending(session_for_tls.device_id)) {
+            json_object_set_new(response, "reload_tls", json_true());
+        }
+    }
     
     json_object_set_new(response, "status", json_string("ok"));
     json_object_set_new(response, "timestamp", json_integer(time(NULL)));
@@ -1699,6 +1798,72 @@ int terminate_device_session(const char *session_token)
     }
 
     db_unlock();
+    return 0;
+}
+
+int reload_dynamic_server_tls_for_device(const char *device_id)
+{
+    if (!device_id || device_id[0] == '\0') {
+        return -1;
+    }
+
+    db_lock();
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        db_unlock();
+        return -1;
+    }
+
+    const char *params[1] = { device_id };
+    PGresult *res = PQexecParams(conn,
+        "SELECT ds.assigned_port "
+        "FROM device_sessions ds "
+        "JOIN devices d ON ds.device_id = d.id "
+        "WHERE d.device_id = $1 AND ds.status = 'active' "
+        "AND ds.expires_at > NOW() "
+        "ORDER BY ds.started_at DESC "
+        "LIMIT 1",
+        1, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+        logMsg(LOG_ERR, "Failed to query active session for TLS reload on %s: %s\n",
+               device_id, PQerrorMessage(conn));
+        PQclear(res);
+        db_unlock();
+        return -1;
+    }
+
+    uint16_t input_port = 0;
+    if (PQntuples(res) > 0 && !PQgetisnull(res, 0, 0)) {
+        input_port = (uint16_t)atoi(PQgetvalue(res, 0, 0));
+    }
+    PQclear(res);
+    db_unlock();
+
+    if (input_port == 0) {
+        logMsg(LOG_INFO, "No active session for device %s, TLS reload skipped\n", device_id);
+        return 0;
+    }
+
+    device_info_t device_info;
+    if (device_manager_load_device_by_id(device_id, &device_info) != 0) {
+        logMsg(LOG_ERR, "Failed to load device %s for TLS reload\n", device_id);
+        return -1;
+    }
+
+    uint16_t tunnel_port = (uint16_t)(input_port + 1);
+    stop_dynamic_server_for_device(device_id, input_port, tunnel_port);
+
+    if (ensure_dynamic_server_for_device(device_id, input_port, tunnel_port, &device_info) < 0) {
+        logMsg(LOG_ERR, "Failed to restart dynamic server for device %s after TLS change\n", device_id);
+        return -1;
+    }
+
+    device_manager_set_tls_reload_pending(device_id);
+    logMsg(LOG_INFO, "Dynamic server TLS reloaded for device %s (input=%u tunnel=%u input_ssl=%d tunnel_ssl=%d)\n",
+           device_id, input_port, tunnel_port,
+           device_info.enable_input_ssl ? 1 : 0, device_info.enable_tunnel_ssl ? 1 : 0);
     return 0;
 }
 

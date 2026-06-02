@@ -185,13 +185,13 @@ bash /root/net_port/source/scripts/run-migrations.sh
 # Add admin user with hashed password from environment
 cd /root/net_port/source/web/backend_net_port && node dist/add_test_user/index.js || echo "Warning: add_test_user failed, continuing startup"
 
-# Generate SSL certificates if they don't exist
-if [ ! -f /root/net_port/server.crt ] || [ ! -f /root/net_port/server.key ]; then
-    mkdir -p /root/net_port
-    cd /root/net_port
-    openssl genrsa -out server.key 2048
-    openssl req -new -x509 -key server.key -out server.crt -days 3650 -subj "/C=RU/ST=Moscow/L=Moscow/O=Net Port/CN=localhost"
-fi
+# Generate SSL certificates once (persisted in NET_PORT_SSL_DIR, e.g. Docker volume)
+NET_PORT_SSL_DIR="${NET_PORT_SSL_DIR:-/root/net_port/ssl}"
+bash /root/net_port/source/scripts/ensure-server-ssl.sh
+SSL_CERT="${NET_PORT_SSL_DIR}/server.crt"
+SSL_KEY="${NET_PORT_SSL_DIR}/server.key"
+ln -sf "${SSL_CERT}" /root/net_port/server.crt
+ln -sf "${SSL_KEY}" /root/net_port/server.key
 
 service nginx start
 
@@ -230,7 +230,7 @@ start_server() {
         cd /root/net_port
         SERVER_BIN="$(resolve_server_binary)" || exit 1
         echo "Using server binary: ${SERVER_BIN}"
-        "${SERVER_BIN}" --user 1 -v1 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443 &
+        "${SERVER_BIN}" --user 1 -v1 --cert "${SSL_CERT}" --key "${SSL_KEY}" --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443 &
         server_pid=$!
         wait $server_pid || true
         server_exit_code=$?

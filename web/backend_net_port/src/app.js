@@ -108,10 +108,12 @@ function isClientArtifactName(name) {
 
 // Serve SSL certificates from multiple possible locations
 const possibleSslPaths = [
-  path.join(__dirname, '../../../../net_port'),  // Local development
+  path.join(__dirname, '../../../../net_port/ssl'), // Local dev / Docker volume
+  path.join(__dirname, '../../../../net_port'),  // Local development (legacy)
   path.join(__dirname, '../../../..'),           // Docker container (relative from backend to /root/net_port)
-  '/root/net_port',                              // Absolute path in Docker
-  '../../ssl', 
+  '/root/net_port/ssl',                          // Docker volume (absolute)
+  '/root/net_port',                              // Absolute path in Docker (legacy)
+  '../../ssl',
 ];
 
 let sslCertPath = null;

@@ -18,3 +18,5 @@ __pycache__
 .env
 artifacts/clients/module_net_port_client-*
 web/backend_net_port/dist
+data/ssl/server.crt
+data/ssl/server.key

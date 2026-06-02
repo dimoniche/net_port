@@ -119,6 +119,11 @@ int heartbeat_manager_stop(void);
 int send_heartbeat(void);
 
 /**
+ * @brief Request an immediate heartbeat to sync tunnel TLS flags from server
+ */
+void heartbeat_request_tls_sync(void);
+
+/**
  * @brief Reconnect to server (full re-registration)
  * 
  * @return int 0 on success, -1 on error

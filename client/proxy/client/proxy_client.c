@@ -9,6 +9,7 @@
 
 #include "logMsg.h"
 #include "time_counter.h"
+#include "device_heartbeat.h"
 
 #include <pthread.h>
 
@@ -113,27 +114,54 @@ proxy_server_thread_data_t* get_client_settings()
 }
 
 // Инициализация SSL контекста при старте
-void init_ssl_context() {
-    // Проверяем, нужно ли SSL для input или output соединения
+static int ensure_client_ssl_context(bool fatal_on_error)
+{
     bool need_ssl = threads_data.enable_ssl || threads_data.enable_output_ssl;
 
-    if (need_ssl) {
-        // Проверяем, что путь к CA сертификату указан
-        if (!threads_data.ca_file[0]) {
-            logMsg(LOG_ERR, "SSL enabled but CA file not specified\n");
-            threads_data.enable_ssl = false;
-            threads_data.enable_output_ssl = false;
-            return;
+    if (!need_ssl) {
+        if (threads_data.ssl_ctx) {
+            SSL_CTX_free(threads_data.ssl_ctx);
+            threads_data.ssl_ctx = NULL;
+            logMsg(LOG_INFO, "SSL context released (TLS disabled on tunnel)\n");
         }
+        return 0;
+    }
 
-        logMsg(LOG_INFO, "Initializing SSL context with CA file: %s\n", threads_data.ca_file);
-        threads_data.ssl_ctx = create_client_ssl_context(threads_data.ca_file);
-        if (!threads_data.ssl_ctx) {
-            logMsg(LOG_ERR, "Failed to initialize SSL context\n");
+    if (threads_data.ssl_ctx) {
+        return 0;
+    }
+
+    if (!threads_data.ca_file[0]) {
+        logMsg(LOG_ERR, "SSL enabled but CA file not specified\n");
+        threads_data.enable_ssl = false;
+        threads_data.enable_output_ssl = false;
+        return -1;
+    }
+
+    logMsg(LOG_INFO, "Initializing SSL context with CA file: %s\n", threads_data.ca_file);
+    threads_data.ssl_ctx = create_client_ssl_context(threads_data.ca_file);
+    if (!threads_data.ssl_ctx) {
+        logMsg(LOG_ERR, "Failed to initialize SSL context\n");
+        threads_data.enable_ssl = false;
+        threads_data.enable_output_ssl = false;
+        if (fatal_on_error) {
             exit(EXIT_FAILURE);
         }
-        logMsg(LOG_INFO, "SSL context initialized\n");
+        return -1;
     }
+
+    logMsg(LOG_INFO, "SSL context initialized\n");
+    return 0;
+}
+
+void init_ssl_context(void)
+{
+    ensure_client_ssl_context(true);
+}
+
+void refresh_client_ssl_context(void)
+{
+    ensure_client_ssl_context(false);
 }
 
 int
@@ -422,6 +450,7 @@ server_input_thread (void* parameter)
                     X509_free(cert);
                 } else {
                     logMsg(LOG_ERR, "No peer certificate\n");
+                    heartbeat_request_tls_sync();
                 }
                 
                 // Освобождаем SSL объект и закрываем сокет
@@ -547,6 +576,7 @@ server_input_thread (void* parameter)
                             ERR_error_string_n(e, err_str, sizeof(err_str));
                             logMsg(LOG_ERR, "SSL error: %s\n", err_str);
                         }
+                        heartbeat_request_tls_sync();
                         // Освобождаем SSL объект
                         if (conn->ssl_input) {
                             SSL_free(conn->ssl_input);

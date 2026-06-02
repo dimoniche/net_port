@@ -29,6 +29,9 @@ services:
       - METRICS_CACHE_MS=5000
       - PUBLIC_REGISTRATION_PORT=8443
       - PUBLIC_PORT_HOST_BASE=49000
+      - NET_PORT_SSL_DIR=/root/net_port/ssl
+    volumes:
+      - ./data/ssl:/root/net_port/ssl
     restart: unless-stopped
 
   prometheus:

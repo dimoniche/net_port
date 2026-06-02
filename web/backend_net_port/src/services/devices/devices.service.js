@@ -462,8 +462,37 @@ exports.Devices = class Devices extends Service {
       delete updateData.user_id;
     }
     
+    if (Object.prototype.hasOwnProperty.call(data, 'enable_input_ssl')) {
+      updateData.enable_input_ssl = Boolean(data.enable_input_ssl);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'enable_tunnel_ssl')) {
+      updateData.enable_tunnel_ssl = Boolean(data.enable_tunnel_ssl);
+    }
+
+    const sslChanged =
+      (Object.prototype.hasOwnProperty.call(data, 'enable_input_ssl')
+        && Boolean(data.enable_input_ssl) !== Boolean(device.enable_input_ssl))
+      || (Object.prototype.hasOwnProperty.call(data, 'enable_tunnel_ssl')
+        && Boolean(data.enable_tunnel_ssl) !== Boolean(device.enable_tunnel_ssl));
+    
     // Perform update
     await knex('devices').where('id', id).update(updateData);
+
+    if (sslChanged) {
+      const activeSession = await knex('device_sessions')
+        .where({ device_id: id, status: 'active' })
+        .where('expires_at', '>', knex.fn.now())
+        .first();
+
+      if (activeSession) {
+        try {
+          await sendDeviceControlCommand(device.device_id, 'reload_tls');
+        } catch (error) {
+          console.error('Failed to reload device TLS settings:', error.message);
+        }
+      }
+    }
     
     // Return updated device
     return this.get(id, params);

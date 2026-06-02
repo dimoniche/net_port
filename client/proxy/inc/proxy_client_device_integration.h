@@ -76,4 +76,13 @@ device_registration_state_t* get_device_registration_state(void);
  */
 int reconnect_device(void);
 
+/**
+ * @brief Apply TLS settings received from server (heartbeat reload)
+ *
+ * @param input_tls External input port TLS flag from server
+ * @param tunnel_tls Tunnel port TLS flag from server
+ * @param force_reload Restart tunnel even when flags are unchanged
+ */
+void device_apply_tls_settings_update(bool input_tls, bool tunnel_tls, bool force_reload);
+
 #endif // NET_PORT_PROXY_CLIENT_DEVICE_INTEGRATION_H

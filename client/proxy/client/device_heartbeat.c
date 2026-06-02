@@ -29,7 +29,18 @@ extern int reconnect_device(void);
 static heartbeat_manager_t g_heartbeat_manager;
 static pthread_t g_heartbeat_thread;
 static volatile bool g_heartbeat_running = false;
+static volatile bool g_tls_sync_pending = false;
 static pthread_mutex_t g_heartbeat_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void heartbeat_request_tls_sync(void)
+{
+    pthread_mutex_lock(&g_heartbeat_mutex);
+    if (!g_tls_sync_pending) {
+        g_tls_sync_pending = true;
+        logMsg(LOG_INFO, "Scheduling immediate heartbeat to sync tunnel TLS settings\n");
+    }
+    pthread_mutex_unlock(&g_heartbeat_mutex);
+}
 
 /**
  * Initialize heartbeat manager
@@ -131,14 +142,16 @@ void* heartbeat_thread_func(void *arg)
         
         time_t now = time(NULL);
         time_t next_heartbeat = g_heartbeat_manager.last_sent + g_heartbeat_manager.config.heartbeat_interval;
+        bool sync_now = g_tls_sync_pending;
         
         // Check if it's time to send heartbeat
-        if (now >= next_heartbeat) {
+        if (sync_now || now >= next_heartbeat) {
             int heartbeat_result = send_heartbeat();
             if (heartbeat_result == HEARTBEAT_SEND_OK) {
                 g_heartbeat_manager.last_sent = now;
                 g_heartbeat_manager.fail_count = 0;
                 g_heartbeat_manager.status = HEARTBEAT_STATUS_CONNECTED;
+                g_tls_sync_pending = false;
                 
                 // Check if we need to reconnect
                 if (g_heartbeat_manager.reconnect_attempts > 0) {
@@ -349,6 +362,15 @@ int send_heartbeat(void)
                 time_t server_time = json_integer_value(timestamp_obj);
                 // Could sync clock here if needed
                 (void)server_time;
+            }
+
+            json_t *input_tls_obj = json_object_get(response, "input_tls");
+            json_t *tunnel_tls_obj = json_object_get(response, "tunnel_tls");
+            if (json_is_boolean(input_tls_obj) && json_is_boolean(tunnel_tls_obj)) {
+                bool input_tls = json_is_true(input_tls_obj);
+                bool tunnel_tls = json_is_true(tunnel_tls_obj);
+                bool force_reload = json_is_true(json_object_get(response, "reload_tls"));
+                device_apply_tls_settings_update(input_tls, tunnel_tls, force_reload);
             }
         } else {
             json_t *message_obj = json_object_get(response, "message");

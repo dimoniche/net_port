@@ -231,6 +231,10 @@ static void apply_tunnel_settings(proxy_server_thread_data_t *settings)
 static void apply_tunnel_tls_client_settings(proxy_server_thread_data_t *settings)
 {
     if (!settings || !g_device_state.tunnel_tls) {
+        if (settings) {
+            settings->enable_ssl = false;
+            settings->ca_file[0] = '\0';
+        }
         return;
     }
 
@@ -560,11 +564,36 @@ static int device_apply_reregistration(void)
         return -1;
     }
 
+    refresh_client_ssl_context();
+
     heartbeat_update_config(&g_heartbeat_config);
     g_device_state.status = DEVICE_STATUS_CONNECTED;
     switcher_servers_restart_input_threads();
     logMsg(LOG_INFO, "Device tunnel settings updated after registration\n");
     return 0;
+}
+
+void device_apply_tls_settings_update(bool input_tls, bool tunnel_tls, bool force_reload)
+{
+    bool changed = g_device_state.input_tls != input_tls || g_device_state.tunnel_tls != tunnel_tls;
+
+    if (!changed && !force_reload) {
+        return;
+    }
+
+    g_device_state.input_tls = input_tls;
+    g_device_state.tunnel_tls = tunnel_tls;
+
+    proxy_server_thread_data_t *settings = get_client_settings();
+    apply_tunnel_settings(settings);
+    refresh_client_ssl_context();
+
+    switcher_servers_drop_active_connections();
+    switcher_servers_restart_input_threads();
+
+    logMsg(LOG_INFO,
+           "Device TLS settings updated (input_tls=%d tunnel_tls=%d force=%d)\n",
+           input_tls ? 1 : 0, tunnel_tls ? 1 : 0, force_reload ? 1 : 0);
 }
 
 static void *registration_wait_thread(void *arg)
