@@ -236,7 +236,7 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                     color="text.secondary"
                                     sx={{ display: "block", ml: 4, mt: 0.5, lineHeight: 1.4 }}
                                 >
-                                    Для клиентов на опубликованном порту (49000+). Обычный SSH не
+                                    Для клиентов на опубликованном порту. Обычный SSH не
                                     подключится — нужен TLS или отключите для SSH.
                                 </Typography>
                             </Box>
