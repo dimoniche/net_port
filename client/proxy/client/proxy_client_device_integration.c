@@ -195,6 +195,8 @@ static bool argv_has_flag(int argc, char **argv, const char *flag)
     return false;
 }
 
+static void apply_tunnel_tls_client_settings(proxy_server_thread_data_t *settings);
+
 static void apply_tunnel_settings(proxy_server_thread_data_t *settings)
 {
     if (!settings) {
@@ -222,6 +224,27 @@ static void apply_tunnel_settings(proxy_server_thread_data_t *settings)
         logMsg(LOG_INFO, "Using port-host-base %u (map internal %u-%u -> host %u+)\n",
                g_port_host_base, g_port_range_start, g_port_range_start + 9, g_port_host_base);
     }
+
+    apply_tunnel_tls_client_settings(settings);
+}
+
+static void apply_tunnel_tls_client_settings(proxy_server_thread_data_t *settings)
+{
+    if (!settings || !g_device_state.tunnel_tls) {
+        return;
+    }
+
+    if (g_registration_ca_file[0] == '\0') {
+        logMsg(LOG_WARNING,
+               "Server requires tunnel TLS but no --registration-ca-file/--ca-file was provided\n");
+        return;
+    }
+
+    /* TLS to server tunnel port uses the client "input" socket (enable_ssl), not output to local SSH. */
+    settings->enable_ssl = true;
+    strncpy(settings->ca_file, g_registration_ca_file, sizeof(settings->ca_file) - 1);
+    settings->ca_file[sizeof(settings->ca_file) - 1] = '\0';
+    logMsg(LOG_INFO, "Tunnel TLS enabled on server link (CA %s)\n", settings->ca_file);
 }
 
 static void apply_output_target_from_registration(proxy_server_thread_data_t *settings)
@@ -441,6 +464,17 @@ int device_register_with_server(void)
             if (json_is_integer(internal_port_obj)) {
                 g_device_state.internal_port = (uint16_t)json_integer_value(internal_port_obj);
             }
+
+            g_device_state.input_tls = false;
+            g_device_state.tunnel_tls = false;
+            json_t *input_tls_obj = json_object_get(response, "input_tls");
+            json_t *tunnel_tls_obj = json_object_get(response, "tunnel_tls");
+            if (json_is_true(input_tls_obj)) {
+                g_device_state.input_tls = true;
+            }
+            if (json_is_true(tunnel_tls_obj)) {
+                g_device_state.tunnel_tls = true;
+            }
             
             g_device_state.status = DEVICE_STATUS_REGISTERED;
             g_device_state.registered_at = time(NULL);
@@ -456,6 +490,13 @@ int device_register_with_server(void)
             logMsg(LOG_INFO, "Device registered successfully\n");
             logMsg(LOG_INFO, "  External port: %d\n", g_device_state.assigned_port);
             logMsg(LOG_INFO, "  Tunnel port: %d\n", g_device_state.tunnel_port);
+            if (g_device_state.input_tls) {
+                logMsg(LOG_INFO, "  External port uses TLS (openssl s_client -connect host:%d)\n",
+                       g_device_state.assigned_port);
+            }
+            if (g_device_state.tunnel_tls) {
+                logMsg(LOG_INFO, "  Tunnel port uses TLS (client needs -e and CA file)\n");
+            }
             if (g_device_state.internal_port != 0) {
                 logMsg(LOG_INFO, "  Internal target: %s:%d\n",
                        g_device_state.internal_address[0] != '\0'

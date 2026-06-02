@@ -20,6 +20,8 @@ CREATE TABLE devices (
     preferred_port INTEGER,
     internal_address VARCHAR(45),
     internal_port INTEGER,
+    enable_input_ssl BOOLEAN NOT NULL DEFAULT false,
+    enable_tunnel_ssl BOOLEAN NOT NULL DEFAULT false,
     protocol VARCHAR(10) DEFAULT 'tcp' CHECK (protocol IN ('tcp', 'udp')),
     capabilities JSONB DEFAULT '[]',
     metadata JSONB DEFAULT '{}',

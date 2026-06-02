@@ -34,6 +34,8 @@ exports.Devices = class Devices extends Service {
         table.integer('assigned_port').nullable();
         table.string('internal_address', 45);
         table.integer('internal_port');
+        table.boolean('enable_input_ssl').notNullable().defaultTo(false);
+        table.boolean('enable_tunnel_ssl').notNullable().defaultTo(false);
         table.string('protocol', 10).defaultTo('tcp');
         table.jsonb('capabilities').defaultTo('[]');
         table.jsonb('metadata').defaultTo('{}');
@@ -52,6 +54,15 @@ exports.Devices = class Devices extends Service {
       });
       
       console.log('Created devices table');
+    } else {
+      const hasInputSsl = await knex.schema.hasColumn('devices', 'enable_input_ssl');
+      if (!hasInputSsl) {
+        await knex.schema.alterTable('devices', table => {
+          table.boolean('enable_input_ssl').notNullable().defaultTo(false);
+          table.boolean('enable_tunnel_ssl').notNullable().defaultTo(false);
+        });
+        console.log('Added per-device TLS columns to devices table');
+      }
     }
     
     // Create related tables

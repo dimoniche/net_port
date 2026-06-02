@@ -150,7 +150,8 @@ int servers_init_with_device_management(uint32_t user_id, const char* cert_file,
  * \brief Create a dynamic proxy server for a registered device
  */
 int create_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port, const device_info_t *device_info);
-int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port);
+int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port,
+                                     const device_info_t *device_info);
 int stop_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port);
 
 void device_management_shutdown(void);

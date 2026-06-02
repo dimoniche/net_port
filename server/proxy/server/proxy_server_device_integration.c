@@ -47,7 +47,8 @@ static int init_device_manager_from_config(uint16_t device_control_port,
     }
 
     g_device_manager_enabled = true;
-    logMsg(LOG_INFO, "Device manager initialized (control port %u, ports %u-%u)\n",
+    logMsg(LOG_INFO,
+           "Device manager initialized (control port %u, ports %u-%u, per-device TLS in DB)\n",
            g_device_config.control_port,
            g_device_config.port_range_start,
            g_device_config.port_range_end);

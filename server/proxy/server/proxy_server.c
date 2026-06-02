@@ -83,6 +83,13 @@ static void register_dynamic_server_runtime(const char *device_id, uint16_t inpu
                                             proxy_server_thread_data_t *connections_data);
 static void stop_dynamic_server_runtime(proxy_server_thread_data_t *connections_data, int server_index,
                                         const char *device_id);
+static void apply_dynamic_server_ssl_config(proxy_server_t *server, bool enable_input_ssl,
+                                            bool enable_tunnel_ssl);
+static int start_dynamic_server_at_index(int index, const char *device_id,
+                                         uint16_t input_port, uint16_t tunnel_port,
+                                         bool enable_input_ssl, bool enable_tunnel_ssl);
+static bool dynamic_runtime_ssl_matches(const proxy_server_t *runtime, bool enable_input_ssl,
+                                        bool enable_tunnel_ssl);
 
 // Функция для периодического сохранения статистики
 void* statistics_saver_thread(void* arg) {
@@ -1677,6 +1684,57 @@ static void stop_dynamic_server_runtime(proxy_server_thread_data_t *connections_
     }
 
     wait_for_runtime_threads(runtime);
+    cleanup_ssl_context(runtime);
+}
+
+static void apply_dynamic_server_ssl_config(proxy_server_t *server, bool enable_input_ssl,
+                                            bool enable_tunnel_ssl)
+{
+    if (!server) {
+        return;
+    }
+
+    if (!enable_input_ssl && !enable_tunnel_ssl) {
+        return;
+    }
+
+    if (!device_manager_ssl_certs_configured()) {
+        logMsg(LOG_WARNING,
+               "Device %s requested TLS but server cert/key are not configured\n",
+               server->device_id);
+        return;
+    }
+
+    if (device_manager_get_ssl_cert_paths(server->cert_file, sizeof(server->cert_file),
+                                          server->key_file, sizeof(server->key_file)) != 0) {
+        return;
+    }
+
+    if (enable_input_ssl) {
+        server->enable_input_ssl = true;
+    }
+    if (enable_tunnel_ssl) {
+        server->enable_output_ssl = true;
+    }
+
+    init_ssl_context(server);
+    logMsg(LOG_INFO,
+           "Dynamic server SSL: device=%s input_ssl=%d tunnel_ssl=%d cert=%s\n",
+           server->device_id,
+           server->enable_input_ssl,
+           server->enable_output_ssl,
+           server->cert_file);
+}
+
+static bool dynamic_runtime_ssl_matches(const proxy_server_t *runtime, bool enable_input_ssl,
+                                        bool enable_tunnel_ssl)
+{
+    if (!runtime) {
+        return false;
+    }
+
+    return runtime->enable_input_ssl == enable_input_ssl &&
+           runtime->enable_output_ssl == enable_tunnel_ssl;
 }
 
 static void stop_dynamic_runtimes_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
@@ -1741,10 +1799,9 @@ int stop_dynamic_server_for_device(const char *device_id, uint16_t input_port, u
     return 0;
 }
 
-static int start_dynamic_server_at_index(int index, const char *device_id,
-                                         uint16_t input_port, uint16_t tunnel_port);
 static void cleanup_dynamic_server_slot(int index);
-static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port);
+static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port,
+                                       bool enable_input_ssl, bool enable_tunnel_ssl);
 
 static void cleanup_dynamic_server_slot(int index)
 {
@@ -1804,6 +1861,7 @@ static void cleanup_dynamic_server_slot(int index)
     }
 
     wait_for_runtime_threads(server);
+    cleanup_ssl_context(server);
 }
 
 static bool is_runtime_listener_active(const proxy_server_t *runtime, uint16_t port, bool is_tunnel)
@@ -1829,7 +1887,8 @@ static bool is_runtime_listener_active(const proxy_server_t *runtime, uint16_t p
     return true;
 }
 
-static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port)
+static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port,
+                                       bool enable_input_ssl, bool enable_tunnel_ssl)
 {
     pthread_mutex_lock(&g_dynamic_runtimes_mutex);
 
@@ -1853,6 +1912,7 @@ static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port
             runtime->is_output_running &&
             runtime->input >= 0 &&
             runtime->output >= 0 &&
+            dynamic_runtime_ssl_matches(runtime, enable_input_ssl, enable_tunnel_ssl) &&
             is_runtime_listener_active(runtime, input_port, false) &&
             is_runtime_listener_active(runtime, tunnel_port, true)) {
             int server_index = g_dynamic_runtimes[i].server_index;
@@ -1866,7 +1926,8 @@ static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port
 }
 
 static int start_dynamic_server_at_index(int index, const char *device_id,
-                                         uint16_t input_port, uint16_t tunnel_port)
+                                         uint16_t input_port, uint16_t tunnel_port,
+                                         bool enable_input_ssl, bool enable_tunnel_ssl)
 {
     if (index < 0 || index >= servers_count || !device_id) {
         return -1;
@@ -1890,11 +1951,14 @@ static int start_dynamic_server_at_index(int index, const char *device_id,
     server->device_id[DEVICE_ID_MAX_LEN] = '\0';
     server->statistics.last_update = time(NULL);
 
+    apply_dynamic_server_ssl_config(server, enable_input_ssl, enable_tunnel_ssl);
+
     if (server_input_init(server) < 0) {
         server->is_input_enabled = false;
         server->enable = false;
         logMsg(LOG_ERR, "Failed to init input socket for device %s on port %u\n",
                device_id, input_port);
+        cleanup_ssl_context(server);
         return -1;
     }
 
@@ -1907,6 +1971,7 @@ static int start_dynamic_server_at_index(int index, const char *device_id,
             close(server->input);
             server->input = -1;
         }
+        cleanup_ssl_context(server);
         return -1;
     }
 
@@ -1963,10 +2028,16 @@ static int find_stopped_dynamic_server(const char *device_id, uint16_t input_por
 int create_dynamic_server_for_device(const char *device_id, uint16_t input_port,
                                      uint16_t tunnel_port, const device_info_t *device_info)
 {
-    (void)device_info;
+    bool enable_input_ssl = false;
+    bool enable_tunnel_ssl = false;
 
     if (!device_id || input_port == 0 || tunnel_port == 0) {
         return -1;
+    }
+
+    if (device_info) {
+        enable_input_ssl = device_info->enable_input_ssl && device_manager_ssl_certs_configured();
+        enable_tunnel_ssl = device_info->enable_tunnel_ssl && device_manager_ssl_certs_configured();
     }
 
     proxy_server_t *new_servers = realloc(servers, (servers_count + 1) * sizeof(proxy_server_t));
@@ -1980,20 +2051,39 @@ int create_dynamic_server_for_device(const char *device_id, uint16_t input_port,
     servers_count++;
 
     memset(&servers[index], 0, sizeof(proxy_server_t));
-    int started = start_dynamic_server_at_index(index, device_id, input_port, tunnel_port);
+    int started = start_dynamic_server_at_index(index, device_id, input_port, tunnel_port,
+                                                enable_input_ssl, enable_tunnel_ssl);
     if (started < 0) {
         servers_count--;
     }
     return started;
 }
 
-int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
+int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port,
+                                     const device_info_t *device_info)
 {
+    device_info_t loaded_info;
+    const device_info_t *info = device_info;
+    bool enable_input_ssl = false;
+    bool enable_tunnel_ssl = false;
+
     if (!device_id || input_port == 0 || tunnel_port == 0) {
         return -1;
     }
 
-    int healthy_index = find_healthy_dynamic_server(input_port, tunnel_port);
+    if (!info) {
+        if (device_manager_load_device_by_id(device_id, &loaded_info) == 0) {
+            info = &loaded_info;
+        }
+    }
+
+    if (info) {
+        enable_input_ssl = info->enable_input_ssl && device_manager_ssl_certs_configured();
+        enable_tunnel_ssl = info->enable_tunnel_ssl && device_manager_ssl_certs_configured();
+    }
+
+    int healthy_index = find_healthy_dynamic_server(input_port, tunnel_port,
+                                                    enable_input_ssl, enable_tunnel_ssl);
     if (healthy_index >= 0) {
         logMsg(LOG_DEBUG, "Reusing healthy dynamic server for device %s on input=%u tunnel=%u\n",
                device_id, input_port, tunnel_port);
@@ -2006,7 +2096,8 @@ int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port,
     if (stopped_index >= 0) {
         logMsg(LOG_INFO, "Restarting stopped dynamic server slot %d for device %s\n",
                stopped_index, device_id);
-        int restarted = start_dynamic_server_at_index(stopped_index, device_id, input_port, tunnel_port);
+        int restarted = start_dynamic_server_at_index(stopped_index, device_id, input_port, tunnel_port,
+                                                      enable_input_ssl, enable_tunnel_ssl);
         if (restarted >= 0) {
             return restarted;
         }
@@ -2014,5 +2105,5 @@ int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port,
 
     logMsg(LOG_INFO, "Creating dynamic server for device %s: input=%u tunnel=%u\n",
            device_id, input_port, tunnel_port);
-    return create_dynamic_server_for_device(device_id, input_port, tunnel_port, NULL);
+    return create_dynamic_server_for_device(device_id, input_port, tunnel_port, info);
 }

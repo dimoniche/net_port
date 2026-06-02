@@ -379,6 +379,8 @@ exports.Devices = class Devices extends Service {
       auth_token_hash: authTokenHash,
       internal_address: data.internal_address || '127.0.0.1',
       internal_port: data.internal_port || null,
+      enable_input_ssl: Boolean(data.enable_input_ssl),
+      enable_tunnel_ssl: Boolean(data.enable_tunnel_ssl),
       preferred_port: preferredPort,
       protocol: data.protocol || 'tcp',
       capabilities: JSON.stringify(data.capabilities || ['tcp']),

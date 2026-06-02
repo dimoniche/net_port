@@ -7,9 +7,13 @@ import Button from "@mui/material/Button";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import TextField from "@mui/material/TextField";
+import Checkbox from "@mui/material/Checkbox";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import Alert from "@mui/material/Alert";
 import AlertTitle from "@mui/material/AlertTitle";
 import Paper from "@mui/material/Paper";
+import Divider from "@mui/material/Divider";
+import Typography from "@mui/material/Typography";
 import isEmpty from "lodash/isEmpty";
 import { deviceTypeSelectOptions } from "../../consts/deviceTypes";
 
@@ -54,6 +58,8 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
             internal_address: formData.get("internal_address") || '127.0.0.1',
             internal_port: internalPort,
             preferred_port: preferredPort,
+            enable_input_ssl: formData.get("enable_input_ssl") === "on",
+            enable_tunnel_ssl: formData.get("enable_tunnel_ssl") === "on",
             protocol: 'tcp',
             user_id: cookies.user?.id,
         };
@@ -186,7 +192,7 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 variant="outlined"
                                 type="number"
                                 inputProps={{ min: 6000, max: 6998, step: 2 }}
-                                helperText="Чётный порт 6000–6998. Пусто = автоматически.)"
+                                helperText="Чётный порт 6000–6998. Пусто = автоматически."
                             />
                         </Grid>
                         <Grid item xs={12} md={6}>
@@ -198,6 +204,72 @@ const NewDeviceSettingsData = ({ children, ...rest }) => {
                                 disabled
                                 helperText="Туннель поддерживает только TCP"
                             />
+                        </Grid>
+                        <Grid item xs={12}>
+                            <Divider sx={{ my: 1 }} />
+                            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                                Шифрование (TLS)
+                            </Typography>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <Box
+                                sx={{
+                                    height: "100%",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    justifyContent: "flex-start",
+                                    pt: 0.5,
+                                }}
+                            >
+                                <FormControlLabel
+                                    sx={{ alignItems: "flex-start", m: 0 }}
+                                    control={
+                                        <Checkbox
+                                            name="enable_input_ssl"
+                                            sx={{ pt: 0.25 }}
+                                        />
+                                    }
+                                    label="TLS на внешнем порту"
+                                />
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: "block", ml: 4, mt: 0.5, lineHeight: 1.4 }}
+                                >
+                                    Для клиентов на опубликованном порту (49000+). Обычный SSH не
+                                    подключится — нужен TLS или отключите для SSH.
+                                </Typography>
+                            </Box>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <Box
+                                sx={{
+                                    height: "100%",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    justifyContent: "flex-start",
+                                    pt: 0.5,
+                                }}
+                            >
+                                <FormControlLabel
+                                    sx={{ alignItems: "flex-start", m: 0 }}
+                                    control={
+                                        <Checkbox
+                                            name="enable_tunnel_ssl"
+                                            sx={{ pt: 0.25 }}
+                                        />
+                                    }
+                                    label="TLS на tunnel-порту"
+                                />
+                                <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: "block", ml: 4, mt: 0.5, lineHeight: 1.4 }}
+                                >
+                                    Между клиентом Net Port и сервером. На устройстве нужен
+                                    --registration-ca-file server.crt (тот же, что для :8443).
+                                </Typography>
+                            </Box>
                         </Grid>
                     </Grid>
                     <Box sx={{ mt: 3, display: "flex", gap: 2 }}>

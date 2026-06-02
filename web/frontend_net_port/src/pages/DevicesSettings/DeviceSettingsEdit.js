@@ -107,6 +107,8 @@ const DeviceSettingsEdit = ({ children, ...rest }) => {
             internal_address: formData.get("internal_address"),
             internal_port: internalPort,
             preferred_port: preferredPort,
+            enable_input_ssl: formData.get("enable_input_ssl") === "on",
+            enable_tunnel_ssl: formData.get("enable_tunnel_ssl") === "on",
             protocol: 'tcp',
         };
 
@@ -258,6 +260,34 @@ const DeviceSettingsEdit = ({ children, ...rest }) => {
                                 disabled
                                 helperText="Туннель поддерживает только TCP"
                             />
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <FormControlLabel
+                                control={
+                                    <Checkbox
+                                        name="enable_input_ssl"
+                                        defaultChecked={Boolean(deviceData.enable_input_ssl)}
+                                    />
+                                }
+                                label="TLS на внешнем порту"
+                            />
+                            <Box component="span" sx={{ display: "block", fontSize: "0.75rem", color: "text.secondary", ml: 4 }}>
+                                Для SSH/клиентов на опубликованном порту (нужен server.crt на сервере)
+                            </Box>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <FormControlLabel
+                                control={
+                                    <Checkbox
+                                        name="enable_tunnel_ssl"
+                                        defaultChecked={Boolean(deviceData.enable_tunnel_ssl)}
+                                    />
+                                }
+                                label="TLS на tunnel-порту"
+                            />
+                            <Box component="span" sx={{ display: "block", fontSize: "0.75rem", color: "text.secondary", ml: 4 }}>
+                                Между клиентом Net Port и сервером (--registration-ca-file)
+                            </Box>
                         </Grid>
                         <Grid item xs={12}>
                             <Divider sx={{ my: 2 }} />

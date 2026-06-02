@@ -22,6 +22,8 @@ const deviceSchema = {
     type: { type: 'string', enum: ['iot_gateway', 'sensor', 'camera', 'router', 'other'] },
     internal_address: { type: 'string', maxLength: 45 },
     internal_port: { type: ['integer', 'null'], minimum: 1, maximum: 65535 },
+    enable_input_ssl: { type: 'boolean' },
+    enable_tunnel_ssl: { type: 'boolean' },
     preferred_port: { type: ['integer', 'null'], minimum: 6000, maximum: 6998 },
     protocol: { type: 'string', enum: ['tcp', 'udp'] },
     capabilities: { type: 'array' },

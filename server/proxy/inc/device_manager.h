@@ -68,6 +68,8 @@ typedef struct device_info_s {
     char internal_address[IP_ADDR_MAX_LEN + 1];
     uint16_t internal_port;
     uint16_t tunnel_port;
+    bool enable_input_ssl;
+    bool enable_tunnel_ssl;
     char protocol[16];
     uint32_t capabilities;
     char metadata[METADATA_JSON_MAX_LEN + 1];
@@ -174,6 +176,11 @@ typedef struct device_manager_config_s {
  * @return int 0 on success, -1 on error
  */
 int device_manager_init(const device_manager_config_t *config);
+
+bool device_manager_ssl_certs_configured(void);
+int device_manager_get_ssl_cert_paths(char *cert_file, size_t cert_size,
+                                      char *key_file, size_t key_size);
+int device_manager_load_device_by_id(const char *device_id, device_info_t *device_info);
 
 /**
  * @brief Start device manager control server

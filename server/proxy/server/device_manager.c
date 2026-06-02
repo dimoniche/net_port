@@ -51,6 +51,7 @@ static const device_manager_config_t DEFAULT_CONFIG = {
 };
 
 static int sha256_hex(const char *input, char *output_hex, size_t output_len);
+static bool parse_pg_bool(const char *value);
 static int register_device_session(const char *device_id, const char *client_ip,
                                      char *session_token, size_t token_len,
                                      uint16_t *input_port, uint16_t *tunnel_port);
@@ -58,6 +59,11 @@ static int register_device_session(const char *device_id, const char *client_ip,
 /**
  * Compute SHA256 hex digest (matches web backend token hashing).
  */
+static bool parse_pg_bool(const char *value)
+{
+    return value && (value[0] == 't' || value[0] == 'T' || value[0] == '1');
+}
+
 static int sha256_hex(const char *input, char *output_hex, size_t output_len)
 {
     unsigned char digest[SHA256_DIGEST_LENGTH];
@@ -169,6 +175,8 @@ int device_manager_init(const device_manager_config_t *config)
     logMsg(LOG_INFO, "  Control port: %d\n", g_config.control_port);
     logMsg(LOG_INFO, "  Port range: %d-%d\n", g_config.port_range_start, g_config.port_range_end);
     logMsg(LOG_INFO, "  SSL enabled: %s\n", g_config.enable_ssl ? "yes" : "no");
+    logMsg(LOG_INFO, "  Server cert for device tunnels: %s\n",
+           (g_config.ssl_cert_file[0] != '\0' && g_config.ssl_key_file[0] != '\0') ? "yes" : "no");
     
     // Initialize SSL if enabled
     if (g_config.enable_ssl) {
@@ -183,6 +191,104 @@ int device_manager_init(const device_manager_config_t *config)
     }
     
     g_initialized = true;
+    return 0;
+}
+
+bool device_manager_ssl_certs_configured(void)
+{
+    return g_initialized &&
+           g_config.ssl_cert_file[0] != '\0' &&
+           g_config.ssl_key_file[0] != '\0';
+}
+
+int device_manager_get_ssl_cert_paths(char *cert_file, size_t cert_size,
+                                      char *key_file, size_t key_size)
+{
+    if (!cert_file || cert_size == 0 || !key_file || key_size == 0) {
+        return -1;
+    }
+
+    cert_file[0] = '\0';
+    key_file[0] = '\0';
+
+    if (!device_manager_ssl_certs_configured()) {
+        return -1;
+    }
+
+    strncpy(cert_file, g_config.ssl_cert_file, cert_size - 1);
+    cert_file[cert_size - 1] = '\0';
+    strncpy(key_file, g_config.ssl_key_file, key_size - 1);
+    key_file[key_size - 1] = '\0';
+    return 0;
+}
+
+int device_manager_load_device_by_id(const char *device_id, device_info_t *device_info)
+{
+    if (!device_id || !device_info) {
+        return -1;
+    }
+
+    db_lock();
+
+    PGconn *conn = get_db_connection();
+    if (!conn) {
+        db_unlock();
+        return -1;
+    }
+
+    const char *params[1] = { device_id };
+    PGresult *res = PQexecParams(conn,
+        "SELECT device_id, name, type, user_id, internal_address, internal_port, status, "
+        "enable_input_ssl, enable_tunnel_ssl "
+        "FROM devices WHERE device_id = $1",
+        1, NULL, params, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) == 0) {
+        PQclear(res);
+        db_unlock();
+        return -1;
+    }
+
+    memset(device_info, 0, sizeof(*device_info));
+    strncpy(device_info->device_id, device_id, DEVICE_ID_MAX_LEN);
+
+    char *device_name = PQgetvalue(res, 0, 1);
+    char *device_type = PQgetvalue(res, 0, 2);
+    char *user_id_str = PQgetvalue(res, 0, 3);
+    char *internal_address = PQgetvalue(res, 0, 4);
+    char *internal_port_str = PQgetvalue(res, 0, 5);
+    char *status_str = PQgetvalue(res, 0, 6);
+    char *input_ssl_str = PQgetvalue(res, 0, 7);
+    char *tunnel_ssl_str = PQgetvalue(res, 0, 8);
+
+    if (device_name) {
+        strncpy(device_info->name, device_name, DEVICE_NAME_MAX_LEN);
+    }
+    if (device_type) {
+        strncpy(device_info->type, device_type, 64);
+    }
+    if (user_id_str) {
+        device_info->user_id = atoi(user_id_str);
+    }
+    if (internal_address) {
+        strncpy(device_info->internal_address, internal_address, IP_ADDR_MAX_LEN);
+    }
+    if (internal_port_str && internal_port_str[0] != '\0') {
+        device_info->internal_port = (uint16_t)atoi(internal_port_str);
+    }
+    device_info->enable_input_ssl = parse_pg_bool(input_ssl_str);
+    device_info->enable_tunnel_ssl = parse_pg_bool(tunnel_ssl_str);
+
+    if (status_str && strcmp(status_str, "active") == 0) {
+        device_info->status = DEVICE_STATUS_ACTIVE;
+    } else if (status_str && strcmp(status_str, "pending") == 0) {
+        device_info->status = DEVICE_STATUS_PENDING;
+    } else {
+        device_info->status = DEVICE_STATUS_INACTIVE;
+    }
+
+    PQclear(res);
+    db_unlock();
     return 0;
 }
 
@@ -535,7 +641,7 @@ json_t* process_registration_request(json_t *request, const char *client_ip)
     device_info.tunnel_port = tunnel_port;
     device_info.assigned_port = input_port;
     
-    if (ensure_dynamic_server_for_device(device_id, input_port, tunnel_port) < 0) {
+    if (ensure_dynamic_server_for_device(device_id, input_port, tunnel_port, &device_info) < 0) {
         logMsg(LOG_WARNING, "Failed to ensure dynamic server for device %s (input=%u tunnel=%u)\n",
                device_id, input_port, tunnel_port);
         terminate_device_session(session_token);
@@ -547,6 +653,10 @@ json_t* process_registration_request(json_t *request, const char *client_ip)
     json_object_set_new(response, "status", json_string("authenticated"));
     json_object_set_new(response, "assigned_port", json_integer(input_port));
     json_object_set_new(response, "tunnel_port", json_integer(tunnel_port));
+    json_object_set_new(response, "input_tls",
+                        json_boolean(device_info.enable_input_ssl && device_manager_ssl_certs_configured()));
+    json_object_set_new(response, "tunnel_tls",
+                        json_boolean(device_info.enable_tunnel_ssl && device_manager_ssl_certs_configured()));
     json_object_set_new(response, "session_token", json_string(session_token));
     json_object_set_new(response, "heartbeat_interval", json_integer(g_config.heartbeat_interval));
     json_object_set_new(response, "server_time", json_integer(time(NULL)));
@@ -596,7 +706,13 @@ json_t* process_heartbeat_request(json_t *request, const char *client_ip)
     device_session_t session;
     if (get_session_by_token(session_token, &session) == 0 && session.assigned_port != 0) {
         uint16_t tunnel_port = (uint16_t)(session.assigned_port + 1);
-        if (ensure_dynamic_server_for_device(session.device_id, session.assigned_port, tunnel_port) < 0) {
+        device_info_t device_info;
+        if (device_manager_load_device_by_id(session.device_id, &device_info) != 0) {
+            memset(&device_info, 0, sizeof(device_info));
+            strncpy(device_info.device_id, session.device_id, DEVICE_ID_MAX_LEN);
+        }
+        if (ensure_dynamic_server_for_device(session.device_id, session.assigned_port, tunnel_port,
+                                             &device_info) < 0) {
             logMsg(LOG_WARNING, "Failed to ensure dynamic server for %s on heartbeat\n",
                    session.device_id);
         }
@@ -759,7 +875,8 @@ int device_authenticate(const char *device_id, const char *auth_token, device_in
 
     const char *params[2] = { device_id, token_hash };
     PGresult *res = PQexecParams(conn,
-        "SELECT id::text, name, type, user_id, internal_address, internal_port, status "
+        "SELECT id::text, name, type, user_id, internal_address, internal_port, status, "
+        "enable_input_ssl, enable_tunnel_ssl "
         "FROM devices "
         "WHERE device_id = $1 AND auth_token_hash = $2 "
         "AND status IN ('active', 'pending', 'connecting')",
@@ -789,6 +906,8 @@ int device_authenticate(const char *device_id, const char *auth_token, device_in
         char *internal_address = PQgetvalue(res, 0, 4);
         char *internal_port_str = PQgetvalue(res, 0, 5);
         char *status_str = PQgetvalue(res, 0, 6);
+        char *input_ssl_str = PQgetvalue(res, 0, 7);
+        char *tunnel_ssl_str = PQgetvalue(res, 0, 8);
 
         if (device_name) strncpy(device_info->name, device_name, DEVICE_NAME_MAX_LEN);
         if (device_type) strncpy(device_info->type, device_type, 64);
@@ -797,6 +916,8 @@ int device_authenticate(const char *device_id, const char *auth_token, device_in
         if (internal_port_str && internal_port_str[0] != '\0') {
             device_info->internal_port = (uint16_t)atoi(internal_port_str);
         }
+        device_info->enable_input_ssl = parse_pg_bool(input_ssl_str);
+        device_info->enable_tunnel_ssl = parse_pg_bool(tunnel_ssl_str);
         if (status_str && strcmp(status_str, "active") == 0) {
             device_info->status = DEVICE_STATUS_ACTIVE;
         } else {

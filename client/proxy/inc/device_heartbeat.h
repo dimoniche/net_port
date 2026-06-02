@@ -32,6 +32,8 @@ typedef struct device_registration_state_s {
     uint16_t server_port;
     uint16_t assigned_port;
     uint16_t tunnel_port;
+    bool input_tls;
+    bool tunnel_tls;
     char internal_address[32];
     uint16_t internal_port;
     device_registration_status_t status;

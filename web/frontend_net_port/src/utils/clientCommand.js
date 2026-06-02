@@ -26,7 +26,7 @@ export function buildDeviceClientCommand({
 }) {
   const parallelConnections = normalizeConnections(connections);
 
-  let cmd = `./${CLIENT_BINARY_NAME} --device-id ${deviceId} --device-token ${token} --registration-server SERVER_IP --registration-port ${registrationPort}`;
+  let cmd = `./${CLIENT_BINARY_NAME} --device-id ${deviceId} --device-token ${token} --registration-server SERVER_IP --registration-port ${registrationPort} --registration-ca-file server.crt`;
   if (portHostBase) {
     cmd += ` --port-host-base ${portHostBase}`;
   }
