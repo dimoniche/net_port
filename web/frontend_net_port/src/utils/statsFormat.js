@@ -120,17 +120,46 @@ export const timeRangeToHours = (timeRange) => {
         case "6hours":
             return 6;
         case "24hours":
+        case "1day":
             return 24;
         case "3days":
             return 72;
         case "1week":
             return 168;
+        case "1month":
+            return 24 * 30;
         default:
             return 24;
     }
 };
 
-export const getServerRangeTimes = (timeRange) => {
+export const normalizeChartTimeRange = (timeRange) => {
+    if (timeRange === "1day") {
+        return "24hours";
+    }
+    return timeRange;
+};
+
+export const getChartBucketMs = (timeRange) => {
+    switch (timeRange) {
+        case "1hour":
+        case "6hours":
+            return 60 * 1000;
+        case "24hours":
+        case "1day":
+            return 5 * 60 * 1000;
+        case "3days":
+            return 15 * 60 * 1000;
+        case "1week":
+            return 60 * 60 * 1000;
+        case "1month":
+            return 4 * 60 * 60 * 1000;
+        default:
+            return 5 * 60 * 1000;
+    }
+};
+
+export const getChartRangeBounds = (timeRange) => {
     const endTime = new Date();
     const startTime = new Date(endTime);
 
@@ -142,6 +171,7 @@ export const getServerRangeTimes = (timeRange) => {
             startTime.setHours(endTime.getHours() - 6);
             break;
         case "24hours":
+        case "1day":
             startTime.setDate(endTime.getDate() - 1);
             break;
         case "3days":
@@ -150,25 +180,239 @@ export const getServerRangeTimes = (timeRange) => {
         case "1week":
             startTime.setDate(endTime.getDate() - 7);
             break;
+        case "1month":
+            startTime.setMonth(endTime.getMonth() - 1);
+            break;
         default:
             startTime.setDate(endTime.getDate() - 1);
     }
 
+    const bucketMs = getChartBucketMs(timeRange);
+    const endMs = Math.floor(endTime.getTime() / bucketMs) * bucketMs;
+    const startMs = Math.floor(startTime.getTime() / bucketMs) * bucketMs;
+
+    return {
+        startTime: new Date(startMs),
+        endTime: new Date(endMs),
+        bucketMs,
+    };
+};
+
+export const getServerRangeTimes = (timeRange) => {
+    const { startTime, endTime } = getChartRangeBounds(timeRange);
     return {
         startTime: startTime.toISOString(),
         endTime: endTime.toISOString(),
     };
 };
 
-const bucketKey = (date, timeRange) => {
-    const ms = date.getTime();
-    const bucketMs = timeRange === "1hour" || timeRange === "6hours" ? 60000 : 300000;
-    return Math.floor(ms / bucketMs) * bucketMs;
+const chartAxisTimeRange = (timeRange) => normalizeChartTimeRange(timeRange);
+
+const buildFilledTimeline = ({
+    timeRange,
+    bucketMs,
+    bucketMap,
+    createPoint,
+}) => {
+    const { startTime, endTime } = getChartRangeBounds(timeRange);
+    const axisRange = chartAxisTimeRange(timeRange);
+    const result = [];
+    let state = createPoint.initialState();
+
+    for (let t = startTime.getTime(); t <= endTime.getTime(); t += bucketMs) {
+        const bucket = bucketMap.get(t);
+        state = createPoint.nextState(state, bucket, t);
+        const date = new Date(t);
+        result.push({
+            ...createPoint.toRow(state, bucket, t),
+            timestamp: formatChartAxisLabel(date, axisRange),
+            fullTimestamp: formatTimestamp(date),
+            date,
+        });
+    }
+
+    return result;
 };
 
-const formatBucketLabel = (date, timeRange) => formatChartAxisLabel(date, timeRange);
+export const buildDeviceChartFromSamples = (samples, timeRange) => {
+    const { bucketMs } = getChartRangeBounds(timeRange);
+    const bucketMap = new Map();
+
+    (samples || []).forEach((sample) => {
+        const date = parseDbTimestamp(sample.recorded_at);
+        if (!date) {
+            return;
+        }
+
+        const key = Math.floor(date.getTime() / bucketMs) * bucketMs;
+        const existing = bucketMap.get(key) || {
+            receivedDelta: 0,
+            sentDelta: 0,
+            connections: 0,
+        };
+        existing.receivedDelta += Number(sample.bytes_received_delta || 0);
+        existing.sentDelta += Number(sample.bytes_sent_delta || 0);
+        existing.connections = Math.max(existing.connections, Number(sample.active_connections || 0));
+        bucketMap.set(key, existing);
+    });
+
+    return buildFilledTimeline({
+        timeRange,
+        bucketMs,
+        bucketMap,
+        createPoint: {
+            initialState: () => ({
+                cumulativeReceived: 0,
+                cumulativeSent: 0,
+            }),
+            nextState: (state, bucket) => {
+                const receivedDelta = bucket?.receivedDelta || 0;
+                const sentDelta = bucket?.sentDelta || 0;
+                return {
+                    cumulativeReceived: state.cumulativeReceived + receivedDelta,
+                    cumulativeSent: state.cumulativeSent + sentDelta,
+                    receivedDelta,
+                    sentDelta,
+                    connections: bucket?.connections || 0,
+                };
+            },
+            toRow: (state) => {
+                const dt = bucketMs / 1000;
+                return {
+                    bytesReceived: state.cumulativeReceived,
+                    bytesSent: state.cumulativeSent,
+                    peakConnections: state.connections,
+                    avgReceiveSpeed: dt > 0 ? state.receivedDelta / dt : 0,
+                    avgSendSpeed: dt > 0 ? state.sentDelta / dt : 0,
+                };
+            },
+        },
+    });
+};
+
+export const buildDeviceChartFromHistory = (history, timeRange) => {
+    const hourMs = 60 * 60 * 1000;
+    const { startTime, endTime } = getChartRangeBounds(timeRange);
+    const startMs = Math.floor(startTime.getTime() / hourMs) * hourMs;
+    const endMs = Math.floor(endTime.getTime() / hourMs) * hourMs;
+    const axisRange = chartAxisTimeRange(timeRange);
+    const bucketMap = new Map();
+
+    (history || []).forEach((item) => {
+        const date = parseDbTimestamp(item.period_start);
+        if (!date) {
+            return;
+        }
+        const key = Math.floor(date.getTime() / hourMs) * hourMs;
+        bucketMap.set(key, item);
+    });
+
+    const result = [];
+    let prevBytesReceived = 0;
+    let prevBytesSent = 0;
+    let prevTime = null;
+
+    for (let t = startMs; t <= endMs; t += hourMs) {
+        const item = bucketMap.get(t);
+        const bytesReceived = item ? Number(item.bytes_received || 0) : 0;
+        const bytesSent = item ? Number(item.bytes_sent || 0) : 0;
+        const peakConnections = item ? Number(item.peak_connections || 0) : 0;
+
+        let avgReceiveSpeed = 0;
+        let avgSendSpeed = 0;
+        if (prevTime !== null) {
+            const dt = (t - prevTime) / 1000;
+            if (dt > 0) {
+                avgReceiveSpeed = (bytesReceived - prevBytesReceived) / dt;
+                avgSendSpeed = (bytesSent - prevBytesSent) / dt;
+            }
+        }
+
+        const date = new Date(t);
+        result.push({
+            timestamp: formatChartAxisLabel(date, axisRange),
+            fullTimestamp: formatTimestamp(date),
+            bytesReceived,
+            bytesSent,
+            peakConnections,
+            avgReceiveSpeed,
+            avgSendSpeed,
+            date,
+        });
+
+        prevBytesReceived = bytesReceived;
+        prevBytesSent = bytesSent;
+        prevTime = t;
+    }
+
+    return result;
+};
+
+export const buildServerChartFromPoints = (points, timeRange) => {
+    const { startTime, endTime, bucketMs } = getChartRangeBounds(timeRange);
+    const axisRange = chartAxisTimeRange(timeRange);
+    const bucketMap = new Map();
+
+    (points || []).forEach((point) => {
+        const date = parseDbTimestamp(point.timestamp);
+        if (!date) {
+            return;
+        }
+
+        const key = Math.floor(date.getTime() / bucketMs) * bucketMs;
+        bucketMap.set(key, {
+            bytesReceived: Number(point.bytes_received || 0),
+            bytesSent: Number(point.bytes_sent || 0),
+            connections: Number(point.connections_count || 0),
+        });
+    });
+
+    const result = [];
+    let bytesReceived = 0;
+    let bytesSent = 0;
+    let prevBytesReceived = 0;
+    let prevBytesSent = 0;
+    let prevTime = null;
+
+    for (let t = startTime.getTime(); t <= endTime.getTime(); t += bucketMs) {
+        const bucket = bucketMap.get(t);
+        if (bucket) {
+            bytesReceived = bucket.bytesReceived;
+            bytesSent = bucket.bytesSent;
+        }
+
+        let avgReceiveSpeed = 0;
+        let avgSendSpeed = 0;
+        if (prevTime !== null) {
+            const dt = (t - prevTime) / 1000;
+            if (dt > 0) {
+                avgReceiveSpeed = (bytesReceived - prevBytesReceived) / dt;
+                avgSendSpeed = (bytesSent - prevBytesSent) / dt;
+            }
+        }
+
+        const date = new Date(t);
+        result.push({
+            timestamp: formatChartAxisLabel(date, axisRange),
+            fullTimestamp: formatTimestamp(date),
+            bytesReceived,
+            bytesSent,
+            connections: bucket?.connections || 0,
+            avgReceiveSpeed: Math.max(0, avgReceiveSpeed),
+            avgSendSpeed: Math.max(0, avgSendSpeed),
+            date,
+        });
+
+        prevBytesReceived = bytesReceived;
+        prevBytesSent = bytesSent;
+        prevTime = t;
+    }
+
+    return result;
+};
 
 export const mergeAggregatedChartData = ({ serverSeries, deviceSeries, timeRange }) => {
+    const { bucketMs } = getChartRangeBounds(timeRange);
     const buckets = new Map();
 
     const addToBucket = (timestamp, { receivedDelta = 0, sentDelta = 0, connections = 0 }) => {
@@ -176,9 +420,8 @@ export const mergeAggregatedChartData = ({ serverSeries, deviceSeries, timeRange
             return;
         }
 
-        const key = bucketKey(timestamp, timeRange);
+        const key = Math.floor(timestamp.getTime() / bucketMs) * bucketMs;
         const existing = buckets.get(key) || {
-            time: key,
             receivedDelta: 0,
             sentDelta: 0,
             connections: 0,
@@ -223,35 +466,36 @@ export const mergeAggregatedChartData = ({ serverSeries, deviceSeries, timeRange
         });
     });
 
-    const sortedBuckets = Array.from(buckets.values()).sort((a, b) => a.time - b.time);
-    let cumulativeReceived = 0;
-    let cumulativeSent = 0;
-
-    return sortedBuckets.map((bucket, index) => {
-        cumulativeReceived += bucket.receivedDelta;
-        cumulativeSent += bucket.sentDelta;
-
-        let avgReceiveSpeed = 0;
-        let avgSendSpeed = 0;
-        if (index > 0) {
-            const prev = sortedBuckets[index - 1];
-            const dt = (bucket.time - prev.time) / 1000;
-            if (dt > 0) {
-                avgReceiveSpeed = bucket.receivedDelta / dt;
-                avgSendSpeed = bucket.sentDelta / dt;
-            }
-        }
-
-        const date = new Date(bucket.time);
-        return {
-            timestamp: formatBucketLabel(date, timeRange),
-            fullTimestamp: formatTimestamp(date),
-            bytesReceived: cumulativeReceived,
-            bytesSent: cumulativeSent,
-            peakConnections: bucket.connections,
-            avgReceiveSpeed,
-            avgSendSpeed,
-            date,
-        };
+    return buildFilledTimeline({
+        timeRange,
+        bucketMs,
+        bucketMap: buckets,
+        createPoint: {
+            initialState: () => ({
+                cumulativeReceived: 0,
+                cumulativeSent: 0,
+            }),
+            nextState: (state, bucket) => {
+                const receivedDelta = bucket?.receivedDelta || 0;
+                const sentDelta = bucket?.sentDelta || 0;
+                return {
+                    cumulativeReceived: state.cumulativeReceived + receivedDelta,
+                    cumulativeSent: state.cumulativeSent + sentDelta,
+                    receivedDelta,
+                    sentDelta,
+                    connections: bucket?.connections || 0,
+                };
+            },
+            toRow: (state) => {
+                const dt = bucketMs / 1000;
+                return {
+                    bytesReceived: state.cumulativeReceived,
+                    bytesSent: state.cumulativeSent,
+                    peakConnections: state.connections,
+                    avgReceiveSpeed: dt > 0 ? state.receivedDelta / dt : 0,
+                    avgSendSpeed: dt > 0 ? state.sentDelta / dt : 0,
+                };
+            },
+        },
     });
 };

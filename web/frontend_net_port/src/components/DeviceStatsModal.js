@@ -31,62 +31,10 @@ import {
     formatBytes,
     formatSpeed,
     formatTimestamp,
-    formatChartAxisLabel,
-    parseDbTimestamp,
+    buildDeviceChartFromSamples,
+    buildDeviceChartFromHistory,
+    timeRangeToHours,
 } from "../utils/statsFormat";
-
-const timeRangeToHours = (timeRange) => {
-    switch (timeRange) {
-        case "1hour":
-            return 1;
-        case "6hours":
-            return 6;
-        case "24hours":
-            return 24;
-        case "3days":
-            return 72;
-        case "1week":
-            return 168;
-        default:
-            return 24;
-    }
-};
-
-const buildChartFromSamples = (samples, timeRange) => {
-    let cumulativeSent = 0;
-    let cumulativeReceived = 0;
-
-    return samples.map((sample, index) => {
-        cumulativeSent += Number(sample.bytes_sent_delta || 0);
-        cumulativeReceived += Number(sample.bytes_received_delta || 0);
-
-        const date = parseDbTimestamp(sample.recorded_at);
-        const timestampLabel = formatChartAxisLabel(sample.recorded_at, timeRange);
-
-        let avgSendSpeed = 0;
-        let avgReceiveSpeed = 0;
-        if (index > 0) {
-            const prev = samples[index - 1];
-            const prevDate = parseDbTimestamp(prev.recorded_at);
-            const dt = (date.getTime() - prevDate.getTime()) / 1000;
-            if (dt > 0) {
-                avgSendSpeed = Number(sample.bytes_sent_delta || 0) / dt;
-                avgReceiveSpeed = Number(sample.bytes_received_delta || 0) / dt;
-            }
-        }
-
-        return {
-            timestamp: timestampLabel,
-            fullTimestamp: formatTimestamp(sample.recorded_at),
-            bytesReceived: cumulativeReceived,
-            bytesSent: cumulativeSent,
-            peakConnections: Number(sample.active_connections || 0),
-            avgSendSpeed,
-            avgReceiveSpeed,
-            date,
-        };
-    });
-};
 
 const BoxChip = ({ status, online }) => (
     <Chip
@@ -164,54 +112,13 @@ const DeviceStatsModal = ({ open, onClose, device, devicesData }) => {
             setStatsPayload(response.data);
 
             const samples = Array.isArray(response.data.samples) ? response.data.samples : [];
-            if (samples.length > 0) {
-                setChartData(buildChartFromSamples(samples, timeRange));
-                return;
-            }
-
             const history = Array.isArray(response.data.history) ? response.data.history : [];
-            if (history.length === 0 && !response.data.current_session) {
-                setError("Нет данных за выбранный период");
-                setChartData([]);
-                return;
+
+            if (samples.length > 0 || response.data.current_session) {
+                setChartData(buildDeviceChartFromSamples(samples, timeRange));
+            } else {
+                setChartData(buildDeviceChartFromHistory(history, timeRange));
             }
-
-            const baseData = history.map((item) => {
-                const date = parseDbTimestamp(item.period_start);
-
-                return {
-                    timestamp: formatChartAxisLabel(item.period_start, timeRange),
-                    fullTimestamp: formatTimestamp(item.period_start),
-                    bytesReceived: item.bytes_received || 0,
-                    bytesSent: item.bytes_sent || 0,
-                    peakConnections: item.peak_connections || 0,
-                    date,
-                };
-            });
-
-            const formattedData = baseData.map((item, index) => {
-                let avgReceiveSpeed = item.bytesReceived / 3600;
-                let avgSendSpeed = item.bytesSent / 3600;
-
-                if (index > 0) {
-                    const prevItem = baseData[index - 1];
-                    const timeDiff =
-                        (item.date.getTime() - prevItem.date.getTime()) / 1000;
-                    if (timeDiff > 0) {
-                        avgReceiveSpeed =
-                            (item.bytesReceived - prevItem.bytesReceived) / timeDiff;
-                        avgSendSpeed = (item.bytesSent - prevItem.bytesSent) / timeDiff;
-                    }
-                }
-
-                return {
-                    ...item,
-                    avgReceiveSpeed,
-                    avgSendSpeed,
-                };
-            });
-
-            setChartData(formattedData);
         } catch (err) {
             const message =
                 err.response?.data?.error ||
@@ -360,10 +267,6 @@ const DeviceStatsModal = ({ open, onClose, device, devicesData }) => {
                     <Loader title="Загрузка данных..." />
                 ) : error ? (
                     <div style={{ color: "red", padding: "20px" }}>{error}</div>
-                ) : chartData.length === 0 ? (
-                    <div style={{ color: "#666", padding: "20px", textAlign: "center" }}>
-                        Нет данных за выбранный период.
-                    </div>
                 ) : (
                     <div style={{ width: "100%", height: 400, minHeight: 400 }}>
                         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>

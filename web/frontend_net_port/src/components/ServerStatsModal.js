@@ -27,9 +27,8 @@ import {
 import {
     formatBytes,
     formatSpeed,
-    formatTimestamp,
-    formatChartAxisLabel,
-    parseDbTimestamp,
+    buildServerChartFromPoints,
+    getServerRangeTimes,
 } from "../utils/statsFormat";
 
 const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
@@ -96,89 +95,18 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
             setError(null);
     
             try {
-                // Calculate time range
-                const endTime = new Date();
-                const startTime = new Date();
+                const { startTime, endTime } = getServerRangeTimes(timeRange);
     
-                switch (timeRange) {
-                    case "1hour":
-                        startTime.setHours(endTime.getHours() - 1);
-                        break;
-                    case "6hours":
-                        startTime.setHours(endTime.getHours() - 6);
-                        break;
-                    case "1day":
-                        startTime.setDate(endTime.getDate() - 1);
-                        break;
-                    case "3days":
-                        startTime.setDate(endTime.getDate() - 3);
-                        break;
-                    case "1week":
-                        startTime.setDate(endTime.getDate() - 7);
-                        break;
-                    case "1month":
-                        startTime.setMonth(endTime.getMonth() - 1);
-                        break;
-                    default:
-                        startTime.setDate(endTime.getDate() - 1);
-                }
-    
-                // Format dates as UTC ISO strings for backend queries
                 const response = await api.get(`/statistics/${serverId}/range`, {
                     params: {
-                        startTime: startTime.toISOString(),
-                        endTime: endTime.toISOString()
+                        startTime,
+                        endTime
                     }
                 });
 
-            console.log('API Response Status:', response.status); // Debug log
-
             if (response.status === 200) {
-                console.log('API Response:', response.data); // Debug log
-
-                // Check if response.data is an array and has items
-                if (Array.isArray(response.data) && response.data.length > 0) {
-                    // Сначала форматируем базовые данные
-                    const baseData = response.data.map((item) => {
-                        const date = parseDbTimestamp(item.timestamp);
-
-                        return {
-                            timestamp: formatChartAxisLabel(item.timestamp, timeRange),
-                            fullTimestamp: formatTimestamp(item.timestamp),
-                            bytesReceived: item.bytes_received || 0,
-                            bytesSent: item.bytes_sent || 0,
-                            connections: item.connections_count || 0,
-                            date,
-                        };
-                    });
-                    
-                    // Затем вычисляем скорость на основе разницы между соседними точками
-                    const formattedData = baseData.map((item, index) => {
-                        let avgReceiveSpeed = 0;
-                        let avgSendSpeed = 0;
-                        
-                        if (index > 0) {
-                            const prevItem = baseData[index - 1];
-                            const timeDiff = (item.date.getTime() - prevItem.date.getTime()) / 1000; // в секундах
-                            
-                            if (timeDiff > 0) {
-                                avgReceiveSpeed = (item.bytesReceived - prevItem.bytesReceived) / timeDiff;
-                                avgSendSpeed = (item.bytesSent - prevItem.bytesSent) / timeDiff;
-                            }
-                        }
-                        
-                        return {
-                            ...item,
-                            avgReceiveSpeed: avgReceiveSpeed,
-                            avgSendSpeed: avgSendSpeed
-                        };
-                    });
-                    
-                    setChartData(formattedData);
-                } else {
-                    setError("No data available for the selected time range");
-                    setChartData([]);
-                }
+                const points = Array.isArray(response.data) ? response.data : [];
+                setChartData(buildServerChartFromPoints(points, timeRange));
             } else {
                 setError(`Server returned status ${response.status}`);
             }
@@ -287,10 +215,6 @@ const ServerStatsModal = ({ open, onClose, serverId, serversData }) => {
                     <Loader title="Загрузка данных..." />
                 ) : error ? (
                     <div style={{ color: "red", padding: "20px" }}>{error}</div>
-                ) : chartData.length === 0 ? (
-                    <div style={{ color: "#666", padding: "20px", textAlign: "center" }}>
-                        Нет данных для отображения за выбранный период. Пожалуйста, попробуйте другой интервал времени.
-                    </div>
                 ) : (
                         <div style={{ width: '100%', height: 400, minHeight: 400 }}>
                             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>

@@ -163,12 +163,7 @@ const OverviewStatsModal = ({
 
             chartDataRef.current = merged;
             setChartData(merged);
-
-            if (merged.length === 0) {
-                setError("Нет данных за выбранный период");
-            } else {
-                setError(null);
-            }
+            setError(null);
         } catch (err) {
             console.error("Error fetching overview chart data:", err);
             if (!silent || !hasExistingData) {
@@ -358,38 +353,49 @@ const OverviewStatsModal = ({
                                 ))
                             )}
                         </Grid>
-                        {chartData.length > 0 && (
-                            <>
-                                <Typography variant="subtitle1" sx={{ mt: 3, mb: 1 }}>
-                                    Суммарный трафик
-                                </Typography>
-                                {renderChart([
+                        <Typography variant="subtitle1" sx={{ mt: 3, mb: 1 }}>
+                            Суммарный трафик
+                        </Typography>
+                        {error ? (
+                            <Typography color="error" sx={{ mb: 1 }}>
+                                {error}
+                            </Typography>
+                        ) : null}
+                        {renderChart([
                                     { dataKey: "bytesReceived", name: "Байт получено", stroke: "#8884d8", yAxisId: "left" },
                                     { dataKey: "bytesSent", name: "Байт отправлено", stroke: "#82ca9d", yAxisId: "left" },
                                 ])}
-                            </>
-                        )}
                     </>
-                ) : error && chartData.length === 0 ? (
-                    <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-                        {error}
-                    </Typography>
                 ) : tab === 1 ? (
-                    renderChart([
+                    <>
+                        {error ? (
+                            <Typography color="error" sx={{ mb: 1 }}>
+                                {error}
+                            </Typography>
+                        ) : null}
+                        {renderChart([
                         { dataKey: "bytesReceived", name: "Байт получено", stroke: "#8884d8", yAxisId: "left" },
                         { dataKey: "bytesSent", name: "Байт отправлено", stroke: "#82ca9d", yAxisId: "left" },
                         { dataKey: "avgReceiveSpeed", name: "Скорость приема", stroke: "#ff0000", yAxisId: "right" },
                         { dataKey: "avgSendSpeed", name: "Скорость передачи", stroke: "#00aa00", yAxisId: "right" },
-                    ])
+                    ])}
+                    </>
                 ) : (
-                    renderChart([
+                    <>
+                        {error ? (
+                            <Typography color="error" sx={{ mb: 1 }}>
+                                {error}
+                            </Typography>
+                        ) : null}
+                        {renderChart([
                         {
                             dataKey: "peakConnections",
                             name: "Активные соединения",
                             stroke: "#ff7300",
                             yAxisId: "connections",
                         },
-                    ])
+                    ])}
+                    </>
                 )}
                     </Box>
                 )}
