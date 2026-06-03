@@ -13,7 +13,7 @@
 | **Веб-интерфейс** | React: устройства, серверы, статистика, настройки, скачивание клиентов |
 | **Realtime** | WebSocket: статус устройств, обновление статистики (PostgreSQL `NOTIFY`) |
 | **Клиенты** | Linux amd64 (в образе), armhf/aarch64, Windows `.exe` — [`artifacts/clients/`](artifacts/clients/README.md) |
-| **Наблюдаемость** | `/health`, `/metrics` (Prometheus), алерты в [`deploy/prometheus/alerts/`](deploy/prometheus/alerts/net_port.yml) |
+| **Наблюдаемость** | `/health`, `/metrics` (Prometheus), Grafana dashboard, алерты в [`deploy/prometheus/alerts/`](deploy/prometheus/alerts/net_port.yml) |
 
 ## Архитектура
 
@@ -75,6 +75,7 @@ docker compose --profile monitoring up -d
 ```
 
 - Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000` (логин `admin` / `admin`, пароль — `GRAFANA_ADMIN_PASSWORD`)
 - Health: `curl -s http://localhost:13080/health | jq`
 - Metrics: `curl -s http://localhost:13080/metrics`
 
@@ -155,6 +156,7 @@ net_port/
 ├── sql/migrations/      # Версионированные миграции (schema_migrations)
 ├── artifacts/clients/   # armhf/aarch64 бинарники для образа
 ├── deploy/prometheus/   # Prometheus + алерты
+├── deploy/grafana/      # Grafana provisioning + dashboard
 ├── scripts/             # build-docker, bump-version, integration tests
 ├── docs/                # admin-guide, openapi.yaml
 ├── Dockerfile

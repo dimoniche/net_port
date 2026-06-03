@@ -107,6 +107,15 @@ docker compose --profile monitoring up -d
 
 Конфиг: `deploy/prometheus/prometheus.yml`, алерты: `deploy/prometheus/alerts/net_port.yml`.
 
+Grafana поднимается в том же профиле `monitoring`:
+
+- UI: http://localhost:3000
+- Логин по умолчанию: `admin` / `admin` (переменные `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD`)
+- Datasource Prometheus и дашборд **Net Port Overview** провижнятся из `deploy/grafana/`
+- JSON дашборда: `deploy/grafana/dashboards/net_port_overview.json`
+
+Панели дашборда: health checks, устройства (online/offline/connecting), пул портов, сессии, скорость трафика, ошибки регистрации.
+
 | Алерт | Условие |
 |-------|---------|
 | `NetPortHealthDegraded` | `net_port_health_ok == 0` 2 мин (аналог HTTP 503) |
