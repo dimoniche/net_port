@@ -60,7 +60,7 @@ RUN apt-get update && \
             libpq5 \
             libssl3 \
             postgresql-client \
-            python3-minimal ; \
+            python3 ; \
     else \
         apt-get install -y --no-install-recommends \
             nginx \
@@ -72,7 +72,7 @@ RUN apt-get update && \
             libssl3 \
             postgresql \
             postgresql-contrib \
-            python3-minimal ; \
+            python3 ; \
     fi && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 

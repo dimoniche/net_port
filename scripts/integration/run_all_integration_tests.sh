@@ -29,6 +29,8 @@ run_test() {
 run_test "Registration / reconnect" "${INTEGRATION_DIR}/device_tunnel_test.sh"
 sleep 2
 run_test "Fixed port" "${INTEGRATION_DIR}/fixed_port_test.sh"
+sleep 2
+run_test "TLS tunnel + SSH e2e" "${INTEGRATION_DIR}/tunnel_tls_ssh_e2e_test.sh"
 
 if [ "$RUN_LOAD" = "1" ]; then
   sleep 2

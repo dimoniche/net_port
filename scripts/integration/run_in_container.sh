@@ -37,6 +37,9 @@ case "$MODE" in
   fixed-port|fixed_port)
     run_in_container /root/net_port/source/scripts/integration/fixed_port_test.sh
     ;;
+  tls-ssh|tls_ssh|tunnel)
+    run_in_container /root/net_port/source/scripts/integration/tunnel_tls_ssh_e2e_test.sh
+    ;;
   single|*)
     run_in_container /root/net_port/source/scripts/integration/device_tunnel_test.sh
     ;;

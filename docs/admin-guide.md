@@ -201,6 +201,12 @@ docker exec -it net_port_app tail -f /var/log/net_port/*.log
 
 Интеграционные тесты: `scripts/integration/run_all_integration_tests.sh`
 
+Отдельно TLS-туннель + SSH end-to-end:
+
+```bash
+./scripts/integration/run_in_container.sh tls-ssh
+```
+
 ## Резервное копирование
 
 Регулярно бэкапьте PostgreSQL (таблицы `devices`, `port_allocations`, `device_sessions`, `users`).
