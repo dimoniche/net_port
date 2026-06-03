@@ -12,10 +12,10 @@ import { Loader } from "../components/Loader";
 import Main from "./Main";
 import updateAbility from "../config/permission";
 
-import Paper from "@mui/material/Paper";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
 import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 
 const Settings = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
@@ -87,18 +87,26 @@ const Settings = ({ children, ...rest }) => {
     return !isEmpty(cookies.user) ? (
         !isEmpty(userSettings) ? (
             <>
-                <Box sx={{ width: '100%' }}>
-                    <Paper square>
-                        <Tabs
-                            value={activeTab}
-                            onChange={handleTabChange}
-                            aria-label="settings tabs"
-                            centered
-                        >
-                            <Tab label="Пользователь" />
-                            <Tab label="Скачать клиент" />
-                        </Tabs>
-                    </Paper>
+                <Box
+                    sx={{
+                        width: "100%",
+                        maxWidth: "100%",
+                        boxSizing: "border-box",
+                        p: { xs: 1.5, sm: 2.5 },
+                    }}
+                >
+                    <Typography variant="h4" sx={{ m: 0, mb: 2 }}>
+                        Настройки
+                    </Typography>
+                    <Tabs
+                        value={activeTab}
+                        onChange={handleTabChange}
+                        aria-label="settings tabs"
+                        sx={{ mb: 2 }}
+                    >
+                        <Tab label="Пользователь" />
+                        <Tab label="Скачать клиент" />
+                    </Tabs>
                     {activeTab === 0 && (
                         <UserSettingsData
                             key="usersettings"
@@ -108,9 +116,7 @@ const Settings = ({ children, ...rest }) => {
                             }}
                         />
                     )}
-                    {activeTab === 1 && (
-                        <ClientDownload />
-                    )}
+                    {activeTab === 1 && <ClientDownload />}
                 </Box>
             </>
         ) : (

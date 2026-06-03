@@ -14,34 +14,36 @@ import Tooltip from "@mui/material/Tooltip";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 
+import { StyledTableCell, StyledTableRow } from "../../theme/TableTheme";
+
 const ServerTableView = ({ serversData, onEdit, onDelete }) => {
     return (
         <TableContainer component={Paper}>
-            <Table sx={{ minWidth: 650 }} aria-label="servers table">
+            <Table size="small" sx={{ minWidth: 650 }} aria-label="servers table">
                 <TableHead>
                     <TableRow>
-                        <TableCell>Описание</TableCell>
-                        <TableCell align="right">Входящий порт</TableCell>
-                        <TableCell align="right">Исходящий порт</TableCell>
-                        <TableCell>Статус</TableCell>
-                        <TableCell align="center">SSL вход</TableCell>
-                        <TableCell align="center">SSL выход</TableCell>
-                        <TableCell>Действия</TableCell>
+                        <StyledTableCell>Описание</StyledTableCell>
+                        <StyledTableCell align="right">Входящий порт</StyledTableCell>
+                        <StyledTableCell align="right">Исходящий порт</StyledTableCell>
+                        <StyledTableCell>Статус</StyledTableCell>
+                        <StyledTableCell align="center">SSL вход</StyledTableCell>
+                        <StyledTableCell align="center">SSL выход</StyledTableCell>
+                        <StyledTableCell>Действия</StyledTableCell>
                     </TableRow>
                 </TableHead>
                 <TableBody>
                     {serversData.length === 0 ? (
-                        <TableRow>
+                        <StyledTableRow>
                             <TableCell colSpan={7} align="center">
                                 Нет серверов
                             </TableCell>
-                        </TableRow>
+                        </StyledTableRow>
                     ) : (
                         serversData
                             .slice()
                             .sort((a, b) => a.id - b.id)
                             .map((server) => (
-                                <TableRow key={server.id} hover>
+                                <StyledTableRow key={server.id} hover>
                                     <TableCell>
                                         {server.description || `Сервер ${server.id}`}
                                     </TableCell>
@@ -95,7 +97,7 @@ const ServerTableView = ({ serversData, onEdit, onDelete }) => {
                                             </Tooltip>
                                         </Box>
                                     </TableCell>
-                                </TableRow>
+                                </StyledTableRow>
                             ))
                     )}
                 </TableBody>

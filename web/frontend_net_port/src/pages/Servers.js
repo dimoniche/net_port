@@ -8,9 +8,6 @@ import { ApiContext } from "../context/ApiContext";
 import Paper from "@mui/material/Paper";
 import Button from "@mui/material/Button";
 import TextField from "@mui/material/TextField";
-import FormControl from "@mui/material/FormControl";
-import InputLabel from "@mui/material/InputLabel";
-import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -26,10 +23,12 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import { Loader } from "../components/Loader";
 import ServerTableView from "./ServerSettings/ServerTableView";
 import CommonDialog from "../components/CommonDialog";
+import FilterSelect from "../components/FilterSelect";
 import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
 
 import updateAbility from "../config/permission";
 import { isAdminUser } from "../utils/userRoles";
+import { filterRowSx, filterFieldSx } from "../theme/filterLayout";
 
 const Servers = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
@@ -309,65 +308,53 @@ const Servers = ({ children, ...rest }) => {
             </Grid>
 
             <Grid item xs={12}>
-                <Paper sx={{ p: 1, mb: 1.5 }}>
+                <Paper sx={{ p: 1, mb: 1.5, overflow: "visible" }}>
                     <Typography variant="subtitle1" sx={{ fontSize: "0.95rem", mb: 1 }}>
                         Фильтры
                     </Typography>
-                    <Grid container spacing={1}>
-                        <Grid item xs={12} sm={3}>
-                            <TextField
-                                fullWidth
-                                label="Название"
-                                value={nameFilter}
-                                onChange={(e) => setNameFilter(e.target.value)}
-                                size="small"
-                                sx={{ "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
-                            />
-                        </Grid>
-                        <Grid item xs={12} sm={3}>
-                            <TextField
-                                fullWidth
-                                label="Входящий порт"
-                                value={inputPortFilter}
-                                onChange={(e) => setInputPortFilter(e.target.value)}
-                                size="small"
-                                type="number"
-                                sx={{ "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
-                            />
-                        </Grid>
-                        <Grid item xs={12} sm={3}>
-                            <TextField
-                                fullWidth
-                                label="Исходящий порт"
-                                value={outputPortFilter}
-                                onChange={(e) => setOutputPortFilter(e.target.value)}
-                                size="small"
-                                type="number"
-                                sx={{ "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
-                            />
-                        </Grid>
-                        <Grid item xs={12} sm={3}>
-                            <FormControl fullWidth size="small">
-                                <InputLabel sx={{ fontSize: "0.875rem" }}>Статус</InputLabel>
-                                <Select
-                                    value={enableFilter}
-                                    label="Статус"
-                                    onChange={(e) => setEnableFilter(e.target.value)}
-                                    sx={{ fontSize: "0.875rem" }}
-                                >
-                                    <MenuItem value="" sx={{ fontSize: "0.875rem" }}>
-                                        Все
-                                    </MenuItem>
-                                    <MenuItem value="true" sx={{ fontSize: "0.875rem" }}>
-                                        Включен
-                                    </MenuItem>
-                                    <MenuItem value="false" sx={{ fontSize: "0.875rem" }}>
-                                        Отключен
-                                    </MenuItem>
-                                </Select>
-                            </FormControl>
-                        </Grid>
-                    </Grid>
+                    <Box sx={filterRowSx}>
+                        <TextField
+                            fullWidth
+                            label="Название"
+                            value={nameFilter}
+                            onChange={(e) => setNameFilter(e.target.value)}
+                            size="small"
+                            sx={{ ...filterFieldSx, "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
+                        />
+                        <TextField
+                            fullWidth
+                            label="Входящий порт"
+                            value={inputPortFilter}
+                            onChange={(e) => setInputPortFilter(e.target.value)}
+                            size="small"
+                            type="number"
+                            sx={{ ...filterFieldSx, "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
+                        />
+                        <TextField
+                            fullWidth
+                            label="Исходящий порт"
+                            value={outputPortFilter}
+                            onChange={(e) => setOutputPortFilter(e.target.value)}
+                            size="small"
+                            type="number"
+                            sx={{ ...filterFieldSx, "& .MuiInputBase-root": { fontSize: "0.875rem" } }}
+                        />
+                        <FilterSelect
+                            label="Статус"
+                            value={enableFilter}
+                            onChange={(e) => setEnableFilter(e.target.value)}
+                        >
+                            <MenuItem value="" sx={{ fontSize: "0.875rem" }}>
+                                Все
+                            </MenuItem>
+                            <MenuItem value="true" sx={{ fontSize: "0.875rem" }}>
+                                Включен
+                            </MenuItem>
+                            <MenuItem value="false" sx={{ fontSize: "0.875rem" }}>
+                                Отключен
+                            </MenuItem>
+                        </FilterSelect>
+                    </Box>
                 </Paper>
             </Grid>
 

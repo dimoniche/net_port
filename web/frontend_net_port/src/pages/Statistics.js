@@ -17,12 +17,8 @@ import Button from "@mui/material/Button";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
 import Box from "@mui/material/Box";
-import Grid from "@mui/material/Grid";
 import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
-import FormControl from "@mui/material/FormControl";
-import InputLabel from "@mui/material/InputLabel";
-import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -31,14 +27,17 @@ import { Loader } from "../components/Loader";
 import ServerStatsModal from "../components/ServerStatsModal";
 import DeviceStatsModal from "../components/DeviceStatsModal";
 import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
-import { formatTimestamp, parseDbTimestamp } from "../utils/statsFormat";
+import { formatTimestamp, parseDbTimestamp, formatBytes, formatPeriodDeltaPercent } from "../utils/statsFormat";
 import DevicePortBadges from "../components/DevicePortBadges";
+import FilterSelect from "../components/FilterSelect";
 import {
     getEnabledLegacyServers,
     hasEnabledLegacyServers,
 } from "../utils/legacyServers";
 import { isAdminUser } from "../utils/userRoles";
 import { DEVICE_TYPES } from "../consts/deviceTypes";
+import { StyledTableCell, StyledTableRow } from "../theme/TableTheme";
+import { filterRowSx, filterFieldSx } from "../theme/filterLayout";
 
 const statisticsTableContainerSx = {
     width: "100%",
@@ -48,7 +47,7 @@ const statisticsTableContainerSx = {
 
 const statisticsTableSx = {
     width: "100%",
-    minWidth: 1100,
+    minWidth: 1280,
     tableLayout: "fixed",
 };
 
@@ -79,6 +78,35 @@ const StatisticsTableShell = ({ ariaLabel, children }) => (
     </TableContainer>
 );
 
+const renderPeriodDelta = (today, yesterday) => {
+    const delta = formatPeriodDeltaPercent(today, yesterday);
+    if (delta === null) {
+        return null;
+    }
+
+    const color = delta > 0 ? "success.main" : delta < 0 ? "error.main" : "text.secondary";
+    const sign = delta > 0 ? "+" : "";
+
+    return (
+        <Typography variant="caption" color={color} display="block">
+            {sign}{delta}% vs вчера
+        </Typography>
+    );
+};
+
+const PeriodTrafficCell = ({ device }) => (
+    <Box sx={{ whiteSpace: "normal" }}>
+        <Typography variant="caption" display="block" color="text.secondary">
+            ↓ {formatBytes(device.today_bytes_received)} / {formatBytes(device.yesterday_bytes_received)}
+        </Typography>
+        {renderPeriodDelta(device.today_bytes_received, device.yesterday_bytes_received)}
+        <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
+            ↑ {formatBytes(device.today_bytes_sent)} / {formatBytes(device.yesterday_bytes_sent)}
+        </Typography>
+        {renderPeriodDelta(device.today_bytes_sent, device.yesterday_bytes_sent)}
+    </Box>
+);
+
 const Statistics = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
     const [cookies, , removeCookie] = useCookies();
@@ -100,6 +128,8 @@ const Statistics = ({ children, ...rest }) => {
     const [deviceTypeFilter, setDeviceTypeFilter] = useState("");
     const [deviceOnlineFilter, setDeviceOnlineFilter] = useState("");
     const [devicePortFilter, setDevicePortFilter] = useState("");
+    const [deviceUserFilter, setDeviceUserFilter] = useState("");
+    const [usersList, setUsersList] = useState([]);
     const [serverSearchFilter, setServerSearchFilter] = useState("");
     const [serverPortFilter, setServerPortFilter] = useState("");
 
@@ -189,12 +219,17 @@ const Statistics = ({ children, ...rest }) => {
         }
     };
 
-    const fetchDeviceStatistics = async () => {
-        const response = await api.get(`/devices/statistics/summary`);
+    const fetchDeviceStatistics = useCallback(async () => {
+        const params = {};
+        if (isAdminUser(cookies.user) && deviceUserFilter) {
+            params.user_id = deviceUserFilter;
+        }
+
+        const response = await api.get(`/devices/statistics/summary`, { params });
         if (response.status === 200) {
             setDeviceStatisticsData(response.data);
         }
-    };
+    }, [api, cookies.user, deviceUserFilter]);
 
     const fetchData = async () => {
         setIsRefreshing(true);
@@ -241,6 +276,30 @@ const Statistics = ({ children, ...rest }) => {
     }, []);
 
     useEffect(() => {
+        if (!isAdminUser(cookies.user)) {
+            return;
+        }
+
+        api.get("/users", { params: { $limit: 100, $sort: { login: 1 } } })
+            .then((response) => {
+                const rows = Array.isArray(response.data?.data)
+                    ? response.data.data
+                    : Array.isArray(response.data)
+                        ? response.data
+                        : [];
+                setUsersList(rows);
+            })
+            .catch(() => {});
+    }, [api, cookies.user]);
+
+    useEffect(() => {
+        if (!isLoaded) {
+            return;
+        }
+        fetchDeviceStatistics();
+    }, [deviceUserFilter, fetchDeviceStatistics, isLoaded]);
+
+    useEffect(() => {
         if (isLoaded && !hasLegacyServers) {
             setTab(1);
         }
@@ -253,16 +312,6 @@ const Statistics = ({ children, ...rest }) => {
         api.delete(`/authentication`).catch((err) => {});
 
         history("/main");
-    };
-
-    const formatBytes = (bytes) => {
-        const bytesNum = typeof bytes === "string" ? parseInt(bytes, 10) : bytes;
-
-        if (!bytesNum) return "0 Bytes";
-        const k = 1024;
-        const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-        const i = Math.floor(Math.log(bytesNum) / Math.log(k));
-        return parseFloat((bytesNum / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     };
 
     const formatSpeed = (speed) => {
@@ -395,12 +444,14 @@ const Statistics = ({ children, ...rest }) => {
     const hasActiveServerFilters = Boolean(
         serverSearchFilter.trim() || serverPortFilter.trim()
     );
+    const admin = isAdminUser(cookies.user);
     const hasActiveDeviceFilters = Boolean(
         deviceSearchFilter.trim() ||
             deviceStatusFilter ||
             deviceTypeFilter ||
             deviceOnlineFilter ||
-            devicePortFilter.trim()
+            devicePortFilter.trim() ||
+            (admin && deviceUserFilter)
     );
 
     const resetServerFilters = () => {
@@ -414,13 +465,14 @@ const Statistics = ({ children, ...rest }) => {
         setDeviceTypeFilter("");
         setDeviceOnlineFilter("");
         setDevicePortFilter("");
+        setDeviceUserFilter("");
     };
 
     const formatStatTimestamp = (timestamp) =>
         formatTimestamp(timestamp, { shortYear: true });
 
     const renderServerFilters = () => (
-        <Paper sx={{ p: 1.5, mb: 2 }}>
+        <Paper sx={{ p: 1.5, mb: 2, overflow: "visible" }}>
             <Box
                 sx={{
                     display: "flex",
@@ -440,28 +492,26 @@ const Statistics = ({ children, ...rest }) => {
                     </Button>
                 )}
             </Box>
-            <Grid container spacing={1}>
-                <Grid item xs={12} sm={6} md={4}>
-                    <TextField
-                        fullWidth
-                        size="small"
-                        label="Поиск"
-                        placeholder="Описание, порт или ID"
-                        value={serverSearchFilter}
-                        onChange={(e) => setServerSearchFilter(e.target.value)}
-                    />
-                </Grid>
-                <Grid item xs={12} sm={6} md={4}>
-                    <TextField
-                        fullWidth
-                        size="small"
-                        label="Порт"
-                        placeholder="input / output"
-                        value={serverPortFilter}
-                        onChange={(e) => setServerPortFilter(e.target.value)}
-                    />
-                </Grid>
-            </Grid>
+            <Box sx={filterRowSx}>
+                <TextField
+                    fullWidth
+                    size="small"
+                    label="Поиск"
+                    placeholder="Описание, порт или ID"
+                    value={serverSearchFilter}
+                    onChange={(e) => setServerSearchFilter(e.target.value)}
+                    sx={filterFieldSx}
+                />
+                <TextField
+                    fullWidth
+                    size="small"
+                    label="Порт"
+                    placeholder="input / output"
+                    value={serverPortFilter}
+                    onChange={(e) => setServerPortFilter(e.target.value)}
+                    sx={filterFieldSx}
+                />
+            </Box>
             {hasActiveServerFilters && (
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
                     Показано {filteredServerStatistics.length} из {statisticsData.length}
@@ -471,7 +521,7 @@ const Statistics = ({ children, ...rest }) => {
     );
 
     const renderDeviceFilters = () => (
-        <Paper sx={{ p: 1.5, mb: 2 }}>
+        <Paper sx={{ p: 1.5, mb: 2, overflow: "visible" }}>
             <Box
                 sx={{
                     display: "flex",
@@ -491,77 +541,74 @@ const Statistics = ({ children, ...rest }) => {
                     </Button>
                 )}
             </Box>
-            <Grid container spacing={1}>
-                <Grid item xs={12} sm={6} md={3}>
-                    <TextField
-                        fullWidth
-                        size="small"
-                        label="Поиск"
-                        placeholder="ID или название"
-                        value={deviceSearchFilter}
-                        onChange={(e) => setDeviceSearchFilter(e.target.value)}
-                    />
-                </Grid>
-                <Grid item xs={12} sm={6} md={2}>
-                    <FormControl fullWidth size="small">
-                        <InputLabel>Статус</InputLabel>
-                        <Select
-                            value={deviceStatusFilter}
-                            label="Статус"
-                            onChange={(e) => setDeviceStatusFilter(e.target.value)}
-                        >
-                            <MenuItem value="">Все</MenuItem>
-                            <MenuItem value="active">Активен</MenuItem>
-                            <MenuItem value="inactive">Неактивен</MenuItem>
-                            <MenuItem value="connecting">Подключается</MenuItem>
-                            <MenuItem value="error">Ошибка</MenuItem>
-                            <MenuItem value="pending">Ожидает</MenuItem>
-                            <MenuItem value="blocked">Заблокирован</MenuItem>
-                        </Select>
-                    </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2}>
-                    <FormControl fullWidth size="small">
-                        <InputLabel>Online</InputLabel>
-                        <Select
-                            value={deviceOnlineFilter}
-                            label="Online"
-                            onChange={(e) => setDeviceOnlineFilter(e.target.value)}
-                        >
-                            <MenuItem value="">Все</MenuItem>
-                            <MenuItem value="online">Online</MenuItem>
-                            <MenuItem value="offline">Offline</MenuItem>
-                        </Select>
-                    </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={2}>
-                    <FormControl fullWidth size="small">
-                        <InputLabel>Тип</InputLabel>
-                        <Select
-                            value={deviceTypeFilter}
-                            label="Тип"
-                            onChange={(e) => setDeviceTypeFilter(e.target.value)}
-                        >
-                            <MenuItem value="">Все</MenuItem>
-                            {DEVICE_TYPES.map(({ value, label }) => (
-                                <MenuItem key={value} value={value}>
-                                    {label}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                </Grid>
-                <Grid item xs={12} sm={6} md={3}>
-                    <TextField
-                        fullWidth
-                        size="small"
-                        label="Порт"
-                        placeholder="assigned / preferred / session"
-                        value={devicePortFilter}
-                        onChange={(e) => setDevicePortFilter(e.target.value)}
-                    />
-                </Grid>
-            </Grid>
+            <Box sx={filterRowSx}>
+                <TextField
+                    fullWidth
+                    size="small"
+                    label="Поиск"
+                    placeholder="ID или название"
+                    value={deviceSearchFilter}
+                    onChange={(e) => setDeviceSearchFilter(e.target.value)}
+                    sx={filterFieldSx}
+                />
+                <FilterSelect
+                    label="Статус"
+                    value={deviceStatusFilter}
+                    onChange={(e) => setDeviceStatusFilter(e.target.value)}
+                >
+                    <MenuItem value="">Все</MenuItem>
+                    <MenuItem value="active">Активен</MenuItem>
+                    <MenuItem value="inactive">Неактивен</MenuItem>
+                    <MenuItem value="connecting">Подключается</MenuItem>
+                    <MenuItem value="error">Ошибка</MenuItem>
+                    <MenuItem value="pending">Ожидает</MenuItem>
+                    <MenuItem value="blocked">Заблокирован</MenuItem>
+                </FilterSelect>
+                <FilterSelect
+                    label="Online"
+                    value={deviceOnlineFilter}
+                    onChange={(e) => setDeviceOnlineFilter(e.target.value)}
+                >
+                    <MenuItem value="">Все</MenuItem>
+                    <MenuItem value="online">Online</MenuItem>
+                    <MenuItem value="offline">Offline</MenuItem>
+                </FilterSelect>
+                <FilterSelect
+                    label="Тип"
+                    value={deviceTypeFilter}
+                    onChange={(e) => setDeviceTypeFilter(e.target.value)}
+                >
+                    <MenuItem value="">Все</MenuItem>
+                    {DEVICE_TYPES.map(({ value, label }) => (
+                        <MenuItem key={value} value={value}>
+                            {label}
+                        </MenuItem>
+                    ))}
+                </FilterSelect>
+                <TextField
+                    fullWidth
+                    size="small"
+                    label="Порт"
+                    placeholder="assigned / preferred / session"
+                    value={devicePortFilter}
+                    onChange={(e) => setDevicePortFilter(e.target.value)}
+                    sx={filterFieldSx}
+                />
+                {admin && (
+                    <FilterSelect
+                        label="Пользователь"
+                        value={deviceUserFilter}
+                        onChange={(e) => setDeviceUserFilter(e.target.value)}
+                    >
+                        <MenuItem value="">Все</MenuItem>
+                        {usersList.map((user) => (
+                            <MenuItem key={user.id} value={String(user.id)}>
+                                {user.login}
+                            </MenuItem>
+                        ))}
+                    </FilterSelect>
+                )}
+            </Box>
             {hasActiveDeviceFilters && (
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
                     Показано {filteredDeviceStatistics.length} из {deviceStatisticsData.length}
@@ -661,19 +708,19 @@ const Statistics = ({ children, ...rest }) => {
                                 <StatisticsTableShell ariaLabel="server statistics table">
                                     <TableHead>
                                         <TableRow>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "18%" }}>Описание сервера</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Байт получено</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Байт отправлено</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Скорость приема</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Скорость передачи</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Соединения</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "16%" }}>Время обновления</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "8%" }} align="center">Действия</TableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "18%" }}>Описание сервера</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Байт получено</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Байт отправлено</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Скорость приема</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "12%" }} align="right">Скорость передачи</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Соединения</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "16%" }}>Время обновления</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "8%" }} align="center">Действия</StyledTableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
                                         {filteredServerStatistics.map((stat) => (
-                                                <TableRow
+                                                <StyledTableRow
                                                     key={`${stat.server_id}-${stat.timestamp}`}
                                                     hover
                                                     onClick={() => {
@@ -701,7 +748,7 @@ const Statistics = ({ children, ...rest }) => {
                                                             <DeleteIcon fontSize="small" />
                                                         </IconButton>
                                                     </TableCell>
-                                                </TableRow>
+                                                </StyledTableRow>
                                             ))}
                                     </TableBody>
                                 </StatisticsTableShell>
@@ -727,22 +774,25 @@ const Statistics = ({ children, ...rest }) => {
                                 <StatisticsTableShell ariaLabel="device statistics table">
                                     <TableHead>
                                         <TableRow>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "13%" }}>Устройство</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "8%" }}>Статус</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "11%", whiteSpace: "normal" }}>Порт</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Байт получено</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Байт отправлено</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Скорость приема</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Скорость передачи</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">За текущий час</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "7%" }} align="right">Соединения</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "14%" }}>Последняя активность</TableCell>
-                                            <TableCell sx={{ ...statisticsHeadCellSx, width: "8%" }} align="center">Действия</TableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "13%" }}>Устройство</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "8%" }}>Статус</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "11%", whiteSpace: "normal" }} align="center">Порт</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Байт получено</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Байт отправлено</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Скорость приема</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "10%" }} align="right">Скорость передачи</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "9%" }} align="right">За текущий час</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "14%", whiteSpace: "normal" }} align="right">
+                                                Сегодня / вчера
+                                            </StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "6%" }} align="right">Соединения</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "14%" }}>Последняя активность</StyledTableCell>
+                                            <StyledTableCell sx={{ ...statisticsHeadCellSx, width: "8%" }} align="center">Действия</StyledTableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
                                         {filteredDeviceStatistics.map((device) => (
-                                            <TableRow
+                                            <StyledTableRow
                                                 key={device.id}
                                                 hover
                                                 onClick={() => {
@@ -765,14 +815,16 @@ const Statistics = ({ children, ...rest }) => {
                                                     />
                                                 </TableCell>
                                                 <TableCell
+                                                    align="center"
                                                     sx={{
                                                         ...statisticsBodyCellSx,
-                                                        verticalAlign: "top",
                                                         whiteSpace: "normal",
                                                         overflow: "visible",
                                                     }}
                                                 >
-                                                    <DevicePortBadges device={device} emptyLabel="-" />
+                                                    <Box sx={{ display: "flex", justifyContent: "center" }}>
+                                                        <DevicePortBadges device={device} emptyLabel="-" />
+                                                    </Box>
                                                 </TableCell>
                                                 <TableCell sx={statisticsBodyCellSx} align="right">{formatBytes(device.bytes_received)}</TableCell>
                                                 <TableCell sx={statisticsBodyCellSx} align="right">{formatBytes(device.bytes_sent)}</TableCell>
@@ -780,6 +832,16 @@ const Statistics = ({ children, ...rest }) => {
                                                 <TableCell sx={statisticsBodyCellSx} align="right">{formatSpeed(device.avg_send_speed)}</TableCell>
                                                 <TableCell sx={{ ...statisticsBodyCellSx, whiteSpace: "normal" }} align="right">
                                                     {formatBytes(device.hourly_bytes_received)} / {formatBytes(device.hourly_bytes_sent)}
+                                                </TableCell>
+                                                <TableCell
+                                                    sx={{
+                                                        ...statisticsBodyCellSx,
+                                                        whiteSpace: "normal",
+                                                        verticalAlign: "top",
+                                                    }}
+                                                    align="right"
+                                                >
+                                                    <PeriodTrafficCell device={device} />
                                                 </TableCell>
                                                 <TableCell sx={statisticsBodyCellSx} align="right">{device.active_connections || 0}</TableCell>
                                                 <TableCell sx={statisticsBodyCellSx}>{formatStatTimestamp(device.last_activity)}</TableCell>
@@ -795,7 +857,7 @@ const Statistics = ({ children, ...rest }) => {
                                                         <DeleteIcon fontSize="small" />
                                                     </IconButton>
                                                 </TableCell>
-                                            </TableRow>
+                                            </StyledTableRow>
                                         ))}
                                     </TableBody>
                                 </StatisticsTableShell>

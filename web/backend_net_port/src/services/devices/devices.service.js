@@ -782,6 +782,7 @@ exports.Devices = class Devices extends Service {
         'devices.status',
         'devices.type',
         'devices.user_id',
+        'users.username as owner_username',
         'devices.last_heartbeat',
         'devices.assigned_port',
         'devices.preferred_port',
@@ -793,6 +794,7 @@ exports.Devices = class Devices extends Service {
         'device_sessions.active_connections',
         'device_sessions.last_activity'
       )
+      .leftJoin('users', 'devices.user_id', 'users.id')
       .leftJoin(latestSessions, 'devices.id', 'device_sessions.device_id')
       .orderBy('devices.device_id', 'asc');
 
@@ -827,6 +829,40 @@ exports.Devices = class Devices extends Service {
       hourlyMap[row.device_id] = row;
     });
 
+    let todayQuery = knex('device_statistics')
+      .select('device_id')
+      .sum('bytes_sent as total_bytes_sent')
+      .sum('bytes_received as total_bytes_received')
+      .where('period_start', '>=', knex.raw("date_trunc('day', NOW())"))
+      .groupBy('device_id');
+
+    let yesterdayQuery = knex('device_statistics')
+      .select('device_id')
+      .sum('bytes_sent as total_bytes_sent')
+      .sum('bytes_received as total_bytes_received')
+      .where('period_start', '>=', knex.raw("date_trunc('day', NOW()) - interval '1 day'"))
+      .where('period_start', '<', knex.raw("date_trunc('day', NOW())"))
+      .groupBy('device_id');
+
+    if (resolvedDeviceIds.length > 0) {
+      todayQuery = todayQuery.whereIn('device_id', resolvedDeviceIds);
+      yesterdayQuery = yesterdayQuery.whereIn('device_id', resolvedDeviceIds);
+    } else {
+      todayQuery = todayQuery.whereRaw('1 = 0');
+      yesterdayQuery = yesterdayQuery.whereRaw('1 = 0');
+    }
+
+    const todayRows = await todayQuery;
+    const yesterdayRows = await yesterdayQuery;
+    const todayMap = {};
+    const yesterdayMap = {};
+    todayRows.forEach((row) => {
+      todayMap[row.device_id] = row;
+    });
+    yesterdayRows.forEach((row) => {
+      yesterdayMap[row.device_id] = row;
+    });
+
     let recentSamples = [];
     if (resolvedDeviceIds.length > 0) {
       recentSamples = await knex('device_traffic_samples')
@@ -854,6 +890,10 @@ exports.Devices = class Devices extends Service {
         active_connections: Number(device.active_connections || 0),
         hourly_bytes_sent: Number(hourlyMap[device.id]?.total_bytes_sent || 0),
         hourly_bytes_received: Number(hourlyMap[device.id]?.total_bytes_received || 0),
+        today_bytes_sent: Number(todayMap[device.id]?.total_bytes_sent || 0),
+        today_bytes_received: Number(todayMap[device.id]?.total_bytes_received || 0),
+        yesterday_bytes_sent: Number(yesterdayMap[device.id]?.total_bytes_sent || 0),
+        yesterday_bytes_received: Number(yesterdayMap[device.id]?.total_bytes_received || 0),
         peak_connections: Number(
           hourlyMap[device.id]?.peak_connections || device.active_connections || 0
         ),
@@ -868,12 +908,18 @@ exports.Devices = class Devices extends Service {
   }
 
   async getStatisticsSummary(params = {}) {
-    const { user } = params;
+    const { user, query = {} } = params;
     const isAdmin = user?.role === 'admin' || user?.role_name === 'admin';
+    let userId = !isAdmin && user?.id ? user.id : null;
 
-    return this.buildDeviceStatisticsSummaryRows({
-      userId: !isAdmin && user?.id ? user.id : null
-    });
+    if (isAdmin && query.user_id) {
+      const parsed = Number(query.user_id);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        userId = parsed;
+      }
+    }
+
+    return this.buildDeviceStatisticsSummaryRows({ userId });
   }
 
   async getDeviceStatisticsSummaryRow(deviceId) {

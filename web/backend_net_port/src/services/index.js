@@ -42,7 +42,7 @@ module.exports = function (app) {
       }
 
       const devicesService = app.service(SERVICE_ENDPOINT);
-      const result = await devicesService.getStatisticsSummary({ user });
+      const result = await devicesService.getStatisticsSummary({ user, query: req.query });
       res.json(result);
     } catch (error) {
       console.error('Error in device statistics summary endpoint:', error);

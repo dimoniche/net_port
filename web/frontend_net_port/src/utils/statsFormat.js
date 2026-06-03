@@ -16,6 +16,20 @@ export const parseSpeedNumber = (speed) => {
     return Number.isFinite(speedNum) && speedNum > 0 ? speedNum : 0;
 };
 
+export const formatPeriodDeltaPercent = (today, yesterday) => {
+    const todayValue = Number(today) || 0;
+    const yesterdayValue = Number(yesterday) || 0;
+
+    if (yesterdayValue === 0) {
+        if (todayValue === 0) {
+            return null;
+        }
+        return 100;
+    }
+
+    return Math.round(((todayValue - yesterdayValue) / yesterdayValue) * 100);
+};
+
 export const formatSpeed = (speed) => {
     const speedNum = parseSpeedNumber(speed);
 

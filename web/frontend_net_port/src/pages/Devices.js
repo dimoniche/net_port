@@ -16,9 +16,6 @@ import TableBody from "@mui/material/TableBody";
 import TableRow from "@mui/material/TableRow";
 import TableCell from "@mui/material/TableCell";
 import TextField from "@mui/material/TextField";
-import FormControl from "@mui/material/FormControl";
-import InputLabel from "@mui/material/InputLabel";
-import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -42,14 +39,18 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import { Loader } from "../components/Loader";
 import CommonDialog from "../components/CommonDialog";
 import DevicePortBadges from "../components/DevicePortBadges";
+import FilterSelect from "../components/FilterSelect";
 import { useDeviceStatusSocket } from "../hooks/useDeviceStatusSocket";
 
 import updateAbility from "../config/permission";
+import { isAdminUser } from "../utils/userRoles";
 import {
     buildDeviceClientCommand,
     DEFAULT_REGISTRATION_PORT,
     DEFAULT_PORT_HOST_BASE,
 } from "../utils/clientCommand";
+import { StyledTableCell, StyledTableRow } from "../theme/TableTheme";
+import { filterRowSx, filterFieldSx } from "../theme/filterLayout";
 
 const Devices = ({ children, ...rest }) => {
     const { api } = useContext(ApiContext);
@@ -70,8 +71,10 @@ const Devices = ({ children, ...rest }) => {
     const [nameFilter, setNameFilter] = useState("");
     const [statusFilter, setStatusFilter] = useState("");
     const [typeFilter, setTypeFilter] = useState("");
+    const [userFilter, setUserFilter] = useState("");
+    const [usersList, setUsersList] = useState([]);
 
-    // Auto-connect setting
+    const admin = isAdminUser(cookies.user);
     const [autoConnectEnabled, setAutoConnectEnabled] = useState(true);
 
     // Dialog states
@@ -131,6 +134,7 @@ const Devices = ({ children, ...rest }) => {
         if (deviceIdFilter) params.append("search", deviceIdFilter);
         if (statusFilter) params.append("status", statusFilter);
         if (typeFilter) params.append("type", typeFilter);
+        if (admin && userFilter) params.append("user_id", userFilter);
 
         const queryString = params.toString();
         const url = `/devices${queryString ? `?${queryString}` : ""}`;
@@ -182,6 +186,30 @@ const Devices = ({ children, ...rest }) => {
         const abortController = new AbortController();
         fetchDevices(abortController);
 
+        return () => {
+            abortController.abort();
+        };
+    }, [deviceIdFilter, statusFilter, typeFilter, userFilter, cookies.user]);
+
+    useEffect(() => {
+        const abortController = new AbortController();
+
+        if (isAdminUser(cookies.user)) {
+            api.get("/users", {
+                params: { $limit: 100, $sort: { login: 1 } },
+                signal: abortController.signal,
+            })
+                .then((response) => {
+                    const rows = Array.isArray(response.data?.data)
+                        ? response.data.data
+                        : Array.isArray(response.data)
+                            ? response.data
+                            : [];
+                    setUsersList(rows);
+                })
+                .catch(() => {});
+        }
+
         api.get("/settings/auto-connect", { signal: abortController.signal })
             .then((response) => {
                 if (response.status === 200) {
@@ -204,7 +232,7 @@ const Devices = ({ children, ...rest }) => {
         return () => {
             abortController.abort();
         };
-    }, []);
+    }, [cookies.user]);
 
     const handleLogout = () => {
         removeCookie("token");
@@ -411,99 +439,101 @@ const Devices = ({ children, ...rest }) => {
             </Grid>
 
             <Grid item xs={12}>
-                <Paper sx={{ p: 1, mb: 1.5 }}>
+                <Paper sx={{ p: 1, mb: 1.5, overflow: "visible" }}>
                     <Typography variant="subtitle1" sx={{ fontSize: '0.95rem', mb: 1 }}>
                         Фильтры
                     </Typography>
-                    <Grid container spacing={1}>
-                        <Grid item xs={12} sm={3}>
-                            <TextField
-                                fullWidth
-                                label="ID устройства"
-                                value={deviceIdFilter}
-                                onChange={(e) => setDeviceIdFilter(e.target.value)}
-                                size="small"
-                                sx={{ '& .MuiInputBase-root': { fontSize: '0.875rem' } }}
-                            />
-                        </Grid>
-                        <Grid item xs={12} sm={3}>
-                            <TextField
-                                fullWidth
-                                label="Название"
-                                value={nameFilter}
-                                onChange={(e) => setNameFilter(e.target.value)}
-                                size="small"
-                                sx={{ '& .MuiInputBase-root': { fontSize: '0.875rem' } }}
-                            />
-                        </Grid>
-                        <Grid item xs={12} sm={3}>
-                            <FormControl fullWidth size="small">
-                                <InputLabel sx={{ fontSize: '0.875rem' }}>Статус</InputLabel>
-                                <Select
-                                    value={statusFilter}
-                                    label="Статус"
-                                    onChange={(e) => setStatusFilter(e.target.value)}
-                                    sx={{ fontSize: '0.875rem' }}
-                                >
-                                    <MenuItem value="" sx={{ fontSize: '0.875rem' }}>Все</MenuItem>
-                                    <MenuItem value="active" sx={{ fontSize: '0.875rem' }}>Активен</MenuItem>
-                                    <MenuItem value="inactive" sx={{ fontSize: '0.875rem' }}>Неактивен</MenuItem>
-                                    <MenuItem value="connecting" sx={{ fontSize: '0.875rem' }}>Подключается</MenuItem>
-                                    <MenuItem value="error" sx={{ fontSize: '0.875rem' }}>Ошибка</MenuItem>
-                                    <MenuItem value="pending" sx={{ fontSize: '0.875rem' }}>Ожидает</MenuItem>
-                                    <MenuItem value="blocked" sx={{ fontSize: '0.875rem' }}>Заблокирован</MenuItem>
-                                </Select>
-                            </FormControl>
-                        </Grid>
-                        <Grid item xs={12} sm={3}>
-                            <FormControl fullWidth size="small">
-                                <InputLabel sx={{ fontSize: '0.875rem' }}>Тип</InputLabel>
-                                <Select
-                                    value={typeFilter}
-                                    label="Тип"
-                                    onChange={(e) => setTypeFilter(e.target.value)}
-                                    sx={{ fontSize: '0.875rem' }}
-                                >
-                                    <MenuItem value="" sx={{ fontSize: '0.875rem' }}>Все</MenuItem>
-                                    {DEVICE_TYPES.map(({ value, label }) => (
-                                        <MenuItem key={value} value={value} sx={{ fontSize: '0.875rem' }}>
-                                            {label}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                        </Grid>
-                    </Grid>
+                    <Box sx={filterRowSx}>
+                        <TextField
+                            fullWidth
+                            label="ID устройства"
+                            value={deviceIdFilter}
+                            onChange={(e) => setDeviceIdFilter(e.target.value)}
+                            size="small"
+                            sx={{ ...filterFieldSx, '& .MuiInputBase-root': { fontSize: '0.875rem' } }}
+                        />
+                        <TextField
+                            fullWidth
+                            label="Название"
+                            value={nameFilter}
+                            onChange={(e) => setNameFilter(e.target.value)}
+                            size="small"
+                            sx={{ ...filterFieldSx, '& .MuiInputBase-root': { fontSize: '0.875rem' } }}
+                        />
+                        <FilterSelect
+                            label="Статус"
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                        >
+                            <MenuItem value="" sx={{ fontSize: '0.875rem' }}>Все</MenuItem>
+                            <MenuItem value="active" sx={{ fontSize: '0.875rem' }}>Активен</MenuItem>
+                            <MenuItem value="inactive" sx={{ fontSize: '0.875rem' }}>Неактивен</MenuItem>
+                            <MenuItem value="connecting" sx={{ fontSize: '0.875rem' }}>Подключается</MenuItem>
+                            <MenuItem value="error" sx={{ fontSize: '0.875rem' }}>Ошибка</MenuItem>
+                            <MenuItem value="pending" sx={{ fontSize: '0.875rem' }}>Ожидает</MenuItem>
+                            <MenuItem value="blocked" sx={{ fontSize: '0.875rem' }}>Заблокирован</MenuItem>
+                        </FilterSelect>
+                        <FilterSelect
+                            label="Тип"
+                            value={typeFilter}
+                            onChange={(e) => setTypeFilter(e.target.value)}
+                        >
+                            <MenuItem value="" sx={{ fontSize: '0.875rem' }}>Все</MenuItem>
+                            {DEVICE_TYPES.map(({ value, label }) => (
+                                <MenuItem key={value} value={value} sx={{ fontSize: '0.875rem' }}>
+                                    {label}
+                                </MenuItem>
+                            ))}
+                        </FilterSelect>
+                        {admin && (
+                            <FilterSelect
+                                label="Пользователь"
+                                value={userFilter}
+                                onChange={(e) => setUserFilter(e.target.value)}
+                            >
+                                <MenuItem value="" sx={{ fontSize: '0.875rem' }}>Все</MenuItem>
+                                {usersList.map((user) => (
+                                    <MenuItem key={user.id} value={String(user.id)} sx={{ fontSize: '0.875rem' }}>
+                                        {user.login}
+                                    </MenuItem>
+                                ))}
+                            </FilterSelect>
+                        )}
+                    </Box>
                 </Paper>
             </Grid>
 
             <Grid item xs={12}>
                 <TableContainer component={Paper}>
-                    <Table>
+                    <Table size="small">
                         <TableHead>
                             <TableRow>
-                                <TableCell>ID устройства</TableCell>
-                                <TableCell>Название</TableCell>
-                                <TableCell>Тип</TableCell>
-                                <TableCell>Статус</TableCell>
-                                <TableCell sx={{ minWidth: 110 }}>Назначенный порт</TableCell>
-                                <TableCell>Внутренний порт</TableCell>
-                                <TableCell>Последняя активность</TableCell>
-                                <TableCell>Действия</TableCell>
+                                <StyledTableCell>ID устройства</StyledTableCell>
+                                <StyledTableCell>Название</StyledTableCell>
+                                {admin && <StyledTableCell>Пользователь</StyledTableCell>}
+                                <StyledTableCell>Тип</StyledTableCell>
+                                <StyledTableCell>Статус</StyledTableCell>
+                                <StyledTableCell sx={{ minWidth: 110 }}>Назначенный порт</StyledTableCell>
+                                <StyledTableCell>Внутренний порт</StyledTableCell>
+                                <StyledTableCell>Последняя активность</StyledTableCell>
+                                <StyledTableCell>Действия</StyledTableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {filteredDevices.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={8} align="center">
+                                <StyledTableRow>
+                                    <TableCell colSpan={admin ? 9 : 8} align="center">
                                         Нет устройств
                                     </TableCell>
-                                </TableRow>
+                                </StyledTableRow>
                             ) : (
                                 filteredDevices.map((device) => (
-                                    <TableRow key={device.id}>
+                                    <StyledTableRow key={device.id}>
                                         <TableCell>{device.device_id}</TableCell>
                                         <TableCell>{device.name || "-"}</TableCell>
+                                        {admin && (
+                                            <TableCell>{device.owner_username || "-"}</TableCell>
+                                        )}
                                         <TableCell>{getDeviceTypeLabel(device.type)}</TableCell>
                                         <TableCell sx={{ verticalAlign: "top" }}>
                                             <Box
@@ -585,7 +615,7 @@ const Devices = ({ children, ...rest }) => {
                                                 </Tooltip>
                                             </Box>
                                         </TableCell>
-                                    </TableRow>
+                                    </StyledTableRow>
                                 ))
                             )}
                         </TableBody>
