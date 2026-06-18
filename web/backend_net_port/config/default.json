@@ -9,7 +9,7 @@
         "origins": ["localhost:8080", "netportforward.ru"],
         "entity": "user",
         "service": "/api/v1/users",
-        "secret": "0iJT0OrL0E9yVJwv1q+hQb/ziUc=",
+        "secret": "",
         "authStrategies": ["jwt", "local", "oauth"],
         "jwtOptions": {
             "header": {

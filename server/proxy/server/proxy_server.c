@@ -13,6 +13,18 @@
 
 #include "db_func.h"
 #include "time_counter.h"
+#include "device_manager.h"
+
+#define MAX_DYNAMIC_SERVER_RUNTIMES 256
+
+typedef struct dynamic_server_runtime_s {
+    char device_id[DEVICE_ID_MAX_LEN + 1];
+    uint16_t input_port;
+    uint16_t tunnel_port;
+    int server_index;
+    proxy_server_thread_data_t *connections_data;
+    bool active;
+} dynamic_server_runtime_t;
 
 // Глобальное определение переменной количества потоков
 int COUNT_SOCKET_THREAD = 25;
@@ -21,6 +33,23 @@ static proxy_server_t* servers;
 static uint16_t servers_count;
 static int32_t count_open_crypt_session = 0;
 static proxy_servers_settings_t proxy_settings;
+static dynamic_server_runtime_t g_dynamic_runtimes[MAX_DYNAMIC_SERVER_RUNTIMES];
+static pthread_mutex_t g_dynamic_runtimes_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void init_proxy_bind_address(void)
+{
+    memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
+
+    const char *bind_addr = getenv("NET_PORT_BIND_ADDRESS");
+    if (bind_addr && bind_addr[0]) {
+        strncpy(proxy_settings.local_address, bind_addr, sizeof(proxy_settings.local_address) - 1);
+        proxy_settings.local_address[sizeof(proxy_settings.local_address) - 1] = '\0';
+    } else {
+        strncpy(proxy_settings.local_address, "127.0.0.1", sizeof(proxy_settings.local_address) - 1);
+    }
+
+    logMsg(LOG_INFO, "Proxy bind address: %s\n", proxy_settings.local_address);
+}
 
 // Семафор для защиты доступа к статистике серверов
 sem_t statistics_semaphore;
@@ -46,7 +75,21 @@ bool server_output_is_running(proxy_server_t * server);
 void input_server_stop(proxy_server_t * server);
 void input_server_wait_stop(proxy_server_t * server);
 int get_free_input_socket(proxy_server_thread_data_t * data);
+int get_input_socket_with_output(proxy_server_thread_data_t * data);
 int get_free_output_socket(proxy_server_thread_data_t * data);
+static int start_server_listening_threads(proxy_server_t *server, proxy_server_thread_data_t **runtime_out);
+static void register_dynamic_server_runtime(const char *device_id, uint16_t input_port,
+                                            uint16_t tunnel_port, int server_index,
+                                            proxy_server_thread_data_t *connections_data);
+static void stop_dynamic_server_runtime(proxy_server_thread_data_t *connections_data, int server_index,
+                                        const char *device_id);
+static void apply_dynamic_server_ssl_config(proxy_server_t *server, bool enable_input_ssl,
+                                            bool enable_tunnel_ssl);
+static int start_dynamic_server_at_index(int index, const char *device_id,
+                                         uint16_t input_port, uint16_t tunnel_port,
+                                         bool enable_input_ssl, bool enable_tunnel_ssl);
+static bool dynamic_runtime_ssl_matches(const proxy_server_t *runtime, bool enable_input_ssl,
+                                        bool enable_tunnel_ssl);
 
 // Функция для периодического сохранения статистики
 void* statistics_saver_thread(void* arg) {
@@ -84,8 +127,11 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time
         return -1;
     }
 
-    memset(proxy_settings.local_address, 0, sizeof(proxy_settings.local_address));
-    strncpy(proxy_settings.local_address, "127.0.0.1", 16); // по умолчанию только локальные подключения
+    if (servers_count == 0) {
+        logMsg(LOG_INFO, "Starting without legacy switcher servers (device management mode)\n");
+    }
+
+    init_proxy_bind_address();
     proxy_settings.statistics_retention_period = statistics_retention_period;
 
     // Инициализация семафора для защиты статистики
@@ -137,6 +183,9 @@ servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time
 
 // Инициализация одного сервера без использования БД (используется для режимов --no-db)
 int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t input_port, uint16_t output_port, bool enable_output_ssl, bool enable_input_ssl, time_t statistics_retention_period) {
+    // Инициализируем OpenSSL перед созданием SSL контекстов
+    init_openssl();
+
     // Освободим предыдущие контексты при повторном вызове
     if (servers) {
         for (int i = 0; i < servers_count; i++) {
@@ -166,6 +215,7 @@ int servers_init_no_db(const char* cert_file, const char* key_file, uint16_t inp
     }
     
     proxy_settings.statistics_retention_period = statistics_retention_period;
+    init_proxy_bind_address();
 
     servers[0].id = 0;
     servers[0].enable = true;
@@ -377,6 +427,12 @@ init_input_socket(proxy_server_t * server)
     memset(&server->input_addr, 0, sizeof(server->input_addr));
 
     in_addr_t connection_address = INADDR_ANY;
+    if (!server->is_dynamic_port && proxy_settings.local_address[0] != '\0') {
+        in_addr_t addr = inet_addr(proxy_settings.local_address);
+        if (addr != INADDR_NONE) {
+            connection_address = addr;
+        }
+    }
 
     int flags = fcntl(*(Socket) , F_GETFL, 0);
     if(fcntl(*(Socket), F_SETFL, flags|O_NONBLOCK) < 0) {
@@ -405,165 +461,6 @@ init_input_socket(proxy_server_t * server)
     return 0;
 }
 
-// Функция для восстановления SSL-соединения
-void
-reconnect_ssl(proxy_server_local_socket_data_t * thread_data, bool is_input)
-{
-    // Попытка повторного подключения с линейной задержкой
-    int retry_count = 0;
-    const int max_retries = 5;
-    const int base_delay = 1; // Базовая задержка в секундах
-    
-    while (retry_count < max_retries) {
-        if (is_input) {
-            if (thread_data->ssl_input) {
-                SSL_free(thread_data->ssl_input);
-                thread_data->ssl_input = NULL;
-            }
-            
-            if (thread_data->input_local != -1) {
-                close(thread_data->input_local);
-                thread_data->input_local = -1;
-            }
-            
-            logMsg(LOG_INFO, "Attempting to reconnect input SSL connection on port %d (attempt %d)\n",
-                   thread_data->data->input_port, retry_count + 1);
-            
-            // Переподключение
-            thread_data->input_local = socket(AF_INET, SOCK_STREAM, 0);
-            if (thread_data->input_local < 0) {
-                logMsg(LOG_ERR, "Failed to create new input socket: %s\n", strerror(errno));
-                retry_count++;
-                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
-                continue;
-            }
-            
-            int flags = fcntl(thread_data->input_local, F_GETFL, 0);
-            if (fcntl(thread_data->input_local, F_SETFL, flags | O_NONBLOCK) < 0) {
-                logMsg(LOG_ERR, "Failed to set non-blocking mode for new input socket\n");
-                close(thread_data->input_local);
-                thread_data->input_local = -1;
-                retry_count++;
-                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
-                continue;
-            }
-            
-            // SSL handshake
-            thread_data->ssl_input = SSL_new(thread_data->data->ssl_ctx);
-            if (!thread_data->ssl_input) {
-                logMsg(LOG_ERR, "Failed to create new SSL object for input\n");
-                close(thread_data->input_local);
-                thread_data->input_local = -1;
-                retry_count++;
-                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
-                continue;
-            }
-            
-            SSL_set_fd(thread_data->ssl_input, thread_data->input_local);
-            
-            int sock_flags = fcntl(thread_data->input_local, F_GETFL, 0);
-            if (sock_flags >= 0) {
-                fcntl(thread_data->input_local, F_SETFL, sock_flags & ~O_NONBLOCK);
-            }
-            
-            int ssl_ret = SSL_accept(thread_data->ssl_input);
-            
-            if (sock_flags >= 0) {
-                fcntl(thread_data->input_local, F_SETFL, sock_flags);
-            }
-            
-            if (ssl_ret != 1) {
-                logMsg(LOG_ERR, "SSL reconnection handshake failed on input_port %d\n", thread_data->data->input_port);
-                SSL_free(thread_data->ssl_input);
-                thread_data->ssl_input = NULL;
-                close(thread_data->input_local);
-                thread_data->input_local = -1;
-                retry_count++;
-                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
-                continue;
-            } else {
-                logMsg(LOG_INFO, "SSL reconnection successful on input_port %d\n", thread_data->data->input_port);
-                break; // Успешное подключение
-            }
-        } else {
-            if (thread_data->ssl_output) {
-                SSL_free(thread_data->ssl_output);
-                thread_data->ssl_output = NULL;
-            }
-            
-            if (thread_data->output_local != -1) {
-                close(thread_data->output_local);
-                thread_data->output_local = -1;
-            }
-            
-            logMsg(LOG_INFO, "Attempting to reconnect output SSL connection on port %d (attempt %d)\n",
-                   thread_data->data->output_port, retry_count + 1);
-            
-            // Переподключение
-            thread_data->output_local = socket(AF_INET, SOCK_STREAM, 0);
-            if (thread_data->output_local < 0) {
-                logMsg(LOG_ERR, "Failed to create new output socket: %s\n", strerror(errno));
-                retry_count++;
-                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
-                continue;
-            }
-            
-            int flags = fcntl(thread_data->output_local, F_GETFL, 0);
-            if (fcntl(thread_data->output_local, F_SETFL, flags | O_NONBLOCK) < 0) {
-                logMsg(LOG_ERR, "Failed to set non-blocking mode for new output socket\n");
-                close(thread_data->output_local);
-                thread_data->output_local = -1;
-                retry_count++;
-                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
-                continue;
-            }
-            
-            // SSL handshake
-            thread_data->ssl_output = SSL_new(thread_data->data->ssl_ctx);
-            if (!thread_data->ssl_output) {
-                logMsg(LOG_ERR, "Failed to create new SSL object for output\n");
-                close(thread_data->output_local);
-                thread_data->output_local = -1;
-                retry_count++;
-                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
-                continue;
-            }
-            
-            SSL_set_fd(thread_data->ssl_output, thread_data->output_local);
-            
-            int sock_flags = fcntl(thread_data->output_local, F_GETFL, 0);
-            if (sock_flags >= 0) {
-                fcntl(thread_data->output_local, F_SETFL, sock_flags & ~O_NONBLOCK);
-            }
-            
-            int ssl_ret = SSL_accept(thread_data->ssl_output);
-            
-            if (sock_flags >= 0) {
-                fcntl(thread_data->output_local, F_SETFL, sock_flags);
-            }
-            
-            if (ssl_ret != 1) {
-                logMsg(LOG_ERR, "SSL reconnection handshake failed on output_port %d\n", thread_data->data->output_port);
-                SSL_free(thread_data->ssl_output);
-                thread_data->ssl_output = NULL;
-                close(thread_data->output_local);
-                thread_data->output_local = -1;
-                retry_count++;
-                Thread_sleep((base_delay * retry_count) * 1000); // Линейная задержка
-                continue;
-            } else {
-                logMsg(LOG_INFO, "SSL reconnection successful on output_port %d\n", thread_data->data->output_port);
-                break; // Успешное подключение
-            }
-        }
-    }
-    
-    // Если не удалось подключиться после всех попыток
-    if (retry_count >= max_retries) {
-        logMsg(LOG_ERR, "Failed to reconnect SSL connection after %d attempts\n", max_retries);
-    }
-}
-
 int
 init_output_socket(proxy_server_t * server)
 {
@@ -584,6 +481,12 @@ init_output_socket(proxy_server_t * server)
     memset(&server->output_addr, 0, sizeof(server->output_addr));
 
     in_addr_t connection_address = INADDR_ANY;
+    if (!server->is_dynamic_port && proxy_settings.local_address[0] != '\0') {
+        in_addr_t addr = inet_addr(proxy_settings.local_address);
+        if (addr != INADDR_NONE) {
+            connection_address = addr;
+        }
+    }
 
     int flags = fcntl(*(Socket) , F_GETFL, 0);
     if(fcntl(*(Socket), F_SETFL, flags|O_NONBLOCK) < 0) {
@@ -700,17 +603,19 @@ connection_input_handler (void* parameter)
     }
 
     // Обновляем статистику - увеличиваем количество соединений
-    thread_data->data->statistics.connections_count++;
+    if (!thread_data->data->is_dynamic_port) {
+        thread_data->data->statistics.connections_count++;
 
-    // Защищаем доступ к статистике семафором
-    sem_wait(&statistics_semaphore);
-    {
-        int stats_server_index = find_server_index_by_id(thread_data->data->id);
-        if (stats_server_index >= 0) {
-            memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+        // Защищаем доступ к статистике семафором
+        sem_wait(&statistics_semaphore);
+        {
+            int stats_server_index = find_server_index_by_id(thread_data->data->id);
+            if (stats_server_index >= 0) {
+                memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+            }
         }
+        sem_post(&statistics_semaphore);
     }
-    sem_post(&statistics_semaphore);
 
     while (!done_output_connection) {
         fd_set read_set;
@@ -759,19 +664,16 @@ connection_input_handler (void* parameter)
                             ERR_error_string_n(e, err_str, sizeof(err_str));
                             logMsg(LOG_ERR, "SSL error: %s\n", err_str);
                         }
-                        // Освобождаем SSL объект
+                        // Освобождаем SSL объект и закрываем сокет, завершаем соединение
                         if (thread_data->ssl_input) {
                             SSL_free(thread_data->ssl_input);
                             thread_data->ssl_input = NULL;
                         }
-                        
-                        // Попытка восстановления соединения
-                        reconnect_ssl(thread_data, true);
-                        if (thread_data->ssl_input) {
-                            continue;
-                        } else {
-                            break;
+                        if (thread_data->input_local != -1) {
+                            close(thread_data->input_local);
+                            thread_data->input_local = -1;
                         }
+                        break;
                     }
                 }
             } else {
@@ -877,7 +779,7 @@ connection_input_handler (void* parameter)
 
                         tv.tv_sec = 1;
                         FD_ZERO(&fds);
-                        FD_SET(0, &fds);
+                        FD_SET(thread_data->output_local, &fds);
                         select_res = select((SOCKET)(thread_data->output_local + 1), NULL, &fds, NULL, &tv);
 
                         if(select_res == -1) {
@@ -921,17 +823,19 @@ connection_input_handler (void* parameter)
     thread_data->is_input_connected = false;
 
     // Обновляем статистику - уменьшаем количество соединений
-    thread_data->data->statistics.connections_count--;
+    if (!thread_data->data->is_dynamic_port) {
+        thread_data->data->statistics.connections_count--;
 
-    // Защищаем доступ к статистике семафором
-    sem_wait(&statistics_semaphore);
-    {
-        int stats_server_index = find_server_index_by_id(thread_data->data->id);
-        if (stats_server_index >= 0) {
-            memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+        // Защищаем доступ к статистике семафором
+        sem_wait(&statistics_semaphore);
+        {
+            int stats_server_index = find_server_index_by_id(thread_data->data->id);
+            if (stats_server_index >= 0) {
+                memcpy(&servers[stats_server_index].statistics, &thread_data->data->statistics, sizeof(proxy_server_statistics_t));
+            }
         }
+        sem_post(&statistics_semaphore);
     }
-    sem_post(&statistics_semaphore);
 
     logMsg(LOG_INFO,"Disconnect on input_port %d\n", thread_data->data->input_port);
 
@@ -1071,19 +975,16 @@ connection_output_handler (void* parameter)
                             ERR_error_string_n(e, err_str, sizeof(err_str));
                             logMsg(LOG_ERR, "SSL error: %s\n", err_str);
                         }
-                        // Освобождаем SSL объект
+                        // Освобождаем SSL объект и закрываем сокет, завершаем соединение
                         if (thread_data->ssl_output) {
                             SSL_free(thread_data->ssl_output);
                             thread_data->ssl_output = NULL;
                         }
-                        
-                        // Попытка восстановления соединения
-                        reconnect_ssl(thread_data, false);
-                        if (thread_data->ssl_output) {
-                            continue;
-                        } else {
-                            break;
+                        if (thread_data->output_local != -1) {
+                            close(thread_data->output_local);
+                            thread_data->output_local = -1;
                         }
+                        break;
                     }
                 }
             } else {
@@ -1175,7 +1076,7 @@ connection_output_handler (void* parameter)
 
                         tv.tv_sec = 1;
                         FD_ZERO(&fds);
-                        FD_SET(0, &fds);
+                        FD_SET(thread_data->input_local, &fds);
                         select_res = select((SOCKET)(thread_data->input_local + 1), NULL, &fds, NULL, &tv);
 
                         if(select_res == -1) {
@@ -1267,21 +1168,14 @@ serverInputThread (void* parameter)
 
                 logMsg(LOG_INFO, "Connection accepted on input_port %d\n", server->input_port);
 
-                int current_free_socket_input = get_free_input_socket(connections_data);
+                int current_free_socket_input = get_input_socket_with_output(connections_data);
 
                 if(current_free_socket_input == -1) {
-                    logMsg(LOG_INFO, "Count input connection is full) - close it\n");
-                    close(socket_local);
-                    continue;
-                }
-
-                if(!connections_data->local_sockets[current_free_socket_input].is_output_connected) {
                     logMsg(LOG_INFO, "Not output socket - close input");
                     close(socket_local);
                     continue;
                 }
 
-             
                 if(connections_data != NULL) {
 
                     // локальный входящий сокет для нового потока
@@ -1393,7 +1287,7 @@ serverOutputThread (void* parameter)
 
     close(server->output);
 
-    logMsg(LOG_INFO,"Exit server id = %d on input_port = %d ...\n", server->id, server->output_port);
+    logMsg(LOG_INFO,"Exit server id = %d on output_port = %d ...\n", server->id, server->output_port);
 
     server->is_output_running = false;
 
@@ -1475,6 +1369,18 @@ int get_free_input_socket(proxy_server_thread_data_t * data)
         int index = (start_index + i) % COUNT_SOCKET_THREAD;
         if(!data->local_sockets[index].is_input_connected) {
             return index;
+        }
+    }
+
+    return -1;
+}
+
+int get_input_socket_with_output(proxy_server_thread_data_t *data)
+{
+    for (int i = 0; i < COUNT_SOCKET_THREAD; i++) {
+        if (data->local_sockets[i].is_output_connected &&
+            !data->local_sockets[i].is_input_connected) {
+            return i;
         }
     }
 
@@ -1609,4 +1515,595 @@ SSL_CTX *create_server_ssl_context(const char *cert_file, const char *key_file) 
     }
 
     return ctx;
+}
+
+static int start_server_listening_threads(proxy_server_t *server, proxy_server_thread_data_t **runtime_out)
+{
+    proxy_server_thread_data_t *connections_data;
+
+    connections_data = (proxy_server_thread_data_t *) malloc(sizeof(proxy_server_thread_data_t));
+    if (!connections_data) {
+        return -1;
+    }
+
+    memset(connections_data, 0, sizeof(proxy_server_thread_data_t));
+    connections_data->local_sockets = (proxy_server_local_socket_data_t *) malloc(
+        COUNT_SOCKET_THREAD * sizeof(proxy_server_local_socket_data_t));
+    if (!connections_data->local_sockets) {
+        free(connections_data);
+        return -1;
+    }
+
+    memset(connections_data->local_sockets, 0,
+           COUNT_SOCKET_THREAD * sizeof(proxy_server_local_socket_data_t));
+    memcpy(&connections_data->data, server, sizeof(proxy_server_t));
+    connections_data->data.ssl_ctx = server->ssl_ctx;
+    proxy_server_t *runtime = &connections_data->data;
+
+    for (int i = 0; i < COUNT_SOCKET_THREAD; i++) {
+        connections_data->local_sockets[i].data = runtime;
+        connections_data->local_sockets[i].is_input_connected = false;
+        connections_data->local_sockets[i].is_output_connected = false;
+        connections_data->local_sockets[i].close_output_socket = false;
+    }
+
+    if (runtime->is_input_enabled) {
+        server_input_start(connections_data);
+        if (!server_input_is_running(runtime)) {
+            logMsg(LOG_ERR, "Failed to start input listener for dynamic server\n");
+            free(connections_data->local_sockets);
+            free(connections_data);
+            return -1;
+        }
+    }
+
+    if (runtime->is_output_enabled) {
+        server_output_start(connections_data);
+        if (!server_output_is_running(runtime)) {
+            logMsg(LOG_ERR, "Failed to start output listener for dynamic server\n");
+            free(connections_data->local_sockets);
+            free(connections_data);
+            return -1;
+        }
+    }
+
+    server->is_input_running = runtime->is_input_running;
+    server->is_output_running = runtime->is_output_running;
+
+    if (runtime_out) {
+        *runtime_out = connections_data;
+    }
+
+    return 0;
+}
+
+static void register_dynamic_server_runtime(const char *device_id, uint16_t input_port,
+                                            uint16_t tunnel_port, int server_index,
+                                            proxy_server_thread_data_t *connections_data)
+{
+    pthread_mutex_lock(&g_dynamic_runtimes_mutex);
+
+    for (int i = 0; i < MAX_DYNAMIC_SERVER_RUNTIMES; i++) {
+        if (g_dynamic_runtimes[i].active) {
+            continue;
+        }
+
+        strncpy(g_dynamic_runtimes[i].device_id, device_id, DEVICE_ID_MAX_LEN);
+        g_dynamic_runtimes[i].device_id[DEVICE_ID_MAX_LEN] = '\0';
+        g_dynamic_runtimes[i].input_port = input_port;
+        g_dynamic_runtimes[i].tunnel_port = tunnel_port;
+        g_dynamic_runtimes[i].server_index = server_index;
+        g_dynamic_runtimes[i].connections_data = connections_data;
+        g_dynamic_runtimes[i].active = true;
+
+        for (int j = 0; j < MAX_DYNAMIC_SERVER_RUNTIMES; j++) {
+            if (j == i || !g_dynamic_runtimes[j].active) {
+                continue;
+            }
+            if (g_dynamic_runtimes[j].server_index == server_index &&
+                strcmp(g_dynamic_runtimes[j].device_id, device_id) != 0) {
+                logMsg(LOG_WARNING,
+                       "Clearing stale runtime registry for %s on slot %d (now used by %s)\n",
+                       g_dynamic_runtimes[j].device_id, server_index, device_id);
+                g_dynamic_runtimes[j].active = false;
+                g_dynamic_runtimes[j].connections_data = NULL;
+            }
+        }
+
+        pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+        return;
+    }
+
+    pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+    logMsg(LOG_WARNING, "Dynamic server runtime registry is full\n");
+}
+
+static void wait_for_runtime_threads(proxy_server_t *runtime)
+{
+    if (!runtime) {
+        return;
+    }
+
+    int waited_ms = 0;
+    while ((runtime->is_input_running || runtime->is_output_running) && waited_ms < 10000) {
+        usleep(10000);
+        waited_ms += 10;
+    }
+}
+
+static void stop_dynamic_server_runtime(proxy_server_thread_data_t *connections_data, int server_index,
+                                        const char *device_id)
+{
+    (void)server_index;
+
+    if (!connections_data) {
+        return;
+    }
+
+    proxy_server_t *runtime = &connections_data->data;
+    if (device_id && device_id[0] != '\0' &&
+        runtime->device_id[0] != '\0' &&
+        strcmp(runtime->device_id, device_id) != 0) {
+        logMsg(LOG_WARNING,
+               "Refusing to stop runtime for device %s (runtime device=%s)\n",
+               device_id, runtime->device_id);
+        return;
+    }
+
+    runtime->stop_input_running = true;
+    runtime->stop_output_running = true;
+    runtime->enable = false;
+
+    for (int i = 0; i < COUNT_SOCKET_THREAD; i++) {
+        proxy_server_local_socket_data_t *sock = &connections_data->local_sockets[i];
+        sock->close_output_socket = true;
+
+        if (sock->input_local >= 0) {
+            shutdown(sock->input_local, SHUT_RDWR);
+            close(sock->input_local);
+            sock->input_local = -1;
+        }
+
+        if (sock->output_local >= 0) {
+            shutdown(sock->output_local, SHUT_RDWR);
+            close(sock->output_local);
+            sock->output_local = -1;
+        }
+    }
+
+    if (runtime->input >= 0) {
+        shutdown(runtime->input, SHUT_RDWR);
+        close(runtime->input);
+        runtime->input = -1;
+    }
+
+    if (runtime->output >= 0) {
+        shutdown(runtime->output, SHUT_RDWR);
+        close(runtime->output);
+        runtime->output = -1;
+    }
+
+    wait_for_runtime_threads(runtime);
+    cleanup_ssl_context(runtime);
+}
+
+static void apply_dynamic_server_ssl_config(proxy_server_t *server, bool enable_input_ssl,
+                                            bool enable_tunnel_ssl)
+{
+    if (!server) {
+        return;
+    }
+
+    if (!enable_input_ssl && !enable_tunnel_ssl) {
+        return;
+    }
+
+    if (!device_manager_ssl_certs_configured()) {
+        logMsg(LOG_WARNING,
+               "Device %s requested TLS but server cert/key are not configured\n",
+               server->device_id);
+        return;
+    }
+
+    if (device_manager_get_ssl_cert_paths(server->cert_file, sizeof(server->cert_file),
+                                          server->key_file, sizeof(server->key_file)) != 0) {
+        return;
+    }
+
+    if (enable_input_ssl) {
+        server->enable_input_ssl = true;
+    }
+    if (enable_tunnel_ssl) {
+        server->enable_output_ssl = true;
+    }
+
+    init_ssl_context(server);
+    logMsg(LOG_INFO,
+           "Dynamic server SSL: device=%s input_ssl=%d tunnel_ssl=%d cert=%s\n",
+           server->device_id,
+           server->enable_input_ssl,
+           server->enable_output_ssl,
+           server->cert_file);
+}
+
+static bool dynamic_runtime_ssl_matches(const proxy_server_t *runtime, bool enable_input_ssl,
+                                        bool enable_tunnel_ssl)
+{
+    if (!runtime) {
+        return false;
+    }
+
+    return runtime->enable_input_ssl == enable_input_ssl &&
+           runtime->enable_output_ssl == enable_tunnel_ssl;
+}
+
+static void stop_dynamic_runtimes_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
+{
+    pthread_mutex_lock(&g_dynamic_runtimes_mutex);
+
+    for (int i = 0; i < MAX_DYNAMIC_SERVER_RUNTIMES; i++) {
+        if (!g_dynamic_runtimes[i].connections_data) {
+            continue;
+        }
+
+        bool match = false;
+        if (device_id && device_id[0] != '\0') {
+            if (strcmp(g_dynamic_runtimes[i].device_id, device_id) != 0) {
+                continue;
+            }
+            if (input_port != 0 && tunnel_port != 0) {
+                match = (g_dynamic_runtimes[i].input_port == input_port &&
+                         g_dynamic_runtimes[i].tunnel_port == tunnel_port);
+            } else {
+                match = true;
+            }
+        } else if (input_port != 0 && tunnel_port != 0) {
+            match = (g_dynamic_runtimes[i].input_port == input_port &&
+                     g_dynamic_runtimes[i].tunnel_port == tunnel_port);
+        }
+        if (!match) {
+            continue;
+        }
+
+        if (g_dynamic_runtimes[i].server_index >= 0 &&
+            g_dynamic_runtimes[i].server_index < servers_count &&
+            servers[g_dynamic_runtimes[i].server_index].device_id[0] != '\0' &&
+            strcmp(servers[g_dynamic_runtimes[i].server_index].device_id,
+                   g_dynamic_runtimes[i].device_id) != 0) {
+            logMsg(LOG_WARNING,
+                   "Ignoring runtime registry mismatch for %s on slot %d (slot device=%s)\n",
+                   g_dynamic_runtimes[i].device_id,
+                   g_dynamic_runtimes[i].server_index,
+                   servers[g_dynamic_runtimes[i].server_index].device_id);
+            continue;
+        }
+
+        stop_dynamic_server_runtime(g_dynamic_runtimes[i].connections_data,
+                                    g_dynamic_runtimes[i].server_index,
+                                    g_dynamic_runtimes[i].device_id);
+        g_dynamic_runtimes[i].active = false;
+        g_dynamic_runtimes[i].connections_data = NULL;
+    }
+
+    pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+}
+
+int stop_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
+{
+    if (!device_id) {
+        return -1;
+    }
+
+    stop_dynamic_runtimes_for_device(device_id, input_port, tunnel_port);
+    logMsg(LOG_INFO, "Stopped dynamic server for device %s\n", device_id);
+    return 0;
+}
+
+static void cleanup_dynamic_server_slot(int index);
+static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port,
+                                       bool enable_input_ssl, bool enable_tunnel_ssl);
+
+static void cleanup_dynamic_server_slot(int index)
+{
+    char device_id[DEVICE_ID_MAX_LEN + 1] = {0};
+    uint16_t input_port = 0;
+    uint16_t tunnel_port = 0;
+
+    if (index >= 0 && index < servers_count) {
+        input_port = servers[index].input_port;
+        tunnel_port = servers[index].output_port;
+        strncpy(device_id, servers[index].device_id, DEVICE_ID_MAX_LEN);
+    }
+
+    if (device_id[0] != '\0') {
+        stop_dynamic_runtimes_for_device(device_id, input_port, tunnel_port);
+    }
+
+    if (device_id[0] == '\0') {
+        return;
+    }
+
+    pthread_mutex_lock(&g_dynamic_runtimes_mutex);
+    for (int i = 0; i < MAX_DYNAMIC_SERVER_RUNTIMES; i++) {
+        if (g_dynamic_runtimes[i].server_index != index || !g_dynamic_runtimes[i].connections_data) {
+            continue;
+        }
+        if (device_id[0] != '\0' &&
+            strcmp(g_dynamic_runtimes[i].device_id, device_id) != 0) {
+            continue;
+        }
+
+        stop_dynamic_server_runtime(g_dynamic_runtimes[i].connections_data, index,
+                                    g_dynamic_runtimes[i].device_id);
+        g_dynamic_runtimes[i].active = false;
+        g_dynamic_runtimes[i].connections_data = NULL;
+    }
+    pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+
+    if (index < 0 || index >= servers_count) {
+        return;
+    }
+
+    proxy_server_t *server = &servers[index];
+    server->stop_input_running = true;
+    server->stop_output_running = true;
+    server->enable = false;
+
+    if (server->input >= 0) {
+        shutdown(server->input, SHUT_RDWR);
+        close(server->input);
+        server->input = -1;
+    }
+    if (server->output >= 0) {
+        shutdown(server->output, SHUT_RDWR);
+        close(server->output);
+        server->output = -1;
+    }
+
+    wait_for_runtime_threads(server);
+    cleanup_ssl_context(server);
+}
+
+static bool is_runtime_listener_active(const proxy_server_t *runtime, uint16_t port, bool is_tunnel)
+{
+    if (!runtime) {
+        return false;
+    }
+
+    int fd = is_tunnel ? runtime->output : runtime->input;
+    bool running = is_tunnel ? runtime->is_output_running : runtime->is_input_running;
+    uint16_t bound_port = is_tunnel ? runtime->output_port : runtime->input_port;
+
+    if (!runtime->enable || !running || fd < 0 || bound_port != port) {
+        return false;
+    }
+
+    int accept_conn = 0;
+    socklen_t accept_len = sizeof(accept_conn);
+    if (getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &accept_conn, &accept_len) != 0 || accept_conn == 0) {
+        return false;
+    }
+
+    return true;
+}
+
+static int find_healthy_dynamic_server(uint16_t input_port, uint16_t tunnel_port,
+                                       bool enable_input_ssl, bool enable_tunnel_ssl)
+{
+    pthread_mutex_lock(&g_dynamic_runtimes_mutex);
+
+    for (int i = 0; i < MAX_DYNAMIC_SERVER_RUNTIMES; i++) {
+        if (!g_dynamic_runtimes[i].active) {
+            continue;
+        }
+        if (g_dynamic_runtimes[i].input_port != input_port ||
+            g_dynamic_runtimes[i].tunnel_port != tunnel_port) {
+            continue;
+        }
+
+        proxy_server_thread_data_t *connections_data = g_dynamic_runtimes[i].connections_data;
+        if (!connections_data) {
+            continue;
+        }
+
+        proxy_server_t *runtime = &connections_data->data;
+        if (runtime->enable &&
+            runtime->is_input_running &&
+            runtime->is_output_running &&
+            runtime->input >= 0 &&
+            runtime->output >= 0 &&
+            dynamic_runtime_ssl_matches(runtime, enable_input_ssl, enable_tunnel_ssl) &&
+            is_runtime_listener_active(runtime, input_port, false) &&
+            is_runtime_listener_active(runtime, tunnel_port, true)) {
+            int server_index = g_dynamic_runtimes[i].server_index;
+            pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+            return server_index;
+        }
+    }
+
+    pthread_mutex_unlock(&g_dynamic_runtimes_mutex);
+    return -1;
+}
+
+static int start_dynamic_server_at_index(int index, const char *device_id,
+                                         uint16_t input_port, uint16_t tunnel_port,
+                                         bool enable_input_ssl, bool enable_tunnel_ssl)
+{
+    if (index < 0 || index >= servers_count || !device_id) {
+        return -1;
+    }
+
+    cleanup_dynamic_server_slot(index);
+
+    proxy_server_t *server = &servers[index];
+
+    memset(server, 0, sizeof(*server));
+    server->id = 0;
+    server->enable = true;
+    server->input_port = input_port;
+    server->output_port = tunnel_port;
+    server->is_input_enabled = true;
+    server->is_output_enabled = true;
+    server->enable_output_ssl = false;
+    server->enable_input_ssl = false;
+    server->is_dynamic_port = true;
+    strncpy(server->device_id, device_id, DEVICE_ID_MAX_LEN);
+    server->device_id[DEVICE_ID_MAX_LEN] = '\0';
+    server->statistics.last_update = time(NULL);
+
+    apply_dynamic_server_ssl_config(server, enable_input_ssl, enable_tunnel_ssl);
+
+    if (server_input_init(server) < 0) {
+        server->is_input_enabled = false;
+        server->enable = false;
+        logMsg(LOG_ERR, "Failed to init input socket for device %s on port %u\n",
+               device_id, input_port);
+        cleanup_ssl_context(server);
+        return -1;
+    }
+
+    if (server_output_init(server) < 0) {
+        server->is_output_enabled = false;
+        server->enable = false;
+        logMsg(LOG_ERR, "Failed to init output socket for device %s on port %u\n",
+               device_id, tunnel_port);
+        if (server->input >= 0) {
+            close(server->input);
+            server->input = -1;
+        }
+        cleanup_ssl_context(server);
+        return -1;
+    }
+
+    proxy_server_thread_data_t *runtime_data = NULL;
+    if (start_server_listening_threads(server, &runtime_data) != 0) {
+        server->enable = false;
+        if (server->input >= 0) {
+            close(server->input);
+            server->input = -1;
+        }
+        if (server->output >= 0) {
+            close(server->output);
+            server->output = -1;
+        }
+        return -1;
+    }
+
+    register_dynamic_server_runtime(device_id, input_port, tunnel_port, index, runtime_data);
+    if (!is_runtime_listener_active(&runtime_data->data, input_port, false) ||
+        !is_runtime_listener_active(&runtime_data->data, tunnel_port, true)) {
+        logMsg(LOG_ERR, "Dynamic server ports not accepting for device %s: input=%u tunnel=%u\n",
+               device_id, input_port, tunnel_port);
+        stop_dynamic_server_runtime(runtime_data, index, device_id);
+        return -1;
+    }
+    logMsg(LOG_INFO, "Dynamic server started for device %s: input=%u tunnel=%u (slot=%d)\n",
+           device_id, input_port, tunnel_port, index);
+    return index;
+}
+
+static int find_stopped_dynamic_server(const char *device_id, uint16_t input_port, uint16_t tunnel_port)
+{
+    for (int i = 0; i < servers_count; i++) {
+        if (!servers[i].is_dynamic_port || servers[i].enable) {
+            continue;
+        }
+        if (strcmp(servers[i].device_id, device_id) == 0) {
+            return i;
+        }
+    }
+
+    for (int i = 0; i < servers_count; i++) {
+        if (!servers[i].is_dynamic_port || servers[i].enable) {
+            continue;
+        }
+        if (servers[i].input_port == input_port && servers[i].output_port == tunnel_port) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+int create_dynamic_server_for_device(const char *device_id, uint16_t input_port,
+                                     uint16_t tunnel_port, const device_info_t *device_info)
+{
+    bool enable_input_ssl = false;
+    bool enable_tunnel_ssl = false;
+
+    if (!device_id || input_port == 0 || tunnel_port == 0) {
+        return -1;
+    }
+
+    if (device_info) {
+        enable_input_ssl = device_info->enable_input_ssl && device_manager_ssl_certs_configured();
+        enable_tunnel_ssl = device_info->enable_tunnel_ssl && device_manager_ssl_certs_configured();
+    }
+
+    proxy_server_t *new_servers = realloc(servers, (servers_count + 1) * sizeof(proxy_server_t));
+    if (!new_servers) {
+        logMsg(LOG_ERR, "Failed to allocate memory for dynamic server\n");
+        return -1;
+    }
+
+    servers = new_servers;
+    int index = servers_count;
+    servers_count++;
+
+    memset(&servers[index], 0, sizeof(proxy_server_t));
+    int started = start_dynamic_server_at_index(index, device_id, input_port, tunnel_port,
+                                                enable_input_ssl, enable_tunnel_ssl);
+    if (started < 0) {
+        servers_count--;
+    }
+    return started;
+}
+
+int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port,
+                                     const device_info_t *device_info)
+{
+    device_info_t loaded_info;
+    const device_info_t *info = device_info;
+    bool enable_input_ssl = false;
+    bool enable_tunnel_ssl = false;
+
+    if (!device_id || input_port == 0 || tunnel_port == 0) {
+        return -1;
+    }
+
+    if (!info) {
+        if (device_manager_load_device_by_id(device_id, &loaded_info) == 0) {
+            info = &loaded_info;
+        }
+    }
+
+    if (info) {
+        enable_input_ssl = info->enable_input_ssl && device_manager_ssl_certs_configured();
+        enable_tunnel_ssl = info->enable_tunnel_ssl && device_manager_ssl_certs_configured();
+    }
+
+    int healthy_index = find_healthy_dynamic_server(input_port, tunnel_port,
+                                                    enable_input_ssl, enable_tunnel_ssl);
+    if (healthy_index >= 0) {
+        logMsg(LOG_DEBUG, "Reusing healthy dynamic server for device %s on input=%u tunnel=%u\n",
+               device_id, input_port, tunnel_port);
+        return healthy_index;
+    }
+
+    stop_dynamic_runtimes_for_device(device_id, input_port, tunnel_port);
+
+    int stopped_index = find_stopped_dynamic_server(device_id, input_port, tunnel_port);
+    if (stopped_index >= 0) {
+        logMsg(LOG_INFO, "Restarting stopped dynamic server slot %d for device %s\n",
+               stopped_index, device_id);
+        int restarted = start_dynamic_server_at_index(stopped_index, device_id, input_port, tunnel_port,
+                                                      enable_input_ssl, enable_tunnel_ssl);
+        if (restarted >= 0) {
+            return restarted;
+        }
+    }
+
+    logMsg(LOG_INFO, "Creating dynamic server for device %s: input=%u tunnel=%u\n",
+           device_id, input_port, tunnel_port);
+    return create_dynamic_server_for_device(device_id, input_port, tunnel_port, info);
 }

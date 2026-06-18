@@ -15,8 +15,8 @@ set(proxy_common_linux_SRCS
 # OS detection
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(PostgreSQL_LIBRARY -lpq)
-    set(PostgreSQL_INCLUDE_DIRS "/usr/local/opt/libpq/include")
-    set(PostgreSQL_LIBRARY_DIRS "/usr/local/opt/libpq/lib")
+    set(PostgreSQL_INCLUDE_DIRS "/opt/homebrew/opt/libpq/include")
+    set(PostgreSQL_LIBRARY_DIRS "/opt/homebrew/opt/libpq/lib")
 else()
     # Assume Linux
     set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
@@ -24,7 +24,14 @@ else()
     set(PostgreSQL_LIBRARY_DIRS "/usr/lib/x86_64-linux-gnu")
 endif()
 
-link_directories(${PostgreSQL_LIBRARY_DIRS})
+if(NOT DEFINED PostgreSQL_LIBRARY)
+    message(WARNING "PostgreSQL_LIBRARY not defined, using default")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        set(PostgreSQL_LIBRARY -lpq)
+    else()
+        set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
+    endif()
+endif()
 
 include_directories(
         .

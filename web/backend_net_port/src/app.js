@@ -14,8 +14,11 @@ const services = require('./services');
 const appHooks = require('./app.hooks');
 
 const authentication = require('./authentication');
+const socketio = require('@feathersjs/socketio');
 
 const knex = require('./knex');
+const configureChannels = require('./channels');
+const { configureObservability } = require('./observability');
 
 const app = express(feathers());
 const path = require('path');
@@ -30,38 +33,24 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve static files from multiple locations
-const frontendFilesPath = path.join(__dirname, '../../frontend_net_port/src/files');
-
-// Serve pre-built client files
-app.use('/files', express.static(frontendFilesPath, {
-  setHeaders: (res, filePath) => {
-    const filename = path.basename(filePath);
-    if (filename.includes('.exe') || filename.includes('module_net_port_client')) {
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    }
-  }
-}));
-
-// Serve compiled client from multiple possible locations
-const possibleBuildPaths = [
-  path.join(__dirname, '../../../../net_port/build/client'),  // Local development
-  path.join(__dirname, '../../../client'),                    // Docker container
-  path.join(__dirname, '../../../../build/client'),           // Alternative path
+const possiblefrontendFilesPath = [
+  path.join(__dirname, '../../frontend_net_port/src/files'),  // Local development
+  path.join(__dirname, '../../frontend/files'),                     // Docker container
 ];
 
 // Try each build path until we find one that exists
-let buildClientPath = null;
-for (const possiblePath of possibleBuildPaths) {
+let frontendFilesPath = null;
+for (const possiblePath of possiblefrontendFilesPath) {
   if (fs.existsSync(possiblePath)) {
-    buildClientPath = possiblePath;
-    console.log(`Using build client path: ${buildClientPath}`);
+    frontendFilesPath = possiblePath;
+    console.log(`Using frontend files path: ${frontendFilesPath}`);
     break;
   }
 }
 
-// Only serve from build directory if it exists
-if (buildClientPath) {
-  app.use('/files/build', express.static(buildClientPath, {
+// Serve pre-built client files
+if (frontendFilesPath) {
+  app.use('/files', express.static(frontendFilesPath, {
     setHeaders: (res, filePath) => {
       const filename = path.basename(filePath);
       if (filename.includes('module_net_port_client')) {
@@ -70,14 +59,61 @@ if (buildClientPath) {
     }
   }));
 } else {
+  console.log('Frontend files directory not found, /files endpoint disabled');
+}
+
+const { resolveBuildClientPaths } = require('./client-downloads');
+
+const buildClientPaths = resolveBuildClientPaths();
+if (buildClientPaths.length > 0) {
+  console.log(`Client download dirs: ${buildClientPaths.join(', ')}`);
+}
+
+if (buildClientPaths.length > 0) {
+  app.use('/files/build', (req, res, next) => {
+    const filename = path.basename(decodeURIComponent(req.path || ''));
+    if (!isClientArtifactName(filename)) {
+      return next();
+    }
+
+    for (const clientDir of buildClientPaths) {
+      const filePath = path.join(clientDir, filename);
+      let stat;
+      try {
+        stat = fs.statSync(filePath);
+      } catch {
+        continue;
+      }
+      if (!stat.isFile()) {
+        continue;
+      }
+
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      if (req.method === 'HEAD') {
+        res.setHeader('Content-Length', String(stat.size));
+        return res.end();
+      }
+      return res.sendFile(filePath);
+    }
+
+    return next();
+  });
+} else {
   console.log('Build client directory not found, /files/build endpoint disabled');
+}
+
+function isClientArtifactName(name) {
+  return name.startsWith('module_net_port_client-') && !name.endsWith('.dir');
 }
 
 // Serve SSL certificates from multiple possible locations
 const possibleSslPaths = [
-  path.join(__dirname, '../../../../net_port'),  // Local development
+  path.join(__dirname, '../../../../net_port/ssl'), // Local dev / Docker volume
+  path.join(__dirname, '../../../../net_port'),  // Local development (legacy)
   path.join(__dirname, '../../../..'),           // Docker container (relative from backend to /root/net_port)
-  '/root/net_port',                              // Absolute path in Docker
+  '/root/net_port/ssl',                          // Docker volume (absolute)
+  '/root/net_port',                              // Absolute path in Docker (legacy)
+  '../../ssl',
 ];
 
 let sslCertPath = null;
@@ -90,27 +126,59 @@ for (const possiblePath of possibleSslPaths) {
   }
 }
 
-// Only serve SSL certificates if path exists
+// Only expose the public certificate (never the private key)
 if (sslCertPath) {
-  app.use('/files/ssl', express.static(sslCertPath, {
-    setHeaders: (res, filePath) => {
-      const filename = path.basename(filePath);
-      if (filename.includes('server.crt') || filename.includes('server.key')) {
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      }
+  const sslCertFile = path.join(sslCertPath, 'server.crt');
+  app.use('/files/ssl', (req, res, next) => {
+    const requested = path.basename(decodeURIComponent(req.path || ''));
+    if (requested !== 'server.crt') {
+      return next();
     }
-  }));
+
+    let stat;
+    try {
+      stat = fs.statSync(sslCertFile);
+    } catch {
+      return next();
+    }
+    if (!stat.isFile()) {
+      return next();
+    }
+
+    res.setHeader('Content-Disposition', 'attachment; filename="server.crt"');
+    if (req.method === 'HEAD') {
+      res.setHeader('Content-Length', String(stat.size));
+      return res.end();
+    }
+    return res.sendFile(sslCertFile);
+  });
 } else {
   console.log('SSL certificates directory not found, /files/ssl endpoint disabled');
 }
 
 // Set up Plugins and providers
 app.configure(express.rest());
+app.configure(
+  socketio({
+    cors: {
+      origin: true,
+      methods: ['GET', 'POST']
+    }
+  })
+);
 
 app.configure(knex);
 
+app.set('trust proxy', true);
+
+const { createAuthenticationRateLimiter } = require('./lib/authentication-rate-limit');
+const authenticationPath = `${app.get('prefix') || ''}/authentication`;
+app.post(authenticationPath, createAuthenticationRateLimiter());
+
 app.configure(authentication);
 app.configure(services);
+app.configure(configureChannels);
+configureObservability(app);
 
 // Configure a middleware for 404s and the error handler
 app.use(express.notFound());

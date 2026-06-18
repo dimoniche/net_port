@@ -1,0 +1,299 @@
+openapi: 3.0.3
+info:
+  title: Net Port API
+  version: 1.0.0
+  description: |
+    REST API for Net Port device management, legacy servers, and statistics.
+    WebSocket events: `device:updated`, `device:removed`, `statistics:device-updated`, `statistics:server-updated`.
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Backend (direct)
+  - url: http://localhost/api/v1
+    description: Backend via nginx
+
+tags:
+  - name: Authentication
+  - name: Devices
+  - name: Servers
+  - name: Statistics
+  - name: Settings
+  - name: Observability
+
+paths:
+  /authentication:
+    post:
+      tags: [Authentication]
+      summary: Login (JWT)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [strategy, login, password]
+              properties:
+                strategy:
+                  type: string
+                  example: local
+                login:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '201':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+
+  /devices:
+    get:
+      tags: [Devices]
+      summary: List devices
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200':
+          description: Device list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+    post:
+      tags: [Devices]
+      summary: Create device
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCreate'
+      responses:
+        '201':
+          description: Created device (includes one-time auth_token)
+
+  /devices/{id}:
+    get:
+      tags: [Devices]
+      summary: Get device
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DeviceUuid'
+      responses:
+        '200':
+          description: Device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+    patch:
+      tags: [Devices]
+      summary: Update device
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DeviceUuid'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceUpdate'
+      responses:
+        '200':
+          description: Updated device
+    delete:
+      tags: [Devices]
+      summary: Delete device
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DeviceUuid'
+      responses:
+        '200':
+          description: Deleted
+
+  /devices/{deviceId}/connect:
+    post:
+      tags: [Devices]
+      summary: Allow device registration (status connecting)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DeviceBusinessId'
+      responses:
+        '200':
+          description: Device ready to register
+
+  /devices/{deviceId}/disconnect:
+    post:
+      tags: [Devices]
+      summary: Disconnect active device session
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DeviceBusinessId'
+      responses:
+        '200':
+          description: Disconnect initiated
+
+  /devices/statistics/summary:
+    get:
+      tags: [Statistics]
+      summary: Device statistics summary
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Statistics rows
+
+  /settings/auto-connect:
+    get:
+      tags: [Settings]
+      summary: Get auto-connect setting
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current value
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+    patch:
+      tags: [Settings]
+      summary: Update auto-connect setting
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+
+  /servers:
+    get:
+      tags: [Servers]
+      summary: List legacy servers
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Server list
+
+  /statistics:
+    get:
+      tags: [Statistics]
+      summary: Legacy server statistics
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Statistics list
+
+  /health:
+    get:
+      tags: [Observability]
+      summary: Health check
+      servers:
+        - url: http://localhost:8080
+      responses:
+        '200':
+          description: Healthy
+        '503':
+          description: Degraded
+
+  /metrics:
+    get:
+      tags: [Observability]
+      summary: Prometheus metrics
+      servers:
+        - url: http://localhost:8080
+      responses:
+        '200':
+          description: Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    DeviceUuid:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+    DeviceBusinessId:
+      in: path
+      name: deviceId
+      required: true
+      schema: { type: string }
+
+  schemas:
+    AuthResponse:
+      type: object
+      properties:
+        accessToken: { type: string }
+        user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        login: { type: string }
+        role: { type: string }
+
+    Device:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        device_id: { type: string }
+        name: { type: string }
+        status:
+          type: string
+          enum: [inactive, connecting, active, error]
+        assigned_port: { type: integer, nullable: true }
+        preferred_port: { type: integer, nullable: true }
+        internal_address: { type: string }
+        internal_port: { type: integer }
+        online: { type: boolean }
+        last_heartbeat: { type: string, format: date-time, nullable: true }
+
+    DeviceCreate:
+      type: object
+      required: [device_id]
+      properties:
+        device_id:
+          type: string
+          minLength: 3
+          maxLength: 64
+        name: { type: string }
+        type:
+          type: string
+          enum: [iot_gateway, sensor, camera, router, other]
+        internal_address: { type: string }
+        internal_port: { type: integer }
+        preferred_port:
+          type: integer
+          description: Even port between 6000 and 6998
+
+    DeviceUpdate:
+      allOf:
+        - $ref: '#/components/schemas/DeviceCreate'

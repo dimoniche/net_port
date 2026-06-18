@@ -1,109 +1,191 @@
 'use strict';
 
+const {
+  resolveStatisticsUserId,
+  computeSpeed,
+  isEmptyStatisticRow,
+  filterEmptyStatisticSnapshots,
+  filterRegressiveStatisticSnapshots,
+  isMonotonicStatisticPredecessor
+} = require('./statistics.helpers');
+const { canAccessLegacyServers, assertLegacyServersAccess } = require('../../lib/userRoles');
+
 exports.Statistics = class Statistics {
   constructor(dbInstance) {
     this.db = dbInstance;
   }
 
-  async find(params) {
-    // Сначала получаем последние записи для каждого сервера
-    const latestQuery = `
-      SELECT s1.*
-      FROM statistic s1
-      INNER JOIN (
-        SELECT server_id, MAX(timestamp) as max_timestamp
-        FROM statistic
-        GROUP BY server_id
-      ) s2 ON s1.server_id = s2.server_id AND s1.timestamp = s2.max_timestamp
-      ORDER BY s1.server_id
-    `;
-
-    const latestResult = await this.db.raw(latestQuery);
-    const latestRows = latestResult.rows || (latestResult[0] && latestResult[0].rows) || latestResult;
-
-    // Затем для каждой последней записи получаем предыдущую запись
-    const result = [];
-    for (const row of latestRows) {
-      const prevQuery = `
-        SELECT bytes_received, bytes_sent, timestamp
-        FROM statistic
-        WHERE server_id = ${row.server_id} AND timestamp < '${row.timestamp}'
-        ORDER BY timestamp DESC
-        LIMIT 1
-      `;
-
-      const prevResult = await this.db.raw(prevQuery);
-      const prevRows = prevResult.rows || (prevResult[0] && prevResult[0].rows) || prevResult;
-
-      const prevRow = prevRows.length > 0 ? prevRows[0] : null;
-
-      // Рассчитываем скорость
-      let avgReceiveSpeed = null;
-      let avgSendSpeed = null;
-
-      if (prevRow) {
-        const timeDiff = (new Date(row.timestamp).getTime() - new Date(prevRow.timestamp).getTime()) / 1000; // в секундах
-        
-        if (timeDiff > 0) {
-          avgReceiveSpeed = (row.bytes_received - prevRow.bytes_received) / timeDiff;
-          avgSendSpeed = (row.bytes_sent - prevRow.bytes_sent) / timeDiff;
-        }
-      }
-
-      result.push({
-        ...row,
-        avg_receive_speed: avgReceiveSpeed,
-        avg_send_speed: avgSendSpeed
-      });
+  async fetchEnabledServers(params = {}) {
+    if (!canAccessLegacyServers(params.user)) {
+      return [];
     }
 
-    // Convert timestamps to local timezone
-    return result.map(row => ({
-      ...row,
-      timestamp: this.convertToLocalTimezone(row.timestamp)
-    }));
+    const userId = resolveStatisticsUserId(params);
+    let query = this.db('servers')
+      .where('enable', true)
+      .whereNot(function excludePlaceholder() {
+        this.where('input_port', 5998).where('output_port', 5999);
+      })
+      .orderBy('id');
+
+    if (userId != null) {
+      query = query.where('user_id', userId);
+    }
+
+    return query.select('id', 'description', 'input_port', 'output_port');
   }
 
-  async get(id, param) {
-    // Получаем последнее значение статистики для конкретного сервера
-    return this.db
-      .from('statistic')
-      .where('server_id', Number(id))
-      .select('*')
+  async fetchLatestStatisticRow(serverId) {
+    const server = await this.db('servers')
+      .where('id', Number(serverId))
+      .first('total_bytes_received', 'total_bytes_sent');
+
+    const [peakRow] = await this.db('statistic')
+      .where('server_id', Number(serverId))
+      .select(
+        this.db.raw('COALESCE(MAX(bytes_received), 0) AS peak_received'),
+        this.db.raw('COALESCE(MAX(bytes_sent), 0) AS peak_sent')
+      );
+
+    const latestSnapshot = await this.db('statistic')
+      .where('server_id', Number(serverId))
       .orderBy('timestamp', 'desc')
-      .limit(1);
+      .first('timestamp', 'connections_count');
+
+    const bytesReceived = Math.max(
+      Number(server?.total_bytes_received || 0),
+      Number(peakRow?.peak_received || 0)
+    );
+    const bytesSent = Math.max(
+      Number(server?.total_bytes_sent || 0),
+      Number(peakRow?.peak_sent || 0)
+    );
+
+    if (bytesReceived === 0 && bytesSent === 0 && !latestSnapshot) {
+      return null;
+    }
+
+    return {
+      server_id: Number(serverId),
+      bytes_received: bytesReceived,
+      bytes_sent: bytesSent,
+      connections_count: Number(latestSnapshot?.connections_count || 0),
+      timestamp: latestSnapshot?.timestamp || null
+    };
   }
 
-  async getLatest() {
-    // Получаем последнюю статистику для всех серверов
-    const query = `
-      SELECT s1.* 
-      FROM statistic s1
-      INNER JOIN (
-        SELECT server_id, MAX(timestamp) as max_timestamp
-        FROM statistic
-        GROUP BY server_id
-      ) s2 ON s1.server_id = s2.server_id AND s1.timestamp = s2.max_timestamp
-      ORDER BY s1.server_id
-    `;
-    
-    return this.db.raw(query);
+  async fetchPreviousStatisticRow(serverId, currentRow) {
+    const beforeTimestamp = currentRow?.timestamp;
+    if (!beforeTimestamp) {
+      return null;
+    }
+
+    const candidates = await this.db('statistic')
+      .where('server_id', Number(serverId))
+      .where('timestamp', '<', beforeTimestamp)
+      .where(function hasTraffic() {
+        this.where('bytes_received', '>', 0)
+          .orWhere('bytes_sent', '>', 0);
+      })
+      .orderBy('timestamp', 'desc')
+      .limit(30);
+
+    const monotonic = candidates.find((row) => isMonotonicStatisticPredecessor(row, currentRow));
+    if (monotonic) {
+      return monotonic;
+    }
+
+    if (candidates.length > 0) {
+      return candidates[0];
+    }
+
+    return this.db('statistic')
+      .where('server_id', Number(serverId))
+      .where('timestamp', '<', beforeTimestamp)
+      .orderBy('timestamp', 'desc')
+      .first();
   }
 
-  async getByServerAndTimeRange(serverId, startTime, endTime) {
-    // Parse time strings to ensure proper handling of local time
-    let start = new Date(startTime);
-    const tzo = 3 * 60;//-start.getTimezoneOffset();
-    start = new Date(start.getTime() - (tzo * 60 * 1000))
-    let end = new Date(endTime);
-    end = new Date(end.getTime() - (tzo * 60 * 1000))
-    
-    // If the dates are invalid, try to parse them as local time strings
+  async buildServerStatisticsRow(serverId, params = {}) {
+    if (!canAccessLegacyServers(params.user)) {
+      return null;
+    }
+
+    const server = await this.db('servers')
+      .where('id', Number(serverId))
+      .where('enable', true)
+      .whereNot(function excludePlaceholder() {
+        this.where('input_port', 5998).where('output_port', 5999);
+      })
+      .first('id', 'user_id');
+
+    if (!server) {
+      return null;
+    }
+
+    const row = await this.fetchLatestStatisticRow(server.id);
+
+    if (!row || isEmptyStatisticRow(row)) {
+      return {
+        server_id: server.id,
+        user_id: server.user_id,
+        bytes_received: 0,
+        bytes_sent: 0,
+        connections_count: 0,
+        timestamp: row?.timestamp || null,
+        avg_receive_speed: null,
+        avg_send_speed: null
+      };
+    }
+
+    const prevRow = await this.fetchPreviousStatisticRow(server.id, row);
+    const speeds = computeSpeed(row, prevRow);
+
+    return {
+      ...row,
+      user_id: server.user_id,
+      avg_receive_speed: speeds.avg_receive_speed,
+      avg_send_speed: speeds.avg_send_speed
+    };
+  }
+
+  async find(params = {}) {
+    const servers = await this.fetchEnabledServers(params);
+    const result = [];
+
+    for (const server of servers) {
+      const row = await this.buildServerStatisticsRow(server.id, params);
+      if (row) {
+        result.push(row);
+      }
+    }
+
+    return result;
+  }
+
+  async get(id, param = {}) {
+    if (!canAccessLegacyServers(param.user)) {
+      return [];
+    }
+
+    const row = await this.fetchLatestStatisticRow(Number(id));
+    return row ? [row] : [];
+  }
+
+  async getLatest(params = {}) {
+    return this.find(params);
+  }
+
+  async getByServerAndTimeRange(serverId, startTime, endTime, params = {}) {
+    assertLegacyServersAccess(params.user);
+
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       throw new Error('Invalid date format provided');
     }
 
-    // Получаем статистику для сервера за определенный период
     const result = await this.db
       .from('statistic')
       .where('server_id', Number(serverId))
@@ -112,36 +194,20 @@ exports.Statistics = class Statistics {
       .select('*')
       .orderBy('timestamp', 'asc');
 
-    // Ensure we return an array in all cases
     const rows = Array.isArray(result) ? result : (result.rows || []);
-
-    // Convert timestamps to local timezone
-    return rows.map(row => ({
-      ...row,
-      timestamp: this.convertToLocalTimezone(row.timestamp)
-    }));
+    return filterRegressiveStatisticSnapshots(filterEmptyStatisticSnapshots(rows));
   }
 
-  // Method to reset statistics for a specific server
-  async resetByServer(serverId) {
-    // Delete all records for the specified server
+  async resetByServer(serverId, params = {}) {
+    assertLegacyServersAccess(params.user);
+
     await this.db('statistic').where('server_id', Number(serverId)).del();
+    await this.db('servers')
+      .where('id', Number(serverId))
+      .update({
+        total_bytes_received: 0,
+        total_bytes_sent: 0
+      });
     return { success: true, message: `Statistics for server ${serverId} have been reset` };
   }
-
-  // Helper method to convert UTC timestamp to local timezone
-  convertToLocalTimezone(utcTimestamp) {
-    if (!utcTimestamp) return utcTimestamp;
-
-    // Convert UTC timestamp to local timezone
-    let date = new Date(utcTimestamp);
-    const tzo = 3 * 60;//-date.getTimezoneOffset();
-    date = new Date(date.getTime() + (tzo * 60 * 1000))
-
-    // Format as ISO-like string in local timezone
-    // We want to preserve the local time values, not convert the moment
-    const pad = (num) => String(num).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-  }
 };
-

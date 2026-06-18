@@ -11,6 +11,8 @@ export default function updateAbility(ability, user) {
     switch (user.role_name) {
         case "admin":
         can("manage", "all");
+        can("read", "Users");
+        can("read", "LegacyServers");
         break;
         case "user":
         can("manage", "Config");

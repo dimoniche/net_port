@@ -7,6 +7,7 @@ DB_PASSWORD=${DB_PASSWORD}
 DB_HOST=${DB_HOST:-localhost}
 DB_PORT=${DB_PORT:-5432}
 THREADS=${THREADS:-10}
+export NET_PORT_BIND_ADDRESS="${NET_PORT_BIND_ADDRESS:-0.0.0.0}"
 
 # Determine if we are using local PostgreSQL (localhost or 127.0.0.1)
 if [ "$DB_HOST" = "localhost" ] || [ "$DB_HOST" = "127.0.0.1" ]; then
@@ -15,11 +16,34 @@ else
     USE_LOCAL_DB=false
 fi
 
+if [ -z "${JWT_SECRET:-}" ]; then
+    JWT_SECRET="$(openssl rand -base64 32)"
+    echo "Warning: JWT_SECRET is not set; generated an ephemeral secret for this container run."
+    echo "Set JWT_SECRET in docker-compose or environment for stable sessions across restarts."
+fi
+
 # Create .env file for backend with current environment variables
 echo "DB_USER=$DB_USER" > /root/net_port/source/web/backend_net_port/.env
 echo "DB_PASSWORD=$DB_PASSWORD" >> /root/net_port/source/web/backend_net_port/.env
 echo "DB_HOST=$DB_HOST" >> /root/net_port/source/web/backend_net_port/.env
 echo "DB_PORT=$DB_PORT" >> /root/net_port/source/web/backend_net_port/.env
+echo "JWT_SECRET=$JWT_SECRET" >> /root/net_port/source/web/backend_net_port/.env
+if [ -n "${JWT_SECRET_PREVIOUS:-}" ]; then
+    echo "JWT_SECRET_PREVIOUS=$JWT_SECRET_PREVIOUS" >> /root/net_port/source/web/backend_net_port/.env
+fi
+echo "NODE_ENV=${NODE_ENV:-production}" >> /root/net_port/source/web/backend_net_port/.env
+
+# Синхронизация бинарников из artifacts/clients в build/client (Windows .exe, ARM и т.д.)
+NET_PORT_SOURCE="${NET_PORT_SOURCE:-/root/net_port/source}"
+CLIENT_BUILD_DIR="$NET_PORT_SOURCE/build/client"
+CLIENT_ARTIFACTS_DIR="$NET_PORT_SOURCE/artifacts/clients"
+if [ -d "$CLIENT_ARTIFACTS_DIR" ]; then
+    mkdir -p "$CLIENT_BUILD_DIR"
+    for artifact in "$CLIENT_ARTIFACTS_DIR"/module_net_port_client-*; do
+        [ -f "$artifact" ] || continue
+        cp -f "$artifact" "$CLIENT_BUILD_DIR/"
+    done
+fi
 
 # Only initialize and start local PostgreSQL if using local DB
 if [ "$USE_LOCAL_DB" = "true" ]; then
@@ -64,24 +88,114 @@ if [ "$USE_LOCAL_DB" = "true" ]; then
     su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE net_port TO $DB_USER;\""
     su - postgres -c "psql -d net_port -c \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;\""
     su - postgres -c "psql -d net_port -c \"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;\""
+
+    # Device management schema (tables, functions, port pool 6000-7000)
+    if ! su - postgres -c "psql -d net_port -tAc \"SELECT 1 FROM information_schema.tables WHERE table_name='devices'\"" 2>/dev/null | grep -q 1; then
+        echo "Running init_device_db.sql..."
+        su - postgres -c "psql -d net_port -f /etc/postgresql/init_device_db.sql" || echo "Warning: init_device_db.sql failed"
+        su - postgres -c "psql -d net_port -c \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;\""
+        su - postgres -c "psql -d net_port -c \"GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO $DB_USER;\""
+    else
+        echo "Device tables already exist, skipping init_device_db.sql."
+    fi
+
+    # Legacy rows in device port range — disable and move to placeholder ports
+    su - postgres -c "psql -d net_port -c \"UPDATE servers SET input_port=5998, output_port=5999, enable=false WHERE input_port BETWEEN 6000 AND 7000 OR output_port BETWEEN 6000 AND 7000;\"" 2>/dev/null || true
 else
-    echo "Using external PostgreSQL at $DB_HOST:$DB_PORT, skipping local PostgreSQL initialization."
-    # Wait a moment for external DB to be reachable (optional)
-    sleep 2
+    echo "Using external PostgreSQL at $DB_HOST:$DB_PORT, initializing database if needed."
+    
+    # Wait for external PostgreSQL to be reachable
+    echo "Waiting for PostgreSQL to be reachable at $DB_HOST:$DB_PORT..."
+    for i in {1..30}; do
+        if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+            echo "PostgreSQL is reachable."
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            echo "Warning: Could not connect to PostgreSQL after 30 attempts. Database initialization may fail."
+        fi
+        sleep 2
+    done
+    
+    # Check if net_port database exists
+    if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "SELECT 1 FROM pg_database WHERE datname='net_port';" 2>/dev/null | grep -q 1; then
+        echo "Database 'net_port' already exists."
+    else
+        echo "Database 'net_port' not found, attempting to create..."
+        # Try to create database (requires CREATEDB privilege)
+        if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -c "CREATE DATABASE net_port;" 2>/dev/null; then
+            echo "Database 'net_port' created successfully."
+        else
+            echo "Warning: Could not create database 'net_port'. It may already exist or user lacks privileges."
+            echo "Assuming database exists or will be created manually."
+        fi
+    fi
+    
+    # Initialize database schema if database exists
+    if PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1;" >/dev/null 2>&1; then
+        echo "Initializing database schema..."
+        
+        # Check if main tables already exist
+        if ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1 FROM information_schema.tables WHERE table_name='users';" 2>/dev/null | grep -q 1; then
+            echo "Running init_db.sql (schema only)..."
+            sed -e '/^CREATE DATABASE/d' -e '/^\\c/d' /etc/postgresql/init_db.sql | \
+                PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -v ON_ERROR_STOP=1 \
+                || echo "Warning: Failed to run init_db.sql"
+        else
+            echo "Main tables already exist, skipping init_db.sql."
+        fi
+        
+        # Check if device tables already exist
+        if ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "SELECT 1 FROM information_schema.tables WHERE table_name='devices';" 2>/dev/null | grep -q 1; then
+            echo "Running init_device_db.sql..."
+            # Try multiple possible locations for init_device_db.sql
+            if [ -f /etc/postgresql/init_device_db.sql ]; then
+                sed -e '/^\\c/d' /etc/postgresql/init_device_db.sql | \
+                    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -v ON_ERROR_STOP=1 \
+                    || echo "Warning: Failed to run init_device_db.sql"
+            elif [ -f /root/net_port/source/init_device_db.sql ]; then
+                sed -e '/^\\c/d' /root/net_port/source/init_device_db.sql | \
+                    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -v ON_ERROR_STOP=1 \
+                    || echo "Warning: Failed to run init_device_db.sql"
+            else
+                echo "Warning: init_device_db.sql not found. Device tables may not be created."
+            fi
+        else
+            echo "Device tables already exist, skipping init_device_db.sql."
+        fi
+
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port \
+            -c "UPDATE servers SET input_port=5998, output_port=5999, enable=false WHERE input_port BETWEEN 6000 AND 7000 OR output_port BETWEEN 6000 AND 7000;" 2>/dev/null || true
+
+        # Ensure user has privileges
+        echo "Ensuring user '$DB_USER' has proper privileges..."
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+        PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d net_port -c "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+    else
+        echo "Warning: Cannot connect to database 'net_port'. Schema initialization skipped."
+    fi
+    
+    echo "External PostgreSQL initialization completed."
 fi
+
+export USE_LOCAL_DB
+bash /root/net_port/source/scripts/run-migrations.sh
 
 # Add admin user with hashed password from environment
-cd /root/net_port/source/web/backend_net_port && bash -c "source $NVM_DIR/nvm.sh && NODE_PATH=/root/net_port/source/web/backend_net_port/node_modules node ../utils/add_test_user.js"
+cd /root/net_port/source/web/backend_net_port && node dist/add_test_user/index.js || echo "Warning: add_test_user failed, continuing startup"
 
-# Generate SSL certificates if they don't exist
-if [ ! -f /root/net_port/server.crt ] || [ ! -f /root/net_port/server.key ]; then
-    mkdir -p /root/net_port
-    cd /root/net_port
-    openssl genrsa -out server.key 2048
-    openssl req -new -x509 -key server.key -out server.crt -days 3650 -subj "/C=RU/ST=Moscow/L=Moscow/O=Net Port/CN=localhost"
-fi
+# Generate SSL certificates once (persisted in NET_PORT_SSL_DIR, e.g. Docker volume)
+NET_PORT_SSL_DIR="${NET_PORT_SSL_DIR:-/root/net_port/ssl}"
+bash /root/net_port/source/scripts/ensure-server-ssl.sh
+SSL_CERT="${NET_PORT_SSL_DIR}/server.crt"
+SSL_KEY="${NET_PORT_SSL_DIR}/server.key"
+ln -sf "${SSL_CERT}" /root/net_port/server.crt
+ln -sf "${SSL_KEY}" /root/net_port/server.key
 
 service nginx start
+
+mkdir -p /root/net_port/logs
 
 # Trap signals for graceful shutdown
 terminate() {
@@ -93,11 +207,30 @@ terminate() {
 trap terminate SIGTERM SIGINT
 
 # Function to start server with restart loop
+resolve_server_binary() {
+    if [ -n "${NET_PORT_SERVER_BIN:-}" ] && [ -x "${NET_PORT_SERVER_BIN}" ]; then
+        echo "${NET_PORT_SERVER_BIN}"
+        return 0
+    fi
+
+    cd /root/net_port
+    if [ -x ./module_net_port_server-0.0.4 ]; then
+        echo ./module_net_port_server-0.0.4
+    elif [ -x ./module_net_port_server ]; then
+        echo ./module_net_port_server
+    else
+        echo "ERROR: net_port server binary not found in /root/net_port" >&2
+        return 1
+    fi
+}
+
 start_server() {
     while true; do
         echo "Starting net_port server..."
         cd /root/net_port
-        ./module_net_port_server* --user 1 -v1 --cert server.crt --key server.key --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT &
+        SERVER_BIN="$(resolve_server_binary)" || exit 1
+        echo "Using server binary: ${SERVER_BIN}"
+        "${SERVER_BIN}" --user 1 -v1 --cert "${SSL_CERT}" --key "${SSL_KEY}" --threads $THREADS --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443 &
         server_pid=$!
         wait $server_pid || true
         server_exit_code=$?
@@ -111,7 +244,7 @@ start_backend() {
     while true; do
         echo "Starting Node.js backend..."
         cd /root/net_port/source/web/backend_net_port
-        bash -c "source $NVM_DIR/nvm.sh && npm start" &
+        node dist/index.js &
         backend_pid=$!
         wait $backend_pid || true
         backend_exit_code=$?

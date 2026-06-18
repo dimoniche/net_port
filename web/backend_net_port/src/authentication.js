@@ -1,12 +1,10 @@
 "use strict";
 
-const {
-    AuthenticationService,
-    JWTStrategy,
-} = require("@feathersjs/authentication");
+const { JWTStrategy } = require("@feathersjs/authentication");
 
 const { LocalStrategy } = require("@feathersjs/authentication-local");
 const { OAuthStrategy, oauth } = require("@feathersjs/authentication-oauth");
+const { configureJwtSecrets } = require("./jwt-config");
 
 class GoogleStrategy extends OAuthStrategy {
     async getEntityData(profile) {
@@ -24,7 +22,8 @@ class GoogleStrategy extends OAuthStrategy {
 
 module.exports = (app) => {
     const SERVICE_ENDPOINT = app.get("prefix") + "/authentication";
-    const authentication = new AuthenticationService(app);
+    const { verifySecrets, RotatingAuthenticationService } = configureJwtSecrets(app);
+    const authentication = new RotatingAuthenticationService(app, verifySecrets);
 
     authentication.register("jwt", new JWTStrategy());
     authentication.register("local", new LocalStrategy());

@@ -1,29 +1,68 @@
-version: '3.8'
-
 services:
   net_port:
     build:
       context: .
-      args:
-        EXTERNAL_DB: ${EXTERNAL_DB:-false}
+      dockerfile: Dockerfile
     image: net_port:latest
     container_name: net_port_app
     ports:
       - "13080:80"
       - "13880:8080"
-      - "49000-49999:6000-6999"
-      - "25432:5432"
+      - "49000-49099:6000-6099"
+      - "15432:5432"
+      - "8443:8443"
+      - "9099:9090"
     environment:
+      - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_SECRET_PREVIOUS=${JWT_SECRET_PREVIOUS:-}
+      - NODE_ENV=production
       - DB_USER=admin
-      - DB_PASSWORD=password
-      - DB_HOST=localhost
+      - DB_PASSWORD=lbvsx123
+      - DB_HOST=192.168.0.132
       - DB_PORT=5432
       - APP_USER=admin
-      - APP_PASSWORD=password
+      - APP_PASSWORD=lbvsx123
       - THREADS=10
+      - NET_PORT_BIND_ADDRESS=0.0.0.0
+      - DEVICE_CONTROL_HOST=127.0.0.1
+      - DEVICE_CONTROL_PORT=8443
+      - METRICS_CACHE_MS=5000
+      - PUBLIC_REGISTRATION_PORT=8443
+      - PUBLIC_PORT_HOST_BASE=49000
+      - NET_PORT_SSL_DIR=/root/net_port/ssl
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - ./data/ssl:/root/net_port/ssl
     restart: unless-stopped
 
-volumes:
-  postgres_data:
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: net_port_prometheus
+    profiles:
+      - monitoring
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts:/etc/prometheus/alerts:ro
+    depends_on:
+      - net_port
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: net_port_grafana
+    profiles:
+      - monitoring
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/net_port_overview.json
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped

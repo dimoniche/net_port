@@ -11,7 +11,6 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import * as yup from "yup";
 import { useFormik } from "formik";
-import Container from "@mui/material/Container";
 import TextField from "@mui/material/TextField";
 import OutlinedInput from "@mui/material/OutlinedInput";
 import InputLabel from "@mui/material/InputLabel";
@@ -20,7 +19,6 @@ import IconButton from "@mui/material/IconButton";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import FormControl from "@mui/material/FormControl";
-import Grid from "@mui/material/Grid";
 
 import updateAbility from "../config/permission";
 
@@ -82,10 +80,6 @@ const Login = (props) => {
             setSubmitting(false);
             setAuthError(true);
         }
-    };
-
-    const registerUser = () => {
-        props.register();
     };
 
     const formik = useFormik({
@@ -154,42 +148,16 @@ const Login = (props) => {
                 />
             </FormControl>
             <Box sx={{ py: 2 }}>
-                <Grid container spacing={1}>
-                    <Grid item xs={6}>
-                        <Button
-                            color="primary"
-                            disabled={isSubmitting}
-                            fullWidth
-                            size="large"
-                            type="submit"
-                            variant="contained"
-                        >
-                            Вход
-                        </Button>
-                    </Grid>
-                    <Grid item xs={6}>
-                        <Button
-                            color="primary"
-                            disabled={isSubmitting}
-                            fullWidth
-                            size="large"
-                            onClick={registerUser}
-                            variant="contained"
-                            disabled="true"
-                        >
-                            Регистрация
-                        </Button>
-                    </Grid>
-                    {false ? (
-                        <Grid item xs={6}>
-                            <a href="http://localhost:8080/api/v1/oauth/google">
-                                Login with Google
-                            </a>
-                        </Grid>
-                    ) : (
-                        <></>
-                    )}
-                </Grid>
+                <Button
+                    color="primary"
+                    disabled={isSubmitting}
+                    fullWidth
+                    size="large"
+                    type="submit"
+                    variant="contained"
+                >
+                    Вход
+                </Button>
             </Box>
             {authError && (
                 <Alert

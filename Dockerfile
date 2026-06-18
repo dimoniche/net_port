@@ -1,100 +1,112 @@
-FROM ubuntu:22.04
+# --- Stage 1: compile C binaries and build frontend / backend deps ---
+FROM node:20-bookworm AS node
 
-# Установка необходимых зависимостей
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    pkg-config \
+    libjansson-dev \
+    libssl-dev \
+    libpq-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+WORKDIR /root/net_port/source
+COPY . /root/net_port/source/
+
+RUN rm -rf build CMakeCache.txt CMakeFiles cmake_install.cmake Makefile && \
+    mkdir -p build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    make -j"$(nproc)"
+
+COPY artifacts/clients/ /root/net_port/source/build/client/
+
+WORKDIR /root/net_port/source/web/backend_net_port
+RUN npm ci && \
+    npm run build:bundle && \
+    rm -rf node_modules src test jest.config.js .eslintrc.json && \
+    npm cache clean --force
+
+WORKDIR /root/net_port/source/web/frontend_net_port
+RUN npm ci && \
+    npm run build && \
+    npm cache clean --force && \
+    rm -rf node_modules
+
+# --- Stage 2: minimal runtime image ---
+FROM ubuntu:22.04 AS runtime
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG EXTERNAL_DB=false
 
 RUN apt-get update && \
     if [ "$EXTERNAL_DB" = "true" ]; then \
-        apt-get install -y \
-            build-essential \
-            cmake \
-            git \
+        apt-get install -y --no-install-recommends \
             nginx \
+            openssl \
+            ca-certificates \
             tzdata \
-            libpq-dev \
-            wget \
-            mc \
-            systemd \
-            openssl ; \
+            libjansson4 \
+            libpq5 \
+            libssl3 \
+            postgresql-client \
+            python3 ; \
     else \
-        apt-get install -y \
-            build-essential \
-            cmake \
-            git \
+        apt-get install -y --no-install-recommends \
             nginx \
+            openssl \
+            ca-certificates \
+            tzdata \
+            libjansson4 \
+            libpq5 \
+            libssl3 \
             postgresql \
             postgresql-contrib \
-            tzdata \
-            libpq-dev \
-            wget \
-            mc \
-            systemd \
-            openssl ; \
+            python3 ; \
     fi && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Установка 20 версии Node.js
-ARG NODE_VERSION=20
-RUN wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
-ENV NVM_DIR=/root/.nvm
-RUN bash -c "source $NVM_DIR/nvm.sh && nvm install $NODE_VERSION"
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
 
-# Настройка часового пояса
-RUN ln -fs /usr/sshare/zoneinfo/UTC /etc/localtime && \
+RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata
 
-# Автоматическое соглашение с лицензией
-RUN echo "Y" | apt-get install -y build-essential cmake git postgresql postgresql-contrib nginx
+RUN mkdir -p /root/net_port /root/net_port/source/build/client /root/net_port/source/artifacts/clients /var/www/html
 
-# Клонирование исходников сервера
-WORKDIR /root/net_port/source
-RUN git clone --branch main https://github.com/dimoniche/net_port.git .
+COPY --from=builder /root/net_port/source/build/server/module_net_port_server-* /root/net_port/
+COPY --from=builder /root/net_port/source/build/client/ /root/net_port/source/build/client/
+COPY --from=builder /root/net_port/source/artifacts/clients/ /root/net_port/source/artifacts/clients/
 
-# Копирование локальных изменений веб-части
-COPY web /root/net_port/source/web
+COPY --from=builder /root/net_port/source/web/backend_net_port /root/net_port/source/web/backend_net_port
+COPY --from=builder /root/net_port/source/web/frontend_net_port/src/files /root/net_port/source/web/frontend_net_port/src/files
+COPY --from=builder /root/net_port/source/scripts /root/net_port/source/scripts
+COPY --from=builder /root/net_port/source/sql /root/net_port/source/sql
+COPY --from=builder /root/net_port/source/docs /root/net_port/source/docs
+COPY --from=builder /root/net_port/source/VERSION /root/net_port/source/VERSION
+COPY --from=builder /root/net_port/source/web/frontend_net_port/build/ /var/www/html/
 
-# Компиляция сервера
-WORKDIR /root/net_port/source
-RUN mkdir -p build
-RUN cmake . && make
-
-# Копирование скомпилированного сервера
-WORKDIR /root/net_port/source
-RUN cp server/module_net_port_server* /root/net_port/
-
-# Установка и настройка веб-части
-WORKDIR /root/net_port/source/web/backend_net_port
-RUN bash -c "source $NVM_DIR/nvm.sh && npm install"
-# Установка bcryptjs для скрипта add_test_user
-RUN bash -c "source $NVM_DIR/nvm.sh && npm install bcryptjs"
-
-WORKDIR /root/net_port/source/web/frontend_net_port
-RUN bash -c "source $NVM_DIR/nvm.sh && npm install && npm run build"
-
-# Копирование скомпилированного фронтенда в директорию, обслуживаемую Nginx
-RUN mkdir -p /var/www/html && cp -r build/* /var/www/html/
-
-WORKDIR /root/net_port/source
-
-# Копирование скрипта для настройки PostgreSQL
-COPY init_db.sql /root/net_port/source/
-
-# Копирование конфигурации Nginx
-COPY nginx.conf /etc/nginx/sites-available/default
-
-# Copy init_db.sql to a location that won't be overwritten by volume mount
 COPY init_db.sql /etc/postgresql/init_db.sql
-RUN chown postgres:postgres /etc/postgresql/init_db.sql
+COPY init_device_db.sql /etc/postgresql/init_device_db.sql
+COPY sql/migrations/ /etc/postgresql/migrations/
+COPY sql/grant_app_privileges.sql /etc/postgresql/grant_app_privileges.sql
+RUN if id postgres >/dev/null 2>&1; then \
+        chown -R postgres:postgres /etc/postgresql/init_db.sql /etc/postgresql/init_device_db.sql /etc/postgresql/migrations /etc/postgresql/grant_app_privileges.sql; \
+    fi
 
-# Создание скрипта для запуска сервера
+COPY nginx.conf /etc/nginx/sites-available/default
 COPY start.sh /root/net_port/start.sh
 RUN chmod +x /root/net_port/start.sh
 
-EXPOSE 80
-EXPOSE 6000-6999
-EXPOSE 8080
-EXPOSE 5432
+EXPOSE 80 8080 5432 8443 5000-5999 6000-6999
 
 CMD ["/root/net_port/start.sh"]
