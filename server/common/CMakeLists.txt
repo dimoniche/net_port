@@ -24,7 +24,14 @@ else()
     set(PostgreSQL_LIBRARY_DIRS "/usr/lib/x86_64-linux-gnu")
 endif()
 
-link_directories(${PostgreSQL_LIBRARY_DIRS})
+if(NOT DEFINED PostgreSQL_LIBRARY)
+    message(WARNING "PostgreSQL_LIBRARY not defined, using default")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        set(PostgreSQL_LIBRARY -lpq)
+    else()
+        set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
+    endif()
+endif()
 
 include_directories(
         .
