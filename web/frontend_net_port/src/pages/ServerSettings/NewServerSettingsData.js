@@ -16,6 +16,12 @@ import AlertTitle from "@mui/material/AlertTitle";
 import Paper from "@mui/material/Paper";
 import isEmpty from "lodash/isEmpty";
 import updateAbility from "../../config/permission";
+import { isAdminUser } from "../../utils/userRoles";
+import {
+    SERVER_PORT_MIN,
+    SERVER_PORT_MAX,
+    portInServerRange,
+} from "../../config/ports";
 
 const InputFieldWidth = { width: "100%" };
 
@@ -33,11 +39,13 @@ const NewServerSettingsData = ({ children, ...rest }) => {
     const [freePorts, setFreePorts] = useState();
 
     const [error, setError] = useState(null);
-    if (error) {
-        throw error;
-    }
 
     useEffect(() => {
+        if (!isEmpty(cookies.user) && !isAdminUser(cookies.user)) {
+            history("/devices");
+            return undefined;
+        }
+
         const abortController = new AbortController();
 
         async function fetchData(abortController) {
@@ -45,7 +53,7 @@ const NewServerSettingsData = ({ children, ...rest }) => {
 
             let ports_all = [];
 
-            for (let i = 6000; i < 7000; i++) {
+            for (let i = SERVER_PORT_MIN; i <= SERVER_PORT_MAX; i++) {
                 ports_all.push(i);
             }
 
@@ -164,12 +172,23 @@ const NewServerSettingsData = ({ children, ...rest }) => {
     let Schema = Yup.object({
         input_port: Yup.number()
             .integer()
+            .min(SERVER_PORT_MIN)
+            .max(SERVER_PORT_MAX)
             .test(
                 "input_port",
-                "Порт занят",
-                (val) => !isEmpty(freePorts) && freePorts.includes(val)
+                "Порт занят или вне диапазона серверов",
+                (val) => !isEmpty(freePorts) && freePorts.includes(val) && portInServerRange(val)
             ),
-        output_port: Yup.number().required(),
+        output_port: Yup.number()
+            .integer()
+            .min(SERVER_PORT_MIN)
+            .max(SERVER_PORT_MAX)
+            .test(
+                "output_port",
+                "Порт вне диапазона серверов",
+                (val) => portInServerRange(val)
+            )
+            .required(),
         description: Yup.string(),
     });
 
@@ -177,6 +196,14 @@ const NewServerSettingsData = ({ children, ...rest }) => {
         initialValues: InitValues,
         validationSchema: Schema,
     });
+
+    if (error) {
+        throw error;
+    }
+
+    if (!isEmpty(cookies.user) && !isAdminUser(cookies.user)) {
+        return null;
+    }
 
     return (
         <Paper

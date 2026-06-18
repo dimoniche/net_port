@@ -2,10 +2,32 @@
 
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
+const { validateServerPorts } = require('../../config/ports');
+const { assertLegacyServersAccess } = require('../../lib/userRoles');
 
 exports.Servers = class Servers {
   constructor(dbInstance) {
     this.db = dbInstance;
+  }
+
+  async assertPortsAvailable(inputPort, outputPort, excludeServerId = null) {
+    let query = this.db
+      .from('servers')
+      .where(function assignPortConflict() {
+        this.where('input_port', inputPort)
+          .orWhere('output_port', inputPort)
+          .orWhere('input_port', outputPort)
+          .orWhere('output_port', outputPort);
+      });
+
+    if (excludeServerId != null) {
+      query = query.whereNot('id', Number(excludeServerId));
+    }
+
+    const conflict = await query.first();
+    if (conflict) {
+      throw new Error(`Port conflict with server #${conflict.id}`);
+    }
   }
 
   async find(params) {
@@ -41,15 +63,21 @@ exports.Servers = class Servers {
   }
 
   async remove(id) {
-
+    const serverId = Number(id);
     const server = await this.db
       .from('servers')
-      .where('id', Number(id))
+      .where('id', serverId)
       .first();
+
+    if (!server) {
+      throw new Error(`Server with id ${id} not found`);
+    }
+
+    await this.db('statistic').where('server_id', serverId).del();
 
     await this.db
       .from('servers')
-      .where('id', id)
+      .where('id', serverId)
       .del();
 
     try {
@@ -58,7 +86,7 @@ exports.Servers = class Servers {
     } catch (e) {
 
     }
-  
+
     return this.db
       .from('servers')
       .where('user_id', Number(server.user_id))
@@ -66,6 +94,8 @@ exports.Servers = class Servers {
   }
 
   async create(data) {
+    validateServerPorts(data.input_port, data.output_port);
+    await this.assertPortsAvailable(data.input_port, data.output_port);
 
     await this.db
       .insert(data)
@@ -82,10 +112,24 @@ exports.Servers = class Servers {
   }
 
   async update(id, data) {
+    const serverId = Number(id);
+    const existing = await this.db
+      .from('servers')
+      .where('id', serverId)
+      .first();
+
+    if (!existing) {
+      throw new Error(`Server with id ${id} not found`);
+    }
+
+    const inputPort = data.input_port != null ? data.input_port : existing.input_port;
+    const outputPort = data.output_port != null ? data.output_port : existing.output_port;
+    validateServerPorts(inputPort, outputPort);
+    await this.assertPortsAvailable(inputPort, outputPort, serverId);
 
     await this.db
       .from('servers')
-      .where('id', Number(id))
+      .where('id', serverId)
       .update(data);
 
     try {
@@ -98,7 +142,13 @@ exports.Servers = class Servers {
     return `server ${id} updated`;
   }
 
-  async restart(id) {
+  async restart(id, params = {}) {
+    const { user } = params;
+
+    if (!user) {
+      throw new Error('Authentication required');
+    }
+
     const server = await this.db
       .from('servers')
       .where('id', Number(id))
@@ -107,6 +157,8 @@ exports.Servers = class Servers {
     if (!server) {
       throw new Error(`Server with id ${id} not found`);
     }
+
+    assertLegacyServersAccess(user);
 
     try {
       const killCommand = `pkill -SIGTERM -f "module_net_port_server"`;

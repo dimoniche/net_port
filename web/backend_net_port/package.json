@@ -25,9 +25,13 @@
     },
     "scripts": {
         "test": "npm run lint && npm run jest",
+        "test:unit": "npm run jest",
+        "test:integration": "bash ../../scripts/integration/run_all_integration_tests.sh",
         "lint": "eslint src/. test/. --config .eslintrc.json --fix",
         "dev": "nodemon src/",
         "start": "node src/",
+        "build:bundle": "ncc build src/index.js -o dist && ncc build src/add-test-user.js -o dist/add_test_user",
+        "start:bundle": "node dist/index.js",
         "jest": "jest  --forceExit"
     },
     "standard": {
@@ -44,6 +48,7 @@
         "@feathersjs/errors": "^5.0.24",
         "@feathersjs/express": "^5.0.24",
         "@feathersjs/feathers": "^5.0.24",
+        "@feathersjs/socketio": "^5.0.44",
         "@feathersjs/transport-commons": "^5.0.24",
         "child_process": "^1.0.2",
         "compression": "^1.7.4",
@@ -62,6 +67,7 @@
         "moment": "^2.29.4",
         "multer": "^1.4.4",
         "pg": "^8.5.1",
+        "bcryptjs": "^2.4.3",
         "serve-favicon": "^2.5.0",
         "util": "^0.12.5",
         "winston": "^3.3.3",
@@ -70,6 +76,7 @@
     "devDependencies": {
         "@eslint/eslintrc": "^3.0.2",
         "@eslint/js": "^9.1.1",
+        "@vercel/ncc": "^0.38.4",
         "axios": "^0.21.1",
         "eslint": "^8.57.0",
         "eslint-config-airbnb-base": "^15.0.0",

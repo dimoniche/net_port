@@ -2,6 +2,10 @@
 /.idea
 /cmake-build*
 build
+CMakeCache.txt
+CMakeFiles
+cmake_install.cmake
+Makefile
 .cache
 node_modules
 combined.log
@@ -12,3 +16,7 @@ __pycache__
 .vscode/deploy_args.json
 /client_win/out
 .env
+artifacts/clients/module_net_port_client-*
+web/backend_net_port/dist
+data/ssl/server.crt
+data/ssl/server.key

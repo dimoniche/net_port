@@ -20,6 +20,7 @@
 #include "proxy_server.h"
 #include "hal_time.h"
 #include "time_counter.h"
+#include "device_manager.h"
 
 static uint64_t last_monotonic_time;
 
@@ -41,6 +42,9 @@ int main(int argc, char** argv) {
     bool cli_enable_output_ssl = false;
     bool cli_enable_input_ssl = false;
     time_t statistics_retention_period = DEFAULT_STATISTICS_RETENTION_PERIOD;
+    bool enable_device_management = false;
+    uint16_t device_control_port = 8443;
+
 
     if (argc == 1 || (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))) {
         printf("Net Port Server v%s\n\n", VERSION);
@@ -63,6 +67,8 @@ int main(int argc, char** argv) {
         printf("  --enable-output-ssl Enable output SSL for the CLI-provided server (used with --no-db)\n");
         printf("  --enable-input-ssl  Enable input SSL for the CLI-provided server (used with --no-db)\n");
         printf("  --statistics-retention <days> Set statistics retention period in days (default: 90)\n");
+        printf("  --enable-device-management Enable IoT device management with dynamic port allocation\n");
+        printf("  --device-control-port <port> Set control port for device management (default: 8443)\n");
         printf("\nExample:\n");
         printf("  %s %s5 %s 192.168.1.100 %s 5432 %s 100\n",
                argv[0], VERBOSE_KEY, HOST_KEY, PORT_KEY, USER_ID);
@@ -228,6 +234,11 @@ int main(int argc, char** argv) {
                 logMsg(LOG_ERR, "Missing value for --statistics-retention");
             }
         }
+        else if (strcmp(argv[i], "--enable-device-management") == 0) {
+            enable_device_management = true;
+        } else if (strcmp(argv[i], "--device-control-port") == 0 && i + 1 < argc) {
+            device_control_port = atoi(argv[++i]);
+        }
     }
 
     char log[128];
@@ -236,16 +247,26 @@ int main(int argc, char** argv) {
     logMsgSetPriority(verbose_level);
     logMsg(LOG_DEBUG, "Start logger...");
 
+    // Initialize database if not in no-db mode
     if (!no_db_mode) {
         db_init(DB_conn_data.ip, DB_conn_data.port, DB_conn_data.username, DB_conn_data.password);
-        servers_init(user_id, cert_file, key_file, statistics_retention_period);
-    } else {
-        if (cli_input_port == 0 || cli_output_port == 0) {
-            logMsg(LOG_EMERG, "--no-db mode requires --input-port and --output-port to be set\n");
-            exit(-1);
-        }
-        servers_init_no_db(cert_file, key_file, cli_input_port, cli_output_port, cli_enable_output_ssl, cli_enable_input_ssl, statistics_retention_period);
     }
+    
+    // Initialize servers with device management if enabled
+    if (enable_device_management) {
+        servers_init_with_device_management(user_id, cert_file, key_file, statistics_retention_period, device_control_port);
+    } else {
+        if (!no_db_mode) {
+            servers_init(user_id, cert_file, key_file, statistics_retention_period);
+        } else {
+            if (cli_input_port == 0 || cli_output_port == 0) {
+                logMsg(LOG_EMERG, "--no-db mode requires --input-port and --output-port to be set\n");
+                exit(-1);
+            }
+            servers_init_no_db(cert_file, key_file, cli_input_port, cli_output_port, cli_enable_output_ssl, cli_enable_input_ssl, statistics_retention_period);
+        }
+    }
+
     switcher_servers_start();
 
     if (!no_db_mode) {
@@ -275,6 +296,9 @@ int main(int argc, char** argv) {
         // Проверяем, не запрошено ли завершение работы
         if (is_stop_requested()) {
             logMsg(LOG_INFO, "Stopping server...");
+            if (enable_device_management) {
+                device_management_shutdown();
+            }
             switcher_servers_stop();
             logMsg(LOG_INFO, "Server stopped successfully");
             if (!no_db_mode) {

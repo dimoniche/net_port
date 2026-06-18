@@ -24,12 +24,119 @@ import HelpCenterIcon from "@mui/icons-material/HelpCenter";
 import { mainNavSection, minorNavSection } from "../routes";
 import { AppBar, DrawerHeader, Main, drawerWidth } from "./MainLayout.styles";
 import Login from "../pages/Login";
-import NewUserSettingsData from "../pages/UsersSettings/NewUserSettingsData";
 
 import { Can } from "./Abilities";
 import updateAbility from "../config/permission";
+import { useRealtimeSocket } from "../hooks/useRealtimeSocket";
+import OverviewStatsModal from "./OverviewStatsModal";
+import { formatBytes, formatSpeed, parseSpeedNumber } from "../utils/statsFormat";
+import { getEnabledLegacyServers } from "../utils/legacyServers";
+import { isAdminUser } from "../utils/userRoles";
 
 import logo from "../assets/netport-120-120.png";
+
+const computeHeaderSummary = (statistics, devices, servers) => {
+    const enabledLegacyServers = getEnabledLegacyServers(servers);
+    const hasLegacyServers = enabledLegacyServers.length > 0;
+    const enabledServerIds = new Set(
+        enabledLegacyServers.map((server) => Number(server.id))
+    );
+    const activeServers = enabledLegacyServers.length;
+    const deviceList = devices || [];
+    const onlineDevices = deviceList.filter((device) => device.online).length;
+    const activeConnections = deviceList.reduce(
+        (sum, device) => sum + (Number(device.active_connections) || 0),
+        0
+    );
+
+    const relevantStatistics = (statistics || []).filter((stat) =>
+        enabledServerIds.has(Number(stat.server_id))
+    );
+
+    const serverReceived = relevantStatistics.reduce(
+        (sum, stat) => sum + (parseInt(stat.bytes_received, 10) || 0),
+        0
+    );
+    const serverSent = relevantStatistics.reduce(
+        (sum, stat) => sum + (parseInt(stat.bytes_sent, 10) || 0),
+        0
+    );
+    const deviceReceived = deviceList.reduce(
+        (sum, device) => sum + (Number(device.bytes_received) || 0),
+        0
+    );
+    const deviceSent = deviceList.reduce(
+        (sum, device) => sum + (Number(device.bytes_sent) || 0),
+        0
+    );
+
+    const serverReceiveSpeed = relevantStatistics.reduce(
+        (sum, stat) => sum + parseSpeedNumber(stat.avg_receive_speed),
+        0
+    );
+    const serverSendSpeed = relevantStatistics.reduce(
+        (sum, stat) => sum + parseSpeedNumber(stat.avg_send_speed),
+        0
+    );
+    const deviceReceiveSpeed = deviceList.reduce(
+        (sum, device) => sum + parseSpeedNumber(device.avg_receive_speed),
+        0
+    );
+    const deviceSendSpeed = deviceList.reduce(
+        (sum, device) => sum + parseSpeedNumber(device.avg_send_speed),
+        0
+    );
+
+    return {
+        hasLegacyServers,
+        activeServers,
+        totalDevices: deviceList.length,
+        onlineDevices,
+        activeConnections,
+        totalBytes: {
+            received: serverReceived + deviceReceived,
+            sent: serverSent + deviceSent,
+        },
+        totalSpeed: {
+            receive: serverReceiveSpeed + deviceReceiveSpeed,
+            send: serverSendSpeed + deviceSendSpeed,
+        },
+    };
+};
+
+const mergeServerStatistics = (current, updatedStat) => {
+    if (!updatedStat?.server_id) {
+        return current;
+    }
+
+    const index = current.findIndex(
+        (item) => Number(item.server_id) === Number(updatedStat.server_id)
+    );
+
+    if (index === -1) {
+        return [...current, updatedStat];
+    }
+
+    const next = [...current];
+    next[index] = { ...next[index], ...updatedStat };
+    return next;
+};
+
+const mergeDeviceStatistics = (current, updatedDevice) => {
+    if (!updatedDevice?.id) {
+        return current;
+    }
+
+    const index = current.findIndex((item) => item.id === updatedDevice.id);
+
+    if (index === -1) {
+        return [...current, updatedDevice];
+    }
+
+    const next = [...current];
+    next[index] = { ...next[index], ...updatedDevice };
+    return next;
+};
 
 const style = {
     position: "absolute",
@@ -37,18 +144,6 @@ const style = {
     left: "50%",
     transform: "translate(-50%, -50%)",
     width: 600,
-    bgcolor: "background.paper",
-    border: "2px solid #000",
-    boxShadow: 24,
-    p: 6,
-};
-
-const styleRegister = {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    width: 900,
     bgcolor: "background.paper",
     border: "2px solid #000",
     boxShadow: 24,
@@ -71,14 +166,22 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
     const handleDrawerCloseRight = () => setOpenRight(false);
 
     const [openLogin, setOpenLogin] = React.useState(false);
-    const [openRegister, setOpenRegister] = React.useState(false);
 
     // Statistics state
     const [statisticsData, setStatisticsData] = useState([]);
+    const [deviceStatisticsData, setDeviceStatisticsData] = useState([]);
     const [serversData, setServersData] = useState([]);
-    const [activeServersCount, setActiveServersCount] = useState(0);
-    const [totalBytes, setTotalBytes] = useState({ received: 0, sent: 0 });
-    const [totalSpeed, setTotalSpeed] = useState({ receive: 0, send: 0 });
+    const [headerSummary, setHeaderSummary] = useState({
+        hasLegacyServers: false,
+        activeServers: 0,
+        totalDevices: 0,
+        onlineDevices: 0,
+        activeConnections: 0,
+        totalBytes: { received: 0, sent: 0 },
+        totalSpeed: { receive: 0, send: 0 },
+    });
+    const [overviewModalOpen, setOverviewModalOpen] = useState(false);
+    const [overviewFocus, setOverviewFocus] = useState("overview");
 
     const handleLogout = () => {
         removeCookie("token");
@@ -98,72 +201,99 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
         setOpenLogin(false);
     };
 
-    const handleRegister = () => {
-        setOpenLogin(false);
-        setOpenRegister(true);
+    const openOverviewModal = (focus) => {
+        setOverviewFocus(focus);
+        setOverviewModalOpen(true);
     };
 
-    const handleCloseRegister = () => {
-        setOpenRegister(false);
-        setOpenLogin(true);
+    const statChipSx = {
+        cursor: "pointer",
+        px: 0.75,
+        py: 0.25,
+        borderRadius: 1,
+        "&:hover": {
+            backgroundColor: "rgba(255, 255, 255, 0.12)",
+        },
     };
 
-    // Функция для форматирования байтов в читаемый формат
-    const formatBytes = (bytes) => {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    };
+    const handleServerStatisticsUpdate = useCallback((updatedStat) => {
+        setStatisticsData((prev) => mergeServerStatistics(prev, updatedStat));
+    }, []);
 
-    // Функция для форматирования скорости в читаемый формат
-    const formatSpeed = (speed) => {
-        if (speed === null || speed === undefined || isNaN(speed) || speed === 0) return '-';
-        
-        const speedNum = typeof speed === 'string' ? parseFloat(speed) : speed;
-        if (speedNum < 1) return '-';
-        
-        const k = 1024;
-        const sizes = ['Bytes/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
-        const i = Math.floor(Math.log(speedNum) / Math.log(k));
-        return parseFloat((speedNum / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    };
+    const handleDeviceStatisticsUpdate = useCallback((updatedDevice) => {
+        setDeviceStatisticsData((prev) => mergeDeviceStatistics(prev, updatedDevice));
+    }, []);
+
+    useRealtimeSocket({
+        token: cookies.token,
+        enabled: Boolean(cookies.user),
+        handlers: {
+            "statistics:server-updated": handleServerStatisticsUpdate,
+            "statistics:device-updated": handleDeviceStatisticsUpdate,
+        },
+    });
+
+    useEffect(() => {
+        setHeaderSummary(
+            computeHeaderSummary(statisticsData, deviceStatisticsData, serversData)
+        );
+    }, [statisticsData, deviceStatisticsData, serversData]);
 
     // Fetch statistics and servers data
     const fetchStatisticsData = useCallback(async () => {
         if (!cookies.user) return;
 
-        try {
-            // Fetch statistics data
-            const statistics = await api.get(`/statistics`);
-            
-            // Fetch servers data to get enable status
-            const servers = await api.get(`/servers`);
+        const admin = isAdminUser(cookies.user);
 
-            if (statistics.status === 200) {
-                setStatisticsData(statistics.data);
-                
-                // Calculate total bytes
-                const totalReceived = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_received) || 0), 0);
-                const totalSent = statistics.data.reduce((sum, stat) => sum + (parseInt(stat.bytes_sent) || 0), 0);
-                setTotalBytes({ received: totalReceived, sent: totalSent });
-                
-                // Calculate total speed
-                const totalReceiveSpeed = statistics.data.reduce((sum, stat) => sum + (parseFloat(stat.avg_receive_speed) || 0), 0);
-                const totalSendSpeed = statistics.data.reduce((sum, stat) => sum + (parseFloat(stat.avg_send_speed) || 0), 0);
-                setTotalSpeed({ receive: totalReceiveSpeed, send: totalSendSpeed });
+        try {
+            const requests = [
+                api.get(`/statistics`, {
+                    params: admin && cookies.user?.id
+                        ? { user_id: cookies.user.id }
+                        : undefined,
+                }),
+                api.get(`/devices/statistics/summary`),
+            ];
+
+            if (admin) {
+                requests.splice(
+                    1,
+                    0,
+                    api.get(`/servers/0?user_id=${cookies.user.id}`)
+                );
             }
 
-            if (servers.status === 200) {
-                setServersData(servers.data);
-                
-                // Count active servers (enabled servers)
-                const activeCount = servers.data.filter(server => server.enable).length;
-                setActiveServersCount(activeCount);
+            const results = await Promise.all(requests);
+
+            let statisticsResult;
+            let serversResult;
+            let deviceStatisticsResult;
+
+            if (admin) {
+                [statisticsResult, serversResult, deviceStatisticsResult] = results;
+            } else {
+                [statisticsResult, deviceStatisticsResult] = results;
+                serversResult = { status: 200, data: [] };
+            }
+
+            if (statisticsResult.status === 200) {
+                setStatisticsData(statisticsResult.data);
+            }
+
+            if (serversResult.status === 200) {
+                setServersData(serversResult.data);
+            } else if (!admin) {
+                setServersData([]);
+            }
+
+            if (deviceStatisticsResult.status === 200) {
+                setDeviceStatisticsData(deviceStatisticsResult.data);
             }
         } catch (err) {
             console.error("Error fetching statistics data:", err);
+            if (!isAdminUser(cookies.user)) {
+                setServersData([]);
+            }
         }
     }, [api, cookies.user]);
 
@@ -188,13 +318,13 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 <CssBaseline />
                 <Box sc={{ flexGrow: 1 }}>
                     <AppBar position="fixed" open={open} openRight={openRight}>
-                        <Toolbar>
+                        <Toolbar sx={{ gap: 1, overflow: "hidden" }}>
                             <IconButton
                                 color="inherit"
                                 aria-label="open drawer"
                                 onClick={handleDrawerOpen}
                                 edge="start"
-                                sx={{ mr: 2, ...(open && { display: "none" }) }}
+                                sx={{ ...(open && { display: "none" }) }}
                             >
                                 <MenuIcon />
                             </IconButton>
@@ -202,44 +332,128 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                 variant="h6"
                                 noWrap
                                 component="div"
-                                sx={{ flexGrow: 1 }}
+                                sx={{ flexShrink: 0, mr: 1 }}
                             >
                                 NET PORT
                             </Typography>
                             
                             {/* Statistics Info */}
+                            <Box
+                                sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    flex: 1,
+                                    minWidth: 0,
+                                    justifyContent: "flex-end",
+                                    flexWrap: "nowrap",
+                                    gap: 0.75,
+                                    overflowX: cookies.user ? "auto" : "hidden",
+                                    overflowY: "hidden",
+                                    py: 0.25,
+                                    "&::-webkit-scrollbar": { height: 4 },
+                                }}
+                            >
+                                {cookies.user && (
+                                    <>
+                                    {headerSummary.hasLegacyServers && (
+                                        <Typography
+                                            variant="body2"
+                                            sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
+                                            onClick={() => openOverviewModal("overview")}
+                                            title="Показать общую статистику"
+                                        >
+                                            Серверов: {headerSummary.activeServers}
+                                        </Typography>
+                                    )}
+                                    <Typography
+                                        variant="body2"
+                                        sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
+                                        onClick={() => openOverviewModal("connections")}
+                                        title="Показать график устройств и соединений"
+                                    >
+                                        Устройств: {headerSummary.totalDevices}
+                                        {headerSummary.onlineDevices > 0
+                                            ? ` (online: ${headerSummary.onlineDevices})`
+                                            : ""}
+                                    </Typography>
+                                    {headerSummary.activeConnections > 0 && (
+                                        <Typography
+                                            variant="body2"
+                                            sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
+                                            onClick={() => openOverviewModal("connections")}
+                                            title="Показать график соединений"
+                                        >
+                                            Соединений: {headerSummary.activeConnections}
+                                        </Typography>
+                                    )}
+                                    <Typography
+                                        variant="body2"
+                                        sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
+                                        onClick={() => openOverviewModal("traffic")}
+                                        title="Показать график скорости"
+                                    >
+                                        Скорость: ↓{formatSpeed(headerSummary.totalSpeed.receive)} ↑
+                                        {formatSpeed(headerSummary.totalSpeed.send)}
+                                    </Typography>
+                                    <Typography
+                                        variant="body2"
+                                        sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
+                                        onClick={() => openOverviewModal("traffic")}
+                                        title="Показать график трафика"
+                                    >
+                                        Получено: {formatBytes(headerSummary.totalBytes.received)}
+                                    </Typography>
+                                    <Typography
+                                        variant="body2"
+                                        sx={{ ...statChipSx, flexShrink: 0, whiteSpace: "nowrap" }}
+                                        onClick={() => openOverviewModal("traffic")}
+                                        title="Показать график трафика"
+                                    >
+                                        Отправлено: {formatBytes(headerSummary.totalBytes.sent)}
+                                    </Typography>
+                                    </>
+                                )}
+                            </Box>
+
+                            <Box
+                                sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    flexShrink: 0,
+                                    gap: 0.5,
+                                    ml: 1,
+                                }}
+                            >
                             {cookies.user && (
-                                <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-                                    <Typography variant="body2" sx={{ mr: 2 }}>
-                                        Серверов: {activeServersCount}
+                                <Tooltip title="Текущий пользователь">
+                                    <Typography sx={{ whiteSpace: "nowrap" }}>
+                                        {cookies.user.login}
                                     </Typography>
-                                    <Typography variant="body2" sx={{ mr: 2 }}>
-                                        Получено: {formatBytes(totalBytes.received)}
-                                    </Typography>
-                                    <Typography variant="body2" sx={{ mr: 2 }}>
-                                        Отправлено: {formatBytes(totalBytes.sent)}
-                                    </Typography>
-                                    <Typography variant="body2" sx={{ mr: 2 }}>
-                                        Прием: {formatSpeed(totalSpeed.receive)}
-                                    </Typography>
-                                    <Typography variant="body2">
-                                        Передача: {formatSpeed(totalSpeed.send)}
-                                    </Typography>
-                                </Box>
+                                </Tooltip>
                             )}
-                            
-                            <Tooltip title="Текущий пользователь">
-                                <Typography>
-                                    {cookies.user !== undefined
-                                        ? cookies.user.login
-                                        : ""}
-                                </Typography>
-                            </Tooltip>
-                            {cookies.user !== undefined ? (
+                            {location.pathname !== "/main" ? (
+                                <Tooltip title="Помощь">
+                                    <IconButton
+                                        color="inherit"
+                                        aria-label="open drawer"
+                                        onClick={handleDrawerOpenRight}
+                                        edge="end"
+                                        sx={{
+                                            ...(openRight && {
+                                                display: "none",
+                                            }),
+                                        }}
+                                    >
+                                        <HelpCenterIcon />
+                                    </IconButton>
+                                </Tooltip>
+                            ) : null}
+                            {cookies.user ? (
                                 <Tooltip title="Выход">
                                     <IconButton
                                         color="inherit"
                                         onClick={handleLogout}
+                                        edge="end"
                                     >
                                         <ExitToAppIcon />
                                     </IconButton>
@@ -249,31 +463,13 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                     <IconButton
                                         color="inherit"
                                         onClick={handleLogin}
+                                        edge="end"
                                     >
                                         <LoginIcon />
                                     </IconButton>
                                 </Tooltip>
                             )}
-                            {location.pathname !== "/main" ? (
-                                <Tooltip title="Помощь">
-                                    <IconButton
-                                        color="inherit"
-                                        aria-label="open drawer"
-                                        onClick={handleDrawerOpenRight}
-                                        edge="start"
-                                        sx={{
-                                            mr: 2,
-                                            ...(openRight && {
-                                                display: "none",
-                                            }),
-                                        }}
-                                    >
-                                        <HelpCenterIcon />
-                                    </IconButton>
-                                </Tooltip>
-                            ) : (
-                                <></>
-                            )}
+                            </Box>
                         </Toolbar>
                     </AppBar>
                 </Box>
@@ -358,6 +554,15 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                 <br />
                                 логин и пароль.
                             </>
+                        ) : location.pathname.startsWith("/users") ? (
+                            <>
+                                <b>Управление пользователями</b>
+                                <br />
+                                Доступно только администратору.
+                                <br />
+                                Кнопка <b>«Добавить»</b> открывает форму создания
+                                учётной записи с логином, паролем и ролью.
+                            </>
                         ) : location.pathname === "/servers" ? (
                             <>
                                 <b>Настройки серверов</b>
@@ -378,6 +583,101 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                                 <b>Перенаправляемый порт</b> это порт к которому
                                 подключается установленный на внешнем устройстве
                                 клиент для поддержания постоянного соединения.
+                            </>
+                        ) : location.pathname === "/statistics" ? (
+                            <>
+                                <b>Статистика</b>
+                                <br />
+                                Сводка трафика и активности подключений.
+                                <br />
+                                <br />
+                                Кнопка <b>«Обновить»</b> загружает актуальные
+                                данные с сервера. Переключатель{" "}
+                                <b>«Live»</b> включает обновление в реальном
+                                времени через WebSocket.
+                                <br />
+                                <br />
+                                Вкладка <b>«Серверы»</b> (только при включённых
+                                legacy-серверах и для администратора) — трафик
+                                по каждому серверу доступа. Вкладка{" "}
+                                <b>«Устройства»</b> — статистика по вашим
+                                устройствам: байты, скорости, число соединений,
+                                назначенные порты.
+                                <br />
+                                <br />
+                                Щелчок по строке открывает подробный график.
+                                Иконка корзины сбрасывает накопленную
+                                статистику (для сервера также перезапускается
+                                соответствующий процесс).
+                            </>
+                        ) : location.pathname === "/devices/new" ? (
+                            <>
+                                <b>Новое устройство</b>
+                                <br />
+                                Заполните идентификатор, название и при
+                                необходимости внутренний адрес и порт
+                                устройства в локальной сети.
+                                <br />
+                                <br />
+                                <b>Фиксированный порт</b> — чётное число
+                                6000–6998; если не указан, порт назначается
+                                автоматически при подключении клиента.
+                                <br />
+                                <br />
+                                После сохранения на странице списка один раз
+                                показывается <b>токен</b> и команда запуска
+                                клиента — сохраните их до закрытия
+                                предупреждения.
+                            </>
+                        ) : location.pathname.startsWith("/devices/edit") ? (
+                            <>
+                                <b>Редактирование устройства</b>
+                                <br />
+                                Идентификатор устройства изменить нельзя.
+                                Остальные поля — название, описание, тип,
+                                внутренний адрес и порт, фиксированный порт,
+                                протокол.
+                                <br />
+                                <br />
+                                Фиксированный порт нельзя менять, пока
+                                устройство в активной сессии. Для смены токена
+                                доступа используйте отдельную операцию в API
+                                (токен в интерфейсе повторно не показывается).
+                            </>
+                        ) : location.pathname === "/devices" ? (
+                            <>
+                                <b>Устройства</b>
+                                <br />
+                                Список зарегистрированных устройств и управление
+                                подключением клиента net_port.
+                                <br />
+                                <br />
+                                <b>«Добавить устройство»</b> — регистрация и
+                                получение одноразового токена. <b>«Обновить»</b>{" "}
+                                перечитывает список; <b>«Live»</b> — статусы в
+                                реальном времени.
+                                <br />
+                                <br />
+                                <b>Авто-подключение</b> — при потере связи
+                                система пытается снова разрешить подключение
+                                устройствам.
+                                <br />
+                                <br />
+                                Фильтры сужают таблицу по ID, названию, статусу
+                                и типу. В колонке портов: назначенный внешний
+                                порт и внутренний порт устройства.
+                                <br />
+                                <br />
+                                <b>«Разрешить» / «Подключить»</b> — разрешить
+                                сессию (затем запустите клиент с токеном).{" "}
+                                <b>«Отключить»</b> — завершить активную сессию.
+                                Редактирование и удаление — иконки в строке.
+                                <br />
+                                <br />
+                                Статусы: <b>active</b> — сессия есть;{" "}
+                                <b>inactive</b> — ожидает клиента;{" "}
+                                <b>connecting</b> — установка связи. Метка{" "}
+                                <b>online</b> — недавний heartbeat от клиента.
                             </>
                         ) : (
                             <></>
@@ -401,24 +701,18 @@ export default function PersistentDrawerLeft({ children, ...rest }) {
                 onClose={handleCloseLogin}
             >
                 <Box sx={style}>
-                    <Login register={handleRegister} ability={rest.ability} />
+                    <Login ability={rest.ability} />
                 </Box>
             </Modal>
-            <Modal
-                aria-labelledby="unstyled-modal-title"
-                aria-describedby="unstyled-modal-description"
-                align-items="center"
-                justify-content="center"
-                open={openRegister}
-                onClose={handleCloseRegister}
-            >
-                <Box sx={styleRegister}>
-                    <NewUserSettingsData
-                        ability={rest.ability}
-                        closeHandle={handleCloseRegister}
-                    />
-                </Box>
-            </Modal>
+            <OverviewStatsModal
+                open={overviewModalOpen}
+                onClose={() => setOverviewModalOpen(false)}
+                focus={overviewFocus}
+                headerSummary={headerSummary}
+                statisticsData={statisticsData}
+                deviceStatisticsData={deviceStatisticsData}
+                serversData={serversData}
+            />
         </React.Fragment>
     );
 }

@@ -9,7 +9,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 0)
-set(VERSION_PATCH 3)
+set(VERSION_PATCH 4)
 set(BUILD_REVISION 0)
 set(SOFT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 set(MODULE_NAME module_net_port_client)
@@ -33,6 +33,10 @@ set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 
 find_package(OpenSSL REQUIRED)
 
+# Find jansson via pkg-config
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JANSSON REQUIRED jansson)
+
 # feature checks
 include(CheckLibraryExists)
 check_library_exists(rt clock_gettime "time.h" CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
@@ -52,21 +56,29 @@ add_subdirectory(common)
 include_directories(
         .
         ${OPENSSL_INCLUDE_DIR}
+        ${JANSSON_INCLUDE_DIRS}
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
+        ${CMAKE_CURRENT_LIST_DIR}/resources
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
         ${PROJECT_BINARY_DIR}
 )
 
+link_directories(${JANSSON_LIBRARY_DIRS})
+
 add_executable(${EXEC_NAME}
         main.c
         proxy/client/proxy_client.c
+        proxy/client/proxy_client_device_integration.c
+        proxy/client/device_heartbeat.c
         resources/signal_handler.c
         resources/time_counter.c
+        resources/client_update.c
 )
 
 target_link_libraries(${EXEC_NAME}
         client_proxy_common
         ${EXTRA_LIBS}
         ${OPENSSL_LIBRARIES}
+        ${JANSSON_LIBRARIES}
 )

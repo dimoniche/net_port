@@ -16,10 +16,24 @@
 #include "proxy_client.h"
 #include "hal_time.h"
 #include "time_counter.h"
+#include "proxy_client_device_integration.h"
+#include "client_update.h"
+
+#include <sys/stat.h>
 
 static uint64_t last_monotonic_time;
 
 static char *progname;
+
+static int has_flag(int argc, char **argv, const char *flag)
+{
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], flag) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static void print_usage(void)
 {
@@ -38,7 +52,20 @@ static void print_usage(void)
     fprintf(stderr, "         -e, --ssl         - enable SSL encryption for input connection\n");
     fprintf(stderr, "         -o, --ssl-output  - enable SSL encryption for output connection\n");
     fprintf(stderr, "         -a, --ca-file     - path to CA certificate file\n");
-    fprintf(stderr, "\n");
+    fprintf(stderr, "         --device-id           - enable device registration mode\n");
+    fprintf(stderr, "         --device-token        - device authentication token\n");
+    fprintf(stderr, "         --registration-server - device control server address\n");
+    fprintf(stderr, "         --registration-port   - device control server port (default 8443)\n");
+    fprintf(stderr, "         --registration-ca-file - CA certificate for device control TLS\n");
+    fprintf(stderr, "         --registration-no-ssl - disable TLS on device control port\n");
+    fprintf(stderr, "         --port-host-base N    - map server ports to host (Docker: 49000)\n");
+    fprintf(stderr, "         --tunnel-port N       - override tunnel connect port (e.g. 49003)\n");
+    fprintf(stderr, "         --check-update          - check for newer client on server (needs curl)\n");
+    fprintf(stderr, "         --auto-update           - download and restart if newer (needs curl, sha256sum)\n");
+    fprintf(stderr, "         --update-server URL     - web base URL, e.g. http://host:13080 (default: http://REGISTRATION_SERVER)\n");
+    fprintf(stderr, "         --update-arch ARCH      - amd64 | armhf | aarch64 (default: compile-time)\n");
+    fprintf(stderr, "         --install-dir PATH      - install directory for auto-update (default: binary dir)\n");
+    fprintf(stderr, "\nDevice mode uses internal_address/internal_port from server when -p_out/--host_out are omitted.\n");
     fprintf(stderr, "\nExamples:\n");
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --connections 5 --timeout 60\n", progname);
     fprintf(stderr, "%s --host_in 82.146.44.140 -p_in 6000 --host_out 127.0.0.1 -p_out 22 --disable-timeout\n", progname);
@@ -48,6 +75,7 @@ static void print_usage(void)
 int main(int argc, char** argv) {
 
     logMsgInit();
+    mkdir("logs", 0755);
     logMsgOpen("logs/module_net_port.log");
     logMsg(LOG_DEBUG, "Start logger (on folder logs/module_net_port.log) ...");
 
@@ -65,6 +93,7 @@ int main(int argc, char** argv) {
     settings->enable_ssl = false; // SSL по умолчанию выключен
     settings->enable_output_ssl = false; // Output SSL по умолчанию выключен
     settings->ca_file[0] = '\0'; // Путь к CA файлу по умолчанию пустой
+    bool has_device_args = false;
 
     bool show_help = true;
 
@@ -180,6 +209,17 @@ int main(int argc, char** argv) {
                 i++; // Skip next argument
             }
         }
+        if (strcmp(argv[i], "--device-id") == 0) {
+            has_device_args = true;
+            show_help = false;
+        }
+        if (strcmp(argv[i], "--check-update") == 0 ||
+            strcmp(argv[i], "--auto-update") == 0 ||
+            strcmp(argv[i], "--update-server") == 0 ||
+            strcmp(argv[i], "--update-arch") == 0 ||
+            strcmp(argv[i], "--install-dir") == 0) {
+            show_help = false;
+        }
     }
 
     if(show_help) {
@@ -187,7 +227,23 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    switcher_servers_start();
+    if (has_flag(argc, argv, "--check-update") && !has_flag(argc, argv, "--auto-update")) {
+        return client_check_and_update(argc, argv, false);
+    }
+
+    if (has_flag(argc, argv, "--auto-update")) {
+        int update_result = client_check_and_update(argc, argv, true);
+        if (update_result < 0) {
+            return 1;
+        }
+    }
+
+    if (has_device_args) {
+        // Use device registration mode
+        main_with_device_registration(argc, argv);
+    } else {
+        switcher_servers_start();
+    }
 
     while (1) {
         proxy_server_thread_data_t* settings = get_client_settings();
@@ -213,10 +269,10 @@ int main(int argc, char** argv) {
         msleep(10);
     }
     
-    // Выполняем graceful shutdown
+    // Выполняем graceful shutdown (heartbeat/device control, затем proxy-потоки)
+    device_registration_cleanup();
     switcher_servers_stop();
-    switcher_servers_wait_stop();
-    
+
     logMsg(LOG_INFO, "Application shutdown completed gracefully");
 
     return 0;

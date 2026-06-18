@@ -12,6 +12,7 @@
 #include <openssl/err.h>
 
 #include "hal_thread.h"
+#include "device_manager.h"
 
 #define SOCKET int
 #include <memory.h>
@@ -81,6 +82,11 @@ typedef struct proxy_server_s
     char cert_file[256]; // Путь к сертификату сервера
     char key_file[256]; // Путь к приватному ключу сервера
     
+    // Device management fields
+    char device_id[DEVICE_ID_MAX_LEN + 1];
+    char session_token[SESSION_TOKEN_MAX_LEN + 1];
+    bool is_dynamic_port; // True if port is dynamically allocated
+    
     // Статистика сервера
     proxy_server_statistics_t statistics;
 
@@ -132,6 +138,24 @@ typedef struct proxy_server_thread_data_s
  * \return -1 ошибка
  */
 int servers_init(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period);
+
+/**
+ * \brief Инициализация прослушивателей портов с поддержкой управления устройствами
+ *
+ * \return -1 ошибка
+ */
+int servers_init_with_device_management(uint32_t user_id, const char* cert_file, const char* key_file, time_t statistics_retention_period, uint16_t device_control_port);
+
+/**
+ * \brief Create a dynamic proxy server for a registered device
+ */
+int create_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port, const device_info_t *device_info);
+int ensure_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port,
+                                     const device_info_t *device_info);
+int stop_dynamic_server_for_device(const char *device_id, uint16_t input_port, uint16_t tunnel_port);
+
+void device_management_shutdown(void);
+bool is_device_management_enabled(void);
 
 /**
  * \brief Запуск прослушивателей портов

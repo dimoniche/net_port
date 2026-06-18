@@ -63,7 +63,7 @@ Options:
 
 Environment variables (alternative to command-line arguments):
   DB_USER, DB_PASSWORD, DB_NAME, DB_HOST, DB_PORT
-  APP_USER, APP_PASSWORD
+  APP_USER, APP_PASSWORD, JWT_SECRET, JWT_SECRET_PREVIOUS
 
 Examples:
   $0 --db-user netport --db-password "secure123" --admin-password "admin123"
@@ -530,13 +530,21 @@ main() {
             success "Backend dependencies installed" || error_exit "Failed to install backend dependencies"
         
         # Create .env file for backend
+        if [ -z "${JWT_SECRET:-}" ]; then
+            JWT_SECRET="$(openssl rand -base64 32)"
+            info "Generated JWT_SECRET for this installation"
+        fi
         cat > .env << EOF
 DB_USER=$DB_USER
 DB_PASSWORD=$DB_PASSWORD
 DB_HOST=$DB_HOST
 DB_PORT=$DB_PORT
+JWT_SECRET=$JWT_SECRET
 NODE_ENV=production
 EOF
+        if [ -n "${JWT_SECRET_PREVIOUS:-}" ]; then
+            echo "JWT_SECRET_PREVIOUS=$JWT_SECRET_PREVIOUS" >> .env
+        fi
         success "Backend configuration created"
         
         # Copy backend to bin folder
@@ -646,7 +654,7 @@ EOF
     # Add admin user with hashed password from environment
     info "Adding admin user..."
     cd "$INSTALL_DIR/source/web/backend_net_port"
-    APP_USER="$APP_USER" APP_PASSWORD="$APP_PASSWORD" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWORD" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_NAME="$DB_NAME" NODE_PATH=node_modules node ../utils/add_test_user.js >> "$LOG_FILE" 2>&1 && \
+    APP_USER="$APP_USER" APP_PASSWORD="$APP_PASSWORD" DB_USER="$DB_USER" DB_PASSWORD="$DB_PASSWORD" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_NAME="$DB_NAME" node src/add-test-user.js >> "$LOG_FILE" 2>&1 && \
         success "Admin user added" || error_exit "Failed to add admin user"
     info "Admin user added"
 
@@ -690,6 +698,7 @@ Environment=DB_USER=$DB_USER
 Environment=DB_PASSWORD=$DB_PASSWORD
 Environment=DB_HOST=$DB_HOST
 Environment=DB_PORT=$DB_PORT
+Environment=JWT_SECRET=$JWT_SECRET
 ExecStart=/usr/bin/npm start
 Restart=on-failure
 RestartSec=10
@@ -716,7 +725,7 @@ Environment=DB_PASSWORD=$DB_PASSWORD
 Environment=DB_HOST=$DB_HOST
 Environment=DB_PORT=$DB_PORT
 Environment=THREADS=10
-ExecStart=$SERVER_BIN_PATH --user 1 -v1 --cert $INSTALL_DIR/ssl/server.crt --key $INSTALL_DIR/ssl/server.key --threads 10 --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT
+ExecStart=$SERVER_BIN_PATH --user 1 -v1 --cert $INSTALL_DIR/ssl/server.crt --key $INSTALL_DIR/ssl/server.key --threads 10 --username $DB_USER --password $DB_PASSWORD --host $DB_HOST -p $DB_PORT --enable-device-management --device-control-port 8443
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

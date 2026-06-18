@@ -10,23 +10,38 @@
 #include "logMsg.h"
 //#include "settings.h"
 
+#include <pthread.h>
+
 //#define REMOTE_DATABASE     1
 
 static PGconn* conn = NULL;
 static PGresult  *result;
 static bool isInited = false;
+static pthread_mutex_t db_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static time_t start_time_t = 0;
 static int module_id = -1;
 
+void db_lock(void)
+{
+    pthread_mutex_lock(&db_conn_mutex);
+}
+
+void db_unlock(void)
+{
+    pthread_mutex_unlock(&db_conn_mutex);
+}
+
 PGconn* get_db_connection(void)
 {
+    logMsg(LOG_DEBUG, "get_db_connection called");
     if (conn == NULL)
     {
         logMsg(LOG_ERR, "DB Not Inited!!!");
         exit(-1);
         return NULL;
     }
+    logMsg(LOG_DEBUG, "get_db_connection returning connection");
     return conn;
 }
 
@@ -57,17 +72,23 @@ int16_t db_init(char* ip_addr, char* port, char* username, char* password)
 
     char str[2048];
     snprintf(str, 2048, "host=%s port=%s dbname=net_port user=%s password=%s", ip_addr, port, username, password);
+    logMsg(LOG_DEBUG, "Connecting to PostgreSQL: %s", str);
     conn = PQconnectdb(str);
 
     //Check to see that the backend connection was successfully made
-    if ((PQstatus(conn) != CONNECTION_OK) || (conn == NULL))
+    if (conn == NULL) {
+        logMsg(LOG_ERR, "PQconnectdb returned NULL");
+        exit(-1);
+        return -1;
+    }
+    if (PQstatus(conn) != CONNECTION_OK)
     {
         logMsg(LOG_ERR, "Connection to database failed: %s", PQerrorMessage(conn));
         exit(-1);
         return -1;
     }
 
-    logMsg(LOG_DEBUG, "baseInit");
+    logMsg(LOG_DEBUG, "Database connection established successfully");
 
     isInited = true;
     return 0;

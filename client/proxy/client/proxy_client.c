@@ -9,8 +9,91 @@
 
 #include "logMsg.h"
 #include "time_counter.h"
+#include "device_heartbeat.h"
+
+#include <pthread.h>
 
 static proxy_server_thread_data_t threads_data;
+
+static struct {
+    pthread_mutex_t mutex;
+    uint64_t sent_since_last;
+    uint64_t received_since_last;
+    int initialized;
+} g_traffic_stats = { .initialized = 0 };
+
+static void client_traffic_init(void)
+{
+    if (g_traffic_stats.initialized) {
+        return;
+    }
+    pthread_mutex_init(&g_traffic_stats.mutex, NULL);
+    g_traffic_stats.initialized = 1;
+}
+
+void client_traffic_add_sent(size_t bytes)
+{
+    if (bytes == 0) {
+        return;
+    }
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    g_traffic_stats.sent_since_last += bytes;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+}
+
+void client_traffic_add_received(size_t bytes)
+{
+    if (bytes == 0) {
+        return;
+    }
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    g_traffic_stats.received_since_last += bytes;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+}
+
+uint64_t client_traffic_get_sent_since_last(void)
+{
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    uint64_t value = g_traffic_stats.sent_since_last;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+    return value;
+}
+
+uint64_t client_traffic_get_received_since_last(void)
+{
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    uint64_t value = g_traffic_stats.received_since_last;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+    return value;
+}
+
+int client_traffic_get_active_connections(void)
+{
+    int count = 0;
+
+    for (int i = 0; i < threads_data.connections_count; i++) {
+        if (threads_data.connections &&
+            threads_data.connections[i].is_running_input &&
+            threads_data.connections[i].is_running_output) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+void client_traffic_reset_since_last(void)
+{
+    client_traffic_init();
+    pthread_mutex_lock(&g_traffic_stats.mutex);
+    g_traffic_stats.sent_since_last = 0;
+    g_traffic_stats.received_since_last = 0;
+    pthread_mutex_unlock(&g_traffic_stats.mutex);
+}
 
 /* Signal-safe global shutdown flag */
 volatile sig_atomic_t global_graceful_shutdown = 0;
@@ -31,27 +114,54 @@ proxy_server_thread_data_t* get_client_settings()
 }
 
 // Инициализация SSL контекста при старте
-void init_ssl_context() {
-    // Проверяем, нужно ли SSL для input или output соединения
+static int ensure_client_ssl_context(bool fatal_on_error)
+{
     bool need_ssl = threads_data.enable_ssl || threads_data.enable_output_ssl;
 
-    if (need_ssl) {
-        // Проверяем, что путь к CA сертификату указан
-        if (!threads_data.ca_file[0]) {
-            logMsg(LOG_ERR, "SSL enabled but CA file not specified\n");
-            threads_data.enable_ssl = false;
-            threads_data.enable_output_ssl = false;
-            return;
+    if (!need_ssl) {
+        if (threads_data.ssl_ctx) {
+            SSL_CTX_free(threads_data.ssl_ctx);
+            threads_data.ssl_ctx = NULL;
+            logMsg(LOG_INFO, "SSL context released (TLS disabled on tunnel)\n");
         }
+        return 0;
+    }
 
-        logMsg(LOG_INFO, "Initializing SSL context with CA file: %s\n", threads_data.ca_file);
-        threads_data.ssl_ctx = create_client_ssl_context(threads_data.ca_file);
-        if (!threads_data.ssl_ctx) {
-            logMsg(LOG_ERR, "Failed to initialize SSL context\n");
+    if (threads_data.ssl_ctx) {
+        return 0;
+    }
+
+    if (!threads_data.ca_file[0]) {
+        logMsg(LOG_ERR, "SSL enabled but CA file not specified\n");
+        threads_data.enable_ssl = false;
+        threads_data.enable_output_ssl = false;
+        return -1;
+    }
+
+    logMsg(LOG_INFO, "Initializing SSL context with CA file: %s\n", threads_data.ca_file);
+    threads_data.ssl_ctx = create_client_ssl_context(threads_data.ca_file);
+    if (!threads_data.ssl_ctx) {
+        logMsg(LOG_ERR, "Failed to initialize SSL context\n");
+        threads_data.enable_ssl = false;
+        threads_data.enable_output_ssl = false;
+        if (fatal_on_error) {
             exit(EXIT_FAILURE);
         }
-        logMsg(LOG_INFO, "SSL context initialized\n");
+        return -1;
     }
+
+    logMsg(LOG_INFO, "SSL context initialized\n");
+    return 0;
+}
+
+void init_ssl_context(void)
+{
+    ensure_client_ssl_context(true);
+}
+
+void refresh_client_ssl_context(void)
+{
+    ensure_client_ssl_context(false);
 }
 
 int
@@ -177,6 +287,45 @@ server_input_thread (void* parameter)
         logMsg(LOG_INFO, "Start to server connection %d\n", conn->id);
 
         while (!conn->stop_running_input) {
+            if (device_session_is_revoked()) {
+                logMsg(LOG_INFO, "Input server connect paused for connection %d (waiting for registration)\n", conn->id);
+
+                {
+                    int sleep_ms = 10000;
+                    int slept = 0;
+                    while (slept < sleep_ms && !conn->stop_running_input && !global_graceful_shutdown &&
+                           device_session_is_revoked()) {
+                        int step = (sleep_ms - slept) > 200 ? 200 : (sleep_ms - slept);
+                        Thread_sleep(step);
+                        slept += step;
+                    }
+                }
+
+                if (conn->stop_running_input || global_graceful_shutdown) {
+                    logMsg(LOG_INFO, "Input thread stop requested for connection %d\n", conn->id);
+                    if (conn->input >= 0) { close(conn->input); conn->input = -1; }
+                    conn->is_starting_input = false;
+                    conn->is_running_input = false;
+                    return 0;
+                }
+
+                if (device_session_is_revoked()) {
+                    continue;
+                }
+
+                if (conn->input >= 0) {
+                    close(conn->input);
+                    conn->input = -1;
+                }
+
+                if (init_input_sockets(conn) != 0) {
+                    Thread_sleep(1000);
+                    continue;
+                }
+
+                backoff = 1;
+            }
+
             if (connect(conn->input, (struct sockaddr *) &conn->input_addr,
                         sizeof(conn->input_addr)) == 0) {
                 connected = 1;
@@ -301,6 +450,7 @@ server_input_thread (void* parameter)
                     X509_free(cert);
                 } else {
                     logMsg(LOG_ERR, "No peer certificate\n");
+                    heartbeat_request_tls_sync();
                 }
                 
                 // Освобождаем SSL объект и закрываем сокет
@@ -426,6 +576,7 @@ server_input_thread (void* parameter)
                             ERR_error_string_n(e, err_str, sizeof(err_str));
                             logMsg(LOG_ERR, "SSL error: %s\n", err_str);
                         }
+                        heartbeat_request_tls_sync();
                         // Освобождаем SSL объект
                         if (conn->ssl_input) {
                             SSL_free(conn->ssl_input);
@@ -577,6 +728,10 @@ server_input_thread (void* parameter)
                     }
                 }
             } while (conn->is_running_output);
+
+            if (sent >= len_apdu && len_apdu > 0) {
+                client_traffic_add_received((size_t)len_apdu);
+            }
         }
 
         Thread_sleep(10);
@@ -587,13 +742,19 @@ server_input_thread (void* parameter)
         SSL_free(conn->ssl_input);
         conn->ssl_input = NULL;
     }
-    close(conn->input);
+    if (conn->input >= 0) {
+        close(conn->input);
+        conn->input = -1;
+    }
 
     logMsg(LOG_INFO,"Exit input server id = %d on port = %d ...\n", conn->id, threads_data.input_port);
 
-    if(conn->stop_running_input == false) goto restart_input_thread;
+    if (!conn->stop_running_input && !global_graceful_shutdown) {
+        goto restart_input_thread;
+    }
 
     conn->is_running_input = false;
+    conn->is_starting_input = false;
 
     return 0;
 }
@@ -821,10 +982,17 @@ server_output_thread (void* parameter)
             int remaining = len_apdu;
             int sent = 0;
 
-            if(conn->stop_running_output) break;
+            if(conn->stop_running_output || global_graceful_shutdown) break;
 
-            while(!conn->is_running_input) {
+            while (!conn->is_running_input) {
+                if (conn->stop_running_output || global_graceful_shutdown) {
+                    break;
+                }
                 Thread_sleep(10);
+            }
+
+            if (conn->stop_running_output || global_graceful_shutdown) {
+                break;
             }
 
             do {
@@ -907,6 +1075,10 @@ server_output_thread (void* parameter)
                     }
                 }
             } while (conn->is_running_input);
+
+            if (sent >= len_apdu && len_apdu > 0) {
+                client_traffic_add_sent((size_t)len_apdu);
+            }
         }
 
         Thread_sleep(10);
@@ -917,11 +1089,15 @@ server_output_thread (void* parameter)
         SSL_free(conn->ssl_output);
         conn->ssl_output = NULL;
     }
-    close(conn->output);
+    if (conn->output >= 0) {
+        close(conn->output);
+        conn->output = -1;
+    }
 
     logMsg(LOG_INFO,"Exit output server id = %d on port = %d ...\n", conn->id, threads_data.output_port);
 
     conn->is_running_output = false;
+    conn->is_starting_output = false;
     conn->stop_running_output = false;
 
     return 0;
@@ -1029,22 +1205,118 @@ server_input_is_running(proxy_server_connection_t *conn)
 }
 
 void
-switcher_servers_stop()
+switcher_servers_drop_active_connections(void)
 {
-    proxy_server_thread_data_t* settings = get_client_settings();
-    
-    logMsg(LOG_INFO, "Initiating graceful shutdown of all connections...");
-    
+    proxy_server_thread_data_t *settings = get_client_settings();
+
+    if (!settings || !settings->connections) {
+        return;
+    }
+
+    logMsg(LOG_INFO, "Dropping active proxy connections\n");
+
     for (int i = 0; i < settings->connections_count; i++) {
         proxy_server_connection_t *conn = &settings->connections[i];
 
-        // Устанавливаем флаги остановки для всех соединений (независимо от текущего состояния)
+        conn->stop_running_input = true;
+        conn->stop_running_output = true;
+
+        if (conn->input >= 0) {
+            shutdown(conn->input, SHUT_RDWR);
+        }
+        if (conn->output >= 0) {
+            shutdown(conn->output, SHUT_RDWR);
+        }
+    }
+}
+
+void
+switcher_servers_restart_input_threads(void)
+{
+    proxy_server_thread_data_t *settings = get_client_settings();
+
+    if (!settings || !settings->connections) {
+        return;
+    }
+
+    logMsg(LOG_INFO, "Restarting proxy input threads after registration\n");
+
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+
+        conn->stop_running_input = true;
+        conn->stop_running_output = true;
+
+        if (conn->input >= 0) {
+            shutdown(conn->input, SHUT_RDWR);
+            close(conn->input);
+            conn->input = -1;
+        }
+        if (conn->output >= 0) {
+            shutdown(conn->output, SHUT_RDWR);
+            close(conn->output);
+            conn->output = -1;
+        }
+    }
+
+    for (int i = 0; i < settings->connections_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+        int waited_ms = 0;
+
+        while (conn->is_running_input && waited_ms < 10000) {
+            Thread_sleep(10);
+            waited_ms += 10;
+        }
+
+        conn->stop_running_input = false;
+        conn->stop_running_output = false;
+        conn->is_running_input = false;
+        conn->is_running_output = false;
+        conn->is_starting_input = false;
+        conn->is_starting_output = false;
+        server_input_start(i);
+    }
+}
+
+static void wait_for_proxy_connection_stop(proxy_server_connection_t *conn, int timeout_ms)
+{
+    int waited_ms = 0;
+
+    while (waited_ms < timeout_ms) {
+        if (!conn->is_running_input && !conn->is_running_output &&
+            !conn->is_starting_input && !conn->is_starting_output) {
+            return;
+        }
+        Thread_sleep(10);
+        waited_ms += 10;
+    }
+
+    logMsg(LOG_WARNING,
+           "Connection %d did not stop within %d ms (in=%d out=%d)\n",
+           conn->id, timeout_ms,
+           conn->is_running_input, conn->is_running_output);
+}
+
+void
+switcher_servers_stop()
+{
+    proxy_server_thread_data_t* settings = get_client_settings();
+
+    if (!settings || !settings->connections || settings->connections_count <= 0) {
+        return;
+    }
+
+    const int connection_count = settings->connections_count;
+
+    logMsg(LOG_INFO, "Initiating graceful shutdown of %d connection(s)...", connection_count);
+
+    for (int i = 0; i < connection_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
         conn->stop_running_input = true;
         conn->stop_running_output = true;
     }
 
-    // Try to unblock threads which may be blocked in select/recv by shutting down fds
-    for (int i = 0; i < settings->connections_count; i++) {
+    for (int i = 0; i < connection_count; i++) {
         proxy_server_connection_t *conn = &settings->connections[i];
         if (conn->input >= 0) {
             logMsg(LOG_DEBUG, "Shutting down input fd for connection %d\n", conn->id);
@@ -1054,75 +1326,32 @@ switcher_servers_stop()
             logMsg(LOG_DEBUG, "Shutting down output fd for connection %d\n", conn->id);
             shutdown(conn->output, SHUT_RDWR);
         }
-        /* Don't call SSL_shutdown here — allow the input thread to perform
-           SSL_shutdown()/SSL_free() itself to avoid double-freeing the
-           SSL object. We already shutdown the underlying fds above to
-           unblock select/recv. */
     }
 
-    // Освобождаем память соединений
-    if (settings->connections) {
-        // Сначала дожидаемся завершения и уничтожаем все потоки
-        for (int i = 0; i < settings->connections_count; i++) {
-            proxy_server_connection_t *conn = &settings->connections[i];
-            
-            if (conn->input_thread) {
-                // Дожидаемся завершения потока
-                while (conn->is_running_input) {
-                    Thread_sleep(10);
-                }
-                // Не вызываем Thread_destroy() для отсоединённых потоков —
-                // реализация Thread_destroy() может попытаться освободить ресурсы,
-                // уже освобождённые потоками, что приводит к corruption.
-                conn->input_thread = NULL;
-            }
-
-            if (conn->output_thread) {
-                // Дожидаемся завершения потока
-                while (conn->is_running_output) {
-                    Thread_sleep(10);
-                }
-                // Не вызываем Thread_destroy() по той же причине.
-                conn->output_thread = NULL;
-            }
-        }
-        
-        free(settings->connections);
-        settings->connections = NULL;
-        settings->connections_count = 0;
+    for (int i = 0; i < connection_count; i++) {
+        proxy_server_connection_t *conn = &settings->connections[i];
+        wait_for_proxy_connection_stop(conn, 30000);
+        conn->input_thread = NULL;
+        conn->output_thread = NULL;
+        logMsg(LOG_INFO, "Connection %d stopped", conn->id);
     }
 
-    // Очистка SSL контекста
+    free(settings->connections);
+    settings->connections = NULL;
+    settings->connections_count = 0;
+
     if (settings->ssl_ctx) {
         SSL_CTX_free(settings->ssl_ctx);
         settings->ssl_ctx = NULL;
     }
+
+    logMsg(LOG_INFO, "All proxy connections stopped");
 }
 
 void
 switcher_servers_wait_stop()
 {
-    proxy_server_thread_data_t* settings = get_client_settings();
-    
-    logMsg(LOG_INFO, "Waiting for all connections to stop gracefully...");
-    
-    for (int i = 0; i < settings->connections_count; i++) {
-        proxy_server_connection_t *conn = &settings->connections[i];
-        
-        // Ожидаем остановки input потока
-        while (conn->is_running_input) {
-            Thread_sleep(10);
-        }
-        
-        // Ожидаем остановки output потока
-        while (conn->is_running_output) {
-            Thread_sleep(10);
-        }
-        
-        logMsg(LOG_INFO, "Connection %d stopped gracefully", conn->id);
-    }
-    
-    logMsg(LOG_INFO, "All connections stopped gracefully");
+    /* Threads are joined in switcher_servers_stop(); kept for API compatibility. */
 }
 
 // Инициализация OpenSSL
@@ -1183,6 +1412,33 @@ SSL_CTX *create_client_ssl_context(const char *ca_file) {
         }
         SSL_CTX_free(ctx);
         return NULL;
+    }
+
+    return ctx;
+}
+
+SSL_CTX *create_device_control_ssl_context(const char *ca_file)
+{
+    const SSL_METHOD *method = TLS_client_method();
+    SSL_CTX *ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        logMsg(LOG_ERR, "Unable to create device control SSL context\n");
+        return NULL;
+    }
+
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+
+    if (ca_file && ca_file[0]) {
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+        if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) {
+            logMsg(LOG_ERR, "Failed to load device control CA certificate from %s\n", ca_file);
+            SSL_CTX_free(ctx);
+            return NULL;
+        }
+        logMsg(LOG_INFO, "Device control TLS verification enabled (CA: %s)\n", ca_file);
+    } else {
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+        logMsg(LOG_WARNING, "Device control TLS without CA verification (self-signed server cert)\n");
     }
 
     return ctx;

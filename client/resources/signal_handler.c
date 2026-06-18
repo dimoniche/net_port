@@ -14,23 +14,13 @@ void signal_init(void)
 
 void sigHandler(int sigNum)
 {
-    proxy_server_thread_data_t* settings = get_client_settings();
-    
-    if (sigNum == SIGINT) {
-        logMsg(LOG_INFO, "SIGINT received, initiating graceful shutdown...");
-        settings->graceful_shutdown = true;
+    if (sigNum == SIGINT || sigNum == SIGTERM) {
+        proxy_server_thread_data_t *settings = get_client_settings();
+        if (settings) {
+            settings->graceful_shutdown = true;
+        }
         global_graceful_shutdown = 1;
     }
-    else if (sigNum == SIGTERM) {
-        logMsg(LOG_INFO, "SIGTERM received, initiating graceful shutdown...");
-        settings->graceful_shutdown = true;
-        global_graceful_shutdown = 1;
-    }
-    else if (sigNum == SIGALRM) {
-        // Handle SIGALRM if needed
-    }
-    else if (sigNum == SIGPIPE) {
-        logMsg(LOG_INFO, "SIGPIPE received...");
-    }
+    /* SIGPIPE and SIGALRM: ignore or handle without non-async-safe calls */
 }
 

@@ -19,12 +19,16 @@ CREATE TABLE servers (
     enable BOOLEAN,
     enable_ssl BOOLEAN,
     enable_input_ssl BOOLEAN,
-    description TEXT
+    description TEXT,
+    total_bytes_received BIGINT NOT NULL DEFAULT 0,
+    total_bytes_sent BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT servers_input_port_range CHECK (input_port IS NULL OR (input_port >= 5000 AND input_port <= 5999)),
+    CONSTRAINT servers_output_port_range CHECK (output_port IS NULL OR (output_port >= 5000 AND output_port <= 5999))
 );
 
--- Insert default server for user 1
+-- Default server disabled: ports 6000-7000 are reserved for dynamic device allocation
 INSERT INTO servers (user_id, input_port, output_port, enable, enable_ssl, enable_input_ssl, description)
-VALUES (1, 6000, 6001, true, false, false, 'Default server');
+VALUES (1, 5998, 5999, false, false, false, 'Legacy placeholder (disabled)');
 
 CREATE TABLE statistic (
     id SERIAL PRIMARY KEY,
@@ -37,11 +41,12 @@ CREATE TABLE statistic (
 
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    login VARCHAR(255) NOT NULL,
+    login VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     role_name VARCHAR(255),
     username VARCHAR(255),
-    phone VARCHAR(255)
+    phone VARCHAR(255),
+    auto_connect_enabled BOOLEAN DEFAULT TRUE
 );
 

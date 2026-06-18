@@ -7,7 +7,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 set(VERSION_MAJOR 0)
 set(VERSION_MINOR 0)
-set(VERSION_PATCH 3)
+set(VERSION_PATCH 4)
 set(BUILD_REVISION 0)
 set(SOFT_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 set(MODULE_NAME module_net_port_server)
@@ -24,11 +24,11 @@ generate_product_version(
 
 set(EXEC_NAME ${MODULE_NAME}-${SOFT_VERSION})
 
-# PostgreSQL detection with fallback for different installations
-find_package(PostgreSQL)
-
-if(PostgreSQL_FOUND)
-    message(STATUS "Found PostgreSQL via find_package: ${PostgreSQL_INCLUDE_DIRS}")
+# OS detection
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(PostgreSQL_LIBRARY -lpq)
+    set(PostgreSQL_INCLUDE_DIRS "/opt/homebrew/opt/libpq/include")
+    set(PostgreSQL_LIBRARY_DIRS "/opt/homebrew/opt/libpq/lib")
 else()
     message(STATUS "PostgreSQL not found via find_package, using manual detection")
     
@@ -95,6 +95,10 @@ link_directories(${PostgreSQL_LIBRARY_DIRS})
 
 find_package(OpenSSL REQUIRED)
 
+# Find jansson via pkg-config
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(JANSSON REQUIRED jansson)
+
 # feature checks
 include(CheckLibraryExists)
 check_library_exists(rt clock_gettime "time.h" CONFIG_SYSTEM_HAS_CLOCK_GETTIME)
@@ -115,6 +119,7 @@ include_directories(
         .
         ${PostgreSQL_INCLUDE_DIRS}
         ${OPENSSL_INCLUDE_DIR}
+        ${JANSSON_INCLUDE_DIRS}
         ${CMAKE_CURRENT_LIST_DIR}/common/inc
         ${CMAKE_CURRENT_LIST_DIR}/proxy/inc
         ${CMAKE_CURRENT_LIST_DIR}/resources/inc
@@ -122,16 +127,23 @@ include_directories(
         ${PROJECT_BINARY_DIR}
 )
 
+link_directories(${JANSSON_LIBRARY_DIRS})
+
 add_executable(${EXEC_NAME}
         main.c
         proxy/server/proxy_server.c
         resources/signal_handler.c
         resources/time_counter.c
         db/db_func.c
+        proxy/server/device_manager.c
+        proxy/server/monitoring_statistics.c
+        proxy/server/security_features.c
+        proxy/server/proxy_server_device_integration.c
 )
 
 target_link_libraries(${EXEC_NAME}
         server_proxy_common
         ${EXTRA_LIBS}
         ${OPENSSL_LIBRARIES}
+        ${JANSSON_LIBRARIES}
 )

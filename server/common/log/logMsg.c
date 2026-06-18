@@ -193,7 +193,7 @@ void vlogMsg(int pri, const char* file, int line, const char* fmt, va_list ap)
     * Dividing (without remainder) by 1000 rounds the microseconds
     * measure to the nearest millisecond.
     */
-    snprintf(msbuf, sizeof(msbuf), ".%3.3ld", (tv.tv_usec / 1000));
+    snprintf(msbuf, sizeof(msbuf), ".%3.3d", (tv.tv_usec / 1000));
 
     datebufCharsRemaining = DATEBUF_SIZE - strlen(datebuf);
     strncat(datebuf, msbuf, datebufCharsRemaining - 1);

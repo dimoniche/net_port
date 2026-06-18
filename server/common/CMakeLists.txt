@@ -12,15 +12,16 @@ set(proxy_common_linux_SRCS
         ${CMAKE_CURRENT_LIST_DIR}/hal/thread/linux/thread_linux.c
 )
 
-# PostgreSQL configuration is inherited from parent CMakeLists.txt
-# Check if PostgreSQL variables are defined, if not provide defaults
-if(NOT DEFINED PostgreSQL_INCLUDE_DIRS)
-    message(WARNING "PostgreSQL_INCLUDE_DIRS not defined, using default")
-    if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        set(PostgreSQL_INCLUDE_DIRS "/usr/local/opt/libpq/include")
-    else()
-        set(PostgreSQL_INCLUDE_DIRS "/usr/include/postgresql")
-    endif()
+# OS detection
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(PostgreSQL_LIBRARY -lpq)
+    set(PostgreSQL_INCLUDE_DIRS "/opt/homebrew/opt/libpq/include")
+    set(PostgreSQL_LIBRARY_DIRS "/opt/homebrew/opt/libpq/lib")
+else()
+    # Assume Linux
+    set(PostgreSQL_LIBRARY /usr/lib/x86_64-linux-gnu/libpq.so)
+    set(PostgreSQL_INCLUDE_DIRS "/usr/include/postgresql")
+    set(PostgreSQL_LIBRARY_DIRS "/usr/lib/x86_64-linux-gnu")
 endif()
 
 if(NOT DEFINED PostgreSQL_LIBRARY)
